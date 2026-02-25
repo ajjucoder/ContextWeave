@@ -1,0 +1,113 @@
+import type Database from "better-sqlite3";
+
+const TABLES = `
+CREATE TABLE IF NOT EXISTS files (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  path         TEXT    NOT NULL UNIQUE,
+  hash         TEXT    NOT NULL,
+  last_indexed INTEGER NOT NULL,
+  language     TEXT    NOT NULL,
+  symbol_count INTEGER NOT NULL DEFAULT 0,
+  error        TEXT
+);
+
+CREATE TABLE IF NOT EXISTS symbols (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  file_id     INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  name        TEXT    NOT NULL,
+  kind        TEXT    NOT NULL,
+  start_line  INTEGER NOT NULL,
+  end_line    INTEGER NOT NULL,
+  signature   TEXT    NOT NULL,
+  body_hash   TEXT    NOT NULL,
+  full_source TEXT    NOT NULL,
+  is_exported INTEGER NOT NULL DEFAULT 0,
+  doc_comment TEXT,
+  centrality  REAL    NOT NULL DEFAULT 0.0,
+  last_seen   INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS edges (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  source_symbol_id INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE,
+  target_symbol_id INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE,
+  kind             TEXT    NOT NULL,
+  created_at       INTEGER NOT NULL,
+  UNIQUE(source_symbol_id, target_symbol_id, kind)
+);
+
+CREATE TABLE IF NOT EXISTS sessions (
+  id           TEXT PRIMARY KEY,
+  agent_id     TEXT NOT NULL DEFAULT 'claude-code',
+  project_root TEXT NOT NULL,
+  started_at   INTEGER NOT NULL,
+  ended_at     INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS observations (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id  TEXT    NOT NULL REFERENCES sessions(id),
+  agent_id    TEXT    NOT NULL DEFAULT 'claude-code',
+  symbol_id   INTEGER REFERENCES symbols(id) ON DELETE SET NULL,
+  file_id     INTEGER REFERENCES files(id) ON DELETE SET NULL,
+  scope       TEXT    NOT NULL,
+  note        TEXT    NOT NULL,
+  confidence  REAL    NOT NULL DEFAULT 1.0,
+  created_at  INTEGER NOT NULL,
+  updated_at  INTEGER NOT NULL,
+  stale       INTEGER NOT NULL DEFAULT 0,
+  stale_reason TEXT,
+  archived    INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS capsule_log (
+  id               INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id       TEXT    NOT NULL REFERENCES sessions(id),
+  query            TEXT    NOT NULL,
+  mode             TEXT    NOT NULL DEFAULT 'feature',
+  token_budget     INTEGER NOT NULL,
+  tokens_used      INTEGER NOT NULL,
+  symbols_included TEXT    NOT NULL,
+  files_included   TEXT    NOT NULL,
+  timestamp        INTEGER NOT NULL,
+  followed_up      INTEGER NOT NULL DEFAULT 0,
+  miss_ratio       REAL,
+  noise_ratio      REAL
+);
+
+CREATE TABLE IF NOT EXISTS bm25_index (
+  term           TEXT    NOT NULL,
+  observation_id INTEGER NOT NULL REFERENCES observations(id) ON DELETE CASCADE,
+  tf             REAL    NOT NULL,
+  PRIMARY KEY (term, observation_id)
+);
+
+CREATE TABLE IF NOT EXISTS bm25_stats (
+  key   TEXT PRIMARY KEY,
+  value TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS schema_migrations (
+  version    INTEGER PRIMARY KEY,
+  applied_at INTEGER NOT NULL
+);
+`;
+
+const INDEXES = `
+CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);
+CREATE INDEX IF NOT EXISTS idx_symbols_file_id ON symbols(file_id);
+CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
+CREATE INDEX IF NOT EXISTS idx_symbols_body_hash ON symbols(body_hash);
+CREATE INDEX IF NOT EXISTS idx_edges_source ON edges(source_symbol_id);
+CREATE INDEX IF NOT EXISTS idx_edges_target ON edges(target_symbol_id);
+CREATE INDEX IF NOT EXISTS idx_observations_symbol ON observations(symbol_id);
+CREATE INDEX IF NOT EXISTS idx_observations_stale ON observations(stale);
+CREATE INDEX IF NOT EXISTS idx_observations_confidence ON observations(confidence);
+CREATE INDEX IF NOT EXISTS idx_capsule_log_session ON capsule_log(session_id);
+CREATE INDEX IF NOT EXISTS idx_bm25_term ON bm25_index(term);
+`;
+
+export function createSchema(db: Database.Database): void {
+  db.exec(TABLES);
+  db.exec(INDEXES);
+}
