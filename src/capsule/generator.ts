@@ -279,68 +279,87 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   }
 
   const ranked = [...candidates].sort((a, b) => b.score - a.score);
-  const selectedIds = new Set<number>();
-  const selected: RankedCandidate[] = [];
-  const candidateLimit = Math.max(60, Math.floor(tokenBudget / 10));
-  const relevanceLexicalThreshold = queryTerms.length === 0 ? 0 : 1;
 
-  for (const candidate of ranked) {
-    if (!candidate.isPivot) continue;
-    selected.push(candidate);
-    selectedIds.add(candidate.symbol.id);
-  }
+  function selectCandidates(lexThreshold: number, maxDist: number, limit: number): RankedCandidate[] {
+    const ids = new Set<number>();
+    const result: RankedCandidate[] = [];
 
-  for (const candidate of ranked) {
-    if (selected.length >= candidateLimit) break;
-    if (selectedIds.has(candidate.symbol.id)) continue;
-    const passesRelevanceGate =
-      candidate.lexicalScore >= relevanceLexicalThreshold || candidate.distance <= 1;
-    if (!passesRelevanceGate) continue;
-    selected.push(candidate);
-    selectedIds.add(candidate.symbol.id);
-  }
-
-  // Phase 4: Compression Assignment
-  const maxScore = selected.reduce((max, item) => Math.max(max, item.score), 0);
-  const displayRoot = getCommonDisplayRoot(selected.map((item) => item.file.path));
-  const displayFileCache = new Map<number, FileRecord>();
-
-  const scoredNodes: ScoredNode[] = selected.map(({ symbol, file, score, distance }) => {
-    const displayFile =
-      displayFileCache.get(file.id) ??
-      ({
-        ...file,
-        path: toDisplayPath(file.path, displayRoot),
-      } satisfies FileRecord);
-
-    if (!displayFileCache.has(file.id)) {
-      displayFileCache.set(file.id, displayFile);
+    for (const candidate of ranked) {
+      if (!candidate.isPivot) continue;
+      result.push(candidate);
+      ids.add(candidate.symbol.id);
     }
 
-    const compressionLevel = assignCompressionLevel(score, distance, maxScore);
-    const rendered = renderSymbol(symbol, displayFile, compressionLevel);
-    const tokenCount = countTokens(rendered);
+    for (const candidate of ranked) {
+      if (result.length >= limit) break;
+      if (ids.has(candidate.symbol.id)) continue;
+      const hasLexical = candidate.lexicalScore >= lexThreshold;
+      const isNearby = candidate.distance <= maxDist;
+      if (!hasLexical && !isNearby) continue;
+      if (!hasLexical && !isNearby) continue;
+      result.push(candidate);
+      ids.add(candidate.symbol.id);
+    }
 
-    return {
-      symbol,
-      file: displayFile,
-      score,
-      distance,
-      compressionLevel,
-      rendered,
-      tokenCount,
-    };
-  });
+    return result;
+  }
 
-  // Phase 5: Observation Append (stub)
+  function buildScoredNodes(sel: RankedCandidate[]): ScoredNode[] {
+    const maxSc = sel.reduce((max, item) => Math.max(max, item.score), 0);
+    const root = getCommonDisplayRoot(sel.map((item) => item.file.path));
+    const cache = new Map<number, FileRecord>();
+
+    return sel.map(({ symbol, file, score, distance }) => {
+      const displayFile =
+        cache.get(file.id) ??
+        ({ ...file, path: toDisplayPath(file.path, root) } satisfies FileRecord);
+      if (!cache.has(file.id)) cache.set(file.id, displayFile);
+
+      const compressionLevel = assignCompressionLevel(score, distance, maxSc);
+      const rendered = renderSymbol(symbol, displayFile, compressionLevel);
+      const tokenCount = countTokens(rendered);
+
+      return { symbol, file: displayFile, score, distance, compressionLevel, rendered, tokenCount };
+    });
+  }
+
   const observations: ObservationRecord[] = [];
-
-  // Phase 6: Render + Pack
   const hasObservationPayload = observations.some(
-    (observation) => observation.note.trim().length > 0 && observation.confidence > 0
+    (o) => o.note.trim().length > 0 && o.confidence > 0
   );
   const codeRatio = hasObservationPayload ? 0.8 : 1.0;
-  const { packed, tokensUsed } = packNodes(scoredNodes, tokenBudget, codeRatio);
+
+  const baseLexThreshold = queryTerms.length === 0 ? 0 : 1;
+  const baseCandidateLimit = Math.max(60, Math.floor(tokenBudget / 10));
+  const MIN_UTILIZATION = 0.45;
+
+  let selected = selectCandidates(baseLexThreshold, 1, baseCandidateLimit);
+  let scoredNodes = buildScoredNodes(selected);
+  let { packed, tokensUsed } = packNodes(scoredNodes, tokenBudget, codeRatio);
+
+  if (tokensUsed < tokenBudget * MIN_UTILIZATION && candidates.length > selected.length) {
+    // Strategy 1: promote existing nodes to better compression (L3→L0)
+    // by adding same-file/same-dir candidates that contribute L0-L2 content
+    const promotionCandidates = candidates.filter((c) => {
+      if (selected.some((s) => s.symbol.id === c.symbol.id)) return false;
+      const sameFile = pivotFileIds.has(c.file.id);
+      const sameDir = pivotDirs.has(dirname(c.file.path));
+      return sameFile || sameDir || c.lexicalScore > 0;
+    });
+    const promoted = [...selected, ...promotionCandidates.slice(0, baseCandidateLimit)];
+    const promotedNodes = buildScoredNodes(promoted);
+    const promotedResult = packNodes(promotedNodes, tokenBudget, codeRatio, 0.15);
+
+    if (promotedResult.tokensUsed > tokensUsed) {
+      selected = promoted;
+      scoredNodes = promotedNodes;
+      packed = promotedResult.packed;
+      tokensUsed = promotedResult.tokensUsed;
+      logger.debug("auto-expanded via promotion", { selectedCount: selected.length, tokensUsed });
+    }
+  }
+
+  const relevanceLexicalThreshold = baseLexThreshold;
 
   // Phase 7: Quality gate + format + return
   const compressionBreakdown: Record<CompressionLevel, number> = { 0: 0, 1: 0, 2: 0, 3: 0 };
