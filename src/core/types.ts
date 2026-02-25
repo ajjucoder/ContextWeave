@@ -139,6 +139,25 @@ export interface CapsuleOutput {
   metadata: CapsuleMetadata;
 }
 
+export type CapsuleUncertainty = "low" | "medium" | "high";
+
+export interface CapsuleQuality {
+  pivotCount: number;
+  pivotsIncluded: number;
+  pivotCoverage: number;
+  dependencyCoverage: number;
+  coverageConfidence: number;
+  noiseRatio: number;
+  uncertaintyFlag: boolean;
+  lowConfidence: boolean;
+  uncertainty: CapsuleUncertainty;
+  reasons: string[];
+  retrieval: {
+    stageACandidateCount: number;
+    stageBSelectedCount: number;
+  };
+}
+
 export interface CapsuleMetadata {
   query: string;
   mode: CapsuleMode;
@@ -148,6 +167,7 @@ export interface CapsuleMetadata {
   fileCount: number;
   compressionBreakdown: Record<CompressionLevel, number>;
   observationCount: number;
+  quality: CapsuleQuality;
   generatedAt: number;
 }
 
