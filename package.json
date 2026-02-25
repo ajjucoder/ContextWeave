@@ -1,0 +1,46 @@
+{
+  "name": "contextweave",
+  "version": "0.1.0",
+  "description": "Local-first MCP server for AST-aware context capsules with cross-session memory",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "cw": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "bench": "tsx bench/harness.ts",
+    "lint": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "keywords": [
+    "mcp",
+    "context",
+    "ast",
+    "tree-sitter",
+    "claude"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.11.2",
+    "better-sqlite3": "^12.6.2",
+    "chokidar": "^5.0.0",
+    "tree-sitter": "^0.22.4",
+    "tree-sitter-javascript": "^0.25.0",
+    "tree-sitter-typescript": "^0.23.2",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.3.0",
+    "tsup": "^8.5.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.18"
+  }
+}
