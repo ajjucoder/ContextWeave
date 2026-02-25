@@ -6,6 +6,7 @@ import { detectLanguage } from "./parser.js";
 import { StalenessEngine } from "../memory/staleness.js";
 import { fileQueries } from "../db/queries/files.js";
 import { createLogger } from "../utils/logger.js";
+import { captureFileChangeObservation } from "../memory/passive.js";
 
 const log = createLogger("watcher");
 
@@ -28,7 +29,7 @@ export function startWatcher(options: WatcherOptions): FSWatcher {
     activeWatcher.close();
   }
 
-  const { projectRoot, db, ignore, sessionId: _sessionId, onReindex, onRemove, onError, onDiff } = options;
+  const { projectRoot, db, ignore, sessionId, onReindex, onRemove, onError, onDiff } = options;
 
   const staleness = new StalenessEngine(db);
   const files = fileQueries(db);
@@ -67,6 +68,7 @@ export function startWatcher(options: WatcherOptions): FSWatcher {
         const fileRecord = files.getByPath(filePath);
         if (fileRecord) {
           staleness.propagateFromDiff(result.diff, fileRecord.id);
+          captureFileChangeObservation(db, filePath, result.diff, fileRecord.id, sessionId ?? "default", projectRoot);
           onDiff?.(filePath, result.diff, fileRecord.id);
         }
       }

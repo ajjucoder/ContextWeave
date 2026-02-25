@@ -23,6 +23,7 @@ import { createLogger } from "../utils/logger.js";
 import { MemorySearch } from "../memory/search.js";
 import { capsuleLogQueries } from "../db/queries/capsule-log.js";
 import { sessionQueries } from "../db/queries/sessions.js";
+import { captureQueryObservation } from "../memory/passive.js";
 
 const logger = createLogger("generator");
 
@@ -449,6 +450,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   const sessionId = params.sessionId ?? "default";
   sessionQueries(db).ensureSession(sessionId, params.projectRoot ?? "");
+  captureQueryObservation(db, query, pivotSymbolIds, sessionId, params.projectRoot ?? "");
   capsuleLogQueries(db).insert({
     sessionId,
     query,

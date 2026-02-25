@@ -96,7 +96,7 @@ function diffSymbols(existing: SymbolRecord[], parsed: ParsedSymbol[]): IndexDif
       continue;
     }
 
-    const existingSym = candidates.find((s) => !matchedExistingIds.has(s.id)) ?? candidates[0];
+    const existingSym = candidates.find((s) => !matchedExistingIds.has(s.id)) ?? candidates[0]!;
     modified.push({ old: existingSym, new: parsedSym });
     matchedExistingIds.add(existingSym.id);
   }

@@ -8,7 +8,7 @@ import type { ProjectConfig } from "../../utils/config.js";
 export function registerCapsuleTool(
   server: McpServer,
   db: Database.Database,
-  _projectRoot: string,
+  projectRoot: string,
   config?: ProjectConfig,
   sessionId?: string
 ): void {
@@ -29,6 +29,7 @@ export function registerCapsuleTool(
         tokenBudget: token_budget ?? defaultBudget,
         mode: (mode ?? defaultMode) as CapsuleMode,
         sessionId,
+        projectRoot,
       });
 
       return {
