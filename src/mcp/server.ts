@@ -10,6 +10,7 @@ import { registerRememberTool } from "./tools/remember.js";
 import { registerRecallTool } from "./tools/recall.js";
 import { registerStatusTool } from "./tools/status.js";
 import { registerReindexTool } from "./tools/reindex.js";
+import { startWatcher, stopWatcher } from "../core/watcher.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("mcp-server");
@@ -40,16 +41,21 @@ export async function startMcpServer(projectRoot: string): Promise<void> {
   registerStatusTool(server, db, projectRoot);
   registerReindexTool(server, db, projectRoot);
 
+  startWatcher({ projectRoot, db });
+  log.info("file watcher started", { projectRoot });
+
   const transport = new StdioServerTransport();
 
   process.on("SIGINT", () => {
     log.info("shutting down");
+    stopWatcher();
     closeDb();
     process.exit(0);
   });
 
   process.on("SIGTERM", () => {
     log.info("shutting down");
+    stopWatcher();
     closeDb();
     process.exit(0);
   });
