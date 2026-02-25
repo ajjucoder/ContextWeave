@@ -1,0 +1,181 @@
+import type Database from "better-sqlite3";
+import { createLogger } from "../utils/logger.js";
+
+const logger = createLogger("BM25Index");
+
+const STOPWORDS = new Set([
+  "the", "a", "an", "is", "it", "and", "or", "of", "to", "in",
+  "for", "on", "at", "by", "with", "as", "this", "that", "from", "be",
+]);
+
+const K1 = 1.5;
+const B = 0.75;
+
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[\s\W]+/)
+    .filter((t) => t.length > 0 && !STOPWORDS.has(t));
+}
+
+function computeTF(tokens: string[]): Map<string, number> {
+  const tf = new Map<string, number>();
+  for (const token of tokens) {
+    tf.set(token, (tf.get(token) ?? 0) + 1);
+  }
+  return tf;
+}
+
+export class BM25Index {
+  private readonly db: Database.Database;
+  private readonly stmtInsertTerm: Database.Statement;
+  private readonly stmtDeleteTerm: Database.Statement;
+  private readonly stmtGetTermDocs: Database.Statement;
+  private readonly stmtGetDocTerms: Database.Statement;
+  private readonly stmtGetStat: Database.Statement;
+  private readonly stmtUpsertStat: Database.Statement;
+  private readonly stmtGetAllDocLengths: Database.Statement;
+
+  constructor(db: Database.Database) {
+    this.db = db;
+
+    this.stmtInsertTerm = db.prepare(`
+      INSERT OR REPLACE INTO bm25_index (term, observation_id, tf)
+      VALUES (@term, @observationId, @tf)
+    `);
+
+    this.stmtDeleteTerm = db.prepare(
+      "DELETE FROM bm25_index WHERE observation_id = ?"
+    );
+
+    this.stmtGetTermDocs = db.prepare(
+      "SELECT observation_id, tf FROM bm25_index WHERE term = ?"
+    );
+
+    this.stmtGetDocTerms = db.prepare(
+      "SELECT term, tf FROM bm25_index WHERE observation_id = ?"
+    );
+
+    this.stmtGetStat = db.prepare(
+      "SELECT value FROM bm25_stats WHERE key = ?"
+    );
+
+    this.stmtUpsertStat = db.prepare(`
+      INSERT OR REPLACE INTO bm25_stats (key, value) VALUES (@key, @value)
+    `);
+
+    this.stmtGetAllDocLengths = db.prepare(
+      "SELECT observation_id, SUM(tf) as dl FROM bm25_index GROUP BY observation_id"
+    );
+  }
+
+  private readStat(key: string): number {
+    const row = this.stmtGetStat.get(key) as { value: string } | undefined;
+    return row ? parseFloat(row.value) : 0;
+  }
+
+  private writeStat(key: string, value: number): void {
+    this.stmtUpsertStat.run({ key, value: String(value) });
+  }
+
+  indexObservation(observationId: number, text: string): void {
+    const tokens = tokenize(text);
+    const dl = tokens.length;
+
+    if (dl === 0) return;
+
+    const tf = computeTF(tokens);
+
+    const docCount = this.readStat("doc_count") + 1;
+    const prevAvgDl = this.readStat("avg_dl");
+    const newAvgDl = (prevAvgDl * (docCount - 1) + dl) / docCount;
+
+    this.db.transaction(() => {
+      this.stmtDeleteTerm.run(observationId);
+      for (const [term, count] of tf) {
+        this.stmtInsertTerm.run({
+          term,
+          observationId,
+          tf: count / dl,
+        });
+      }
+      this.writeStat("doc_count", docCount);
+      this.writeStat("avg_dl", newAvgDl);
+    })();
+
+    logger.debug("Indexed observation", { observationId, terms: tf.size, dl });
+  }
+
+  removeObservation(observationId: number): void {
+    const docCount = this.readStat("doc_count");
+    if (docCount <= 0) return;
+
+    const terms = this.stmtGetDocTerms.all(observationId) as Array<{ term: string; tf: number }>;
+    const dl = terms.reduce((sum, t) => sum + t.tf, 0);
+
+    const newDocCount = Math.max(0, docCount - 1);
+
+    this.db.transaction(() => {
+      this.stmtDeleteTerm.run(observationId);
+
+      if (newDocCount === 0) {
+        this.writeStat("doc_count", 0);
+        this.writeStat("avg_dl", 0);
+        return;
+      }
+
+      const prevAvgDl = this.readStat("avg_dl");
+      const newAvgDl = (prevAvgDl * docCount - dl) / newDocCount;
+      this.writeStat("doc_count", newDocCount);
+      this.writeStat("avg_dl", Math.max(0, newAvgDl));
+    })();
+
+    logger.debug("Removed observation from index", { observationId });
+  }
+
+  search(query: string, limit = 20): Array<{ observationId: number; score: number }> {
+    const tokens = tokenize(query);
+    if (tokens.length === 0) return [];
+
+    const N = this.readStat("doc_count");
+    const avgdl = this.readStat("avg_dl");
+
+    if (N === 0 || avgdl === 0) return [];
+
+    const scores = new Map<number, number>();
+
+    for (const token of tokens) {
+      const docs = this.stmtGetTermDocs.all(token) as Array<{ observation_id: number; tf: number }>;
+      const n = docs.length;
+
+      if (n === 0) continue;
+
+      const idf = Math.log((N - n + 0.5) / (n + 0.5) + 1);
+
+      for (const doc of docs) {
+        const tf = doc.tf;
+        const numerator = tf * (K1 + 1);
+        const denominator = tf + K1 * (1 - B + B * (tf / avgdl));
+        const termScore = idf * (numerator / denominator);
+        scores.set(doc.observation_id, (scores.get(doc.observation_id) ?? 0) + termScore);
+      }
+    }
+
+    return Array.from(scores.entries())
+      .map(([observationId, score]) => ({ observationId, score }))
+      .sort((a, b) => b.score - a.score)
+      .slice(0, limit);
+  }
+
+  rebuildStats(): void {
+    const rows = this.stmtGetAllDocLengths.all() as Array<{ observation_id: number; dl: number }>;
+    const docCount = rows.length;
+    const avgdl =
+      docCount > 0 ? rows.reduce((sum, r) => sum + r.dl, 0) / docCount : 0;
+
+    this.writeStat("doc_count", docCount);
+    this.writeStat("avg_dl", avgdl);
+
+    logger.info("Rebuilt BM25 stats", { docCount, avgdl });
+  }
+}
