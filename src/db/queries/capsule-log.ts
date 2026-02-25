@@ -9,6 +9,7 @@ export function capsuleLogQueries(db: Database.Database) {
 
   const getBySession = db.prepare("SELECT * FROM capsule_log WHERE session_id = ? ORDER BY timestamp DESC");
   const getLatest = db.prepare("SELECT * FROM capsule_log ORDER BY timestamp DESC LIMIT 1");
+  const getRecent = db.prepare("SELECT * FROM capsule_log ORDER BY timestamp DESC LIMIT ?");
   const updateFeedback = db.prepare(
     "UPDATE capsule_log SET followed_up = @followedUp, miss_ratio = @missRatio, noise_ratio = @noiseRatio WHERE id = @id"
   );
@@ -56,6 +57,10 @@ export function capsuleLogQueries(db: Database.Database) {
 
     getLatest(): CapsuleLogRecord | undefined {
       return mapRow(getLatest.get());
+    },
+
+    getRecent(limit: number): CapsuleLogRecord[] {
+      return (getRecent.all(limit) as unknown[]).map(mapRow).filter(Boolean) as CapsuleLogRecord[];
     },
 
     updateFeedback(id: number, followedUp: boolean, missRatio: number | null, noiseRatio: number | null): void {

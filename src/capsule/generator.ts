@@ -21,6 +21,7 @@ import { packNodes } from "./packer.js";
 import { formatCapsule } from "./formatter.js";
 import { createLogger } from "../utils/logger.js";
 import { MemorySearch } from "../memory/search.js";
+import { capsuleLogQueries } from "../db/queries/capsule-log.js";
 
 const logger = createLogger("generator");
 
@@ -443,6 +444,24 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     fileCount: uniqueFiles.size,
     tokensUsed,
     uncertainty,
+  });
+
+  const sessionId = params.sessionId ?? "default";
+  db.prepare(
+    "INSERT OR IGNORE INTO sessions (id, agent_id, project_root, started_at) VALUES (?, 'claude-code', '', ?)"
+  ).run(sessionId, Date.now());
+  capsuleLogQueries(db).insert({
+    sessionId,
+    query,
+    mode,
+    tokenBudget,
+    tokensUsed,
+    symbolsIncluded: packed.map((n) => n.symbol.name),
+    filesIncluded: [...uniqueFiles],
+    timestamp: Date.now(),
+    followedUp: false,
+    missRatio: null,
+    noiseRatio: metadata.quality.noiseRatio,
   });
 
   return { content, metadata };

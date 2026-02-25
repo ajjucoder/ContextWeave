@@ -5,6 +5,7 @@ import { fileQueries } from "../../db/queries/files.js";
 import { symbolQueries } from "../../db/queries/symbols.js";
 import { edgeQueries } from "../../db/queries/edges.js";
 import { observationQueries } from "../../db/queries/observations.js";
+import { capsuleLogQueries } from "../../db/queries/capsule-log.js";
 
 export function registerStatusTool(server: McpServer, db: Database.Database, projectRoot: string): void {
   server.tool(
@@ -24,6 +25,7 @@ export function registerStatusTool(server: McpServer, db: Database.Database, pro
       const edgeCount = edges.count();
       const observationCount = observations.count();
       const staleCount = observations.countStale();
+      const recentCapsules = capsuleLogQueries(db).getRecent(5);
 
       const lines = [
         `ContextWeave Index Status`,
@@ -34,6 +36,15 @@ export function registerStatusTool(server: McpServer, db: Database.Database, pro
         `Edges:        ${edgeCount}`,
         `Observations: ${observationCount} (${staleCount} stale)`,
       ];
+
+      if (recentCapsules.length > 0) {
+        lines.push(``, `Recent Capsule Generations:`);
+        for (const log of recentCapsules) {
+          const date = new Date(log.timestamp).toISOString().replace("T", " ").slice(0, 19);
+          const pct = Math.round((log.tokensUsed / log.tokenBudget) * 100);
+          lines.push(`  [${date}] "${log.query}" — ${log.tokensUsed}/${log.tokenBudget} tokens (${pct}%), ${log.symbolsIncluded.length} symbols, noise: ${(log.noiseRatio ?? 0).toFixed(2)}`);
+        }
+      }
 
       if (verbose) {
         lines.push(`\nPer-file breakdown:`);
