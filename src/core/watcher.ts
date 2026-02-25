@@ -13,6 +13,7 @@ export interface WatcherOptions {
   projectRoot: string;
   db: Database.Database;
   ignore?: string[];
+  sessionId?: string;
   onReindex?: (filePath: string, symbolCount: number) => void;
   onRemove?: (filePath: string) => void;
   onError?: (error: Error) => void;
@@ -27,7 +28,7 @@ export function startWatcher(options: WatcherOptions): FSWatcher {
     activeWatcher.close();
   }
 
-  const { projectRoot, db, ignore, onReindex, onRemove, onError, onDiff } = options;
+  const { projectRoot, db, ignore, sessionId: _sessionId, onReindex, onRemove, onError, onDiff } = options;
 
   const staleness = new StalenessEngine(db);
   const files = fileQueries(db);

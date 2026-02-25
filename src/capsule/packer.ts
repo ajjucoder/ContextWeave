@@ -69,7 +69,6 @@ export function packNodes(
         if (delta > 0 && tokensUsed + delta <= codeBudget) {
           packed[i] = { ...node, compressionLevel: targetLevel, rendered, tokenCount: tokens };
           tokensUsed += delta;
-          if (targetLevel === 3) l3Count--;
           break;
         }
       }

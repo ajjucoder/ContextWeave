@@ -22,6 +22,7 @@ import { formatCapsule } from "./formatter.js";
 import { createLogger } from "../utils/logger.js";
 import { MemorySearch } from "../memory/search.js";
 import { capsuleLogQueries } from "../db/queries/capsule-log.js";
+import { sessionQueries } from "../db/queries/sessions.js";
 
 const logger = createLogger("generator");
 
@@ -30,6 +31,7 @@ interface CapsuleParams {
   tokenBudget?: number;
   mode?: CapsuleMode;
   sessionId?: string;
+  projectRoot?: string;
 }
 
 interface RankedCandidate {
@@ -301,7 +303,6 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       const hasLexical = candidate.lexicalScore >= lexThreshold;
       const isNearby = candidate.distance <= maxDist;
       if (!hasLexical && !isNearby) continue;
-      if (!hasLexical && !isNearby) continue;
       result.push(candidate);
       ids.add(candidate.symbol.id);
     }
@@ -447,9 +448,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   });
 
   const sessionId = params.sessionId ?? "default";
-  db.prepare(
-    "INSERT OR IGNORE INTO sessions (id, agent_id, project_root, started_at) VALUES (?, 'claude-code', '', ?)"
-  ).run(sessionId, Date.now());
+  sessionQueries(db).ensureSession(sessionId, params.projectRoot ?? "");
   capsuleLogQueries(db).insert({
     sessionId,
     query,

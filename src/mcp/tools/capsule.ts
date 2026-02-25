@@ -9,7 +9,8 @@ export function registerCapsuleTool(
   server: McpServer,
   db: Database.Database,
   _projectRoot: string,
-  config?: ProjectConfig
+  config?: ProjectConfig,
+  sessionId?: string
 ): void {
   const defaultBudget = config?.tokenBudget ?? 4000;
   const defaultMode = config?.defaultMode ?? "feature";
@@ -27,6 +28,7 @@ export function registerCapsuleTool(
         query,
         tokenBudget: token_budget ?? defaultBudget,
         mode: (mode ?? defaultMode) as CapsuleMode,
+        sessionId,
       });
 
       return {

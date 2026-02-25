@@ -42,9 +42,27 @@ async function discoverFiles(projectRoot: string): Promise<string[]> {
   return files;
 }
 
+function symKey(name: string, kind: string): string {
+  return `${name}\0${kind}`;
+}
+
 function diffSymbols(existing: SymbolRecord[], parsed: ParsedSymbol[]): IndexDiff {
-  const existingByName = new Map(existing.map((s) => [s.name, s]));
-  const parsedByName = new Map(parsed.map((s) => [s.name, s]));
+  const existingByKey = new Map<string, SymbolRecord[]>();
+  for (const s of existing) {
+    const k = symKey(s.name, s.kind);
+    const bucket = existingByKey.get(k);
+    if (bucket) bucket.push(s);
+    else existingByKey.set(k, [s]);
+  }
+
+  const parsedByKey = new Map<string, ParsedSymbol[]>();
+  for (const s of parsed) {
+    const k = symKey(s.name, s.kind);
+    const bucket = parsedByKey.get(k);
+    if (bucket) bucket.push(s);
+    else parsedByKey.set(k, [s]);
+  }
+
   const existingByHash = new Map(existing.map((s) => [s.bodyHash, s]));
 
   const added: ParsedSymbol[] = [];
@@ -53,32 +71,40 @@ function diffSymbols(existing: SymbolRecord[], parsed: ParsedSymbol[]): IndexDif
   const renamed: Array<{ old: SymbolRecord; new: ParsedSymbol }> = [];
   const unchanged: SymbolRecord[] = [];
 
-  for (const parsedSym of parsed) {
-    const existingSym = existingByName.get(parsedSym.name);
+  const matchedExistingIds = new Set<number>();
 
-    if (!existingSym) {
+  for (const parsedSym of parsed) {
+    const key = symKey(parsedSym.name, parsedSym.kind);
+    const candidates = existingByKey.get(key);
+
+    if (!candidates || candidates.length === 0) {
       const hashMatch = existingByHash.get(parsedSym.bodyHash);
-      if (hashMatch && !parsedByName.has(hashMatch.name)) {
+      const parsedHasHashMatchKey = hashMatch ? parsedByKey.has(symKey(hashMatch.name, hashMatch.kind)) : false;
+      if (hashMatch && !parsedHasHashMatchKey) {
         renamed.push({ old: hashMatch, new: parsedSym });
+        matchedExistingIds.add(hashMatch.id);
       } else {
         added.push(parsedSym);
       }
       continue;
     }
 
-    if (existingSym.bodyHash !== parsedSym.bodyHash) {
-      modified.push({ old: existingSym, new: parsedSym });
+    const exactMatch = candidates.find((s) => s.bodyHash === parsedSym.bodyHash);
+    if (exactMatch) {
+      unchanged.push(exactMatch);
+      matchedExistingIds.add(exactMatch.id);
       continue;
     }
 
-    unchanged.push(existingSym);
+    const existingSym = candidates.find((s) => !matchedExistingIds.has(s.id)) ?? candidates[0];
+    modified.push({ old: existingSym, new: parsedSym });
+    matchedExistingIds.add(existingSym.id);
   }
 
-  const renamedOldNames = new Set(renamed.map((r) => r.old.name));
-  const parsedNames = new Set(parsed.map((s) => s.name));
+  const renamedOldIds = new Set(renamed.map((r) => r.old.id));
 
   for (const existingSym of existing) {
-    if (!parsedNames.has(existingSym.name) && !renamedOldNames.has(existingSym.name)) {
+    if (!matchedExistingIds.has(existingSym.id) && !renamedOldIds.has(existingSym.id)) {
       deleted.push(existingSym);
     }
   }

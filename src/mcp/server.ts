@@ -1,5 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import { getDb, closeDb } from "../db/connection.js";
 import { runMigrations } from "../db/migrations.js";
@@ -27,6 +28,8 @@ export function getServerDb(projectRoot: string): Database.Database {
 }
 
 export async function startMcpServer(projectRoot: string, config?: ProjectConfig): Promise<void> {
+  const serverSessionId = randomUUID();
+
   const server = new McpServer({
     name: "contextweave",
     version: "0.1.0",
@@ -34,7 +37,7 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
 
   const db = getServerDb(projectRoot);
 
-  registerCapsuleTool(server, db, projectRoot, config);
+  registerCapsuleTool(server, db, projectRoot, config, serverSessionId);
   registerImpactTool(server, db);
   registerFlowTool(server, db);
   registerRememberTool(server, db);
@@ -42,7 +45,7 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
   registerStatusTool(server, db, projectRoot);
   registerReindexTool(server, db, projectRoot);
 
-  startWatcher({ projectRoot, db, ignore: config?.ignore });
+  startWatcher({ projectRoot, db, ignore: config?.ignore, sessionId: serverSessionId });
   log.info("file watcher started", { projectRoot });
 
   const transport = new StdioServerTransport();

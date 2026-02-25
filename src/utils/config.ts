@@ -25,6 +25,11 @@ export function loadConfig(projectRoot: string): ProjectConfig {
   const configPath = resolve(projectRoot, ".contextweave", "config.json");
   if (!existsSync(configPath)) return { ...DEFAULTS };
 
-  const raw = JSON.parse(readFileSync(configPath, "utf8")) as Partial<ProjectConfig>;
-  return { ...DEFAULTS, ...raw };
+  try {
+    const raw = JSON.parse(readFileSync(configPath, "utf8")) as Partial<ProjectConfig>;
+    return { ...DEFAULTS, ...raw };
+  } catch {
+    process.stderr.write(`[contextweave] Warning: could not parse config at ${configPath}, using defaults\n`);
+    return { ...DEFAULTS };
+  }
 }
