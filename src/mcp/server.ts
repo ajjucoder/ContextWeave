@@ -12,6 +12,7 @@ import { registerStatusTool } from "./tools/status.js";
 import { registerReindexTool } from "./tools/reindex.js";
 import { startWatcher, stopWatcher } from "../core/watcher.js";
 import { createLogger } from "../utils/logger.js";
+import type { ProjectConfig } from "../utils/config.js";
 
 const log = createLogger("mcp-server");
 
@@ -25,7 +26,7 @@ export function getServerDb(projectRoot: string): Database.Database {
   return serverDb;
 }
 
-export async function startMcpServer(projectRoot: string): Promise<void> {
+export async function startMcpServer(projectRoot: string, config?: ProjectConfig): Promise<void> {
   const server = new McpServer({
     name: "contextweave",
     version: "0.1.0",
@@ -33,7 +34,7 @@ export async function startMcpServer(projectRoot: string): Promise<void> {
 
   const db = getServerDb(projectRoot);
 
-  registerCapsuleTool(server, db, projectRoot);
+  registerCapsuleTool(server, db, projectRoot, config);
   registerImpactTool(server, db);
   registerFlowTool(server, db);
   registerRememberTool(server, db);
