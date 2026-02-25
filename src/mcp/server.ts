@@ -42,7 +42,7 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
   registerStatusTool(server, db, projectRoot);
   registerReindexTool(server, db, projectRoot);
 
-  startWatcher({ projectRoot, db });
+  startWatcher({ projectRoot, db, ignore: config?.ignore });
   log.info("file watcher started", { projectRoot });
 
   const transport = new StdioServerTransport();

@@ -12,6 +12,7 @@ const log = createLogger("watcher");
 export interface WatcherOptions {
   projectRoot: string;
   db: Database.Database;
+  ignore?: string[];
   onReindex?: (filePath: string, symbolCount: number) => void;
   onRemove?: (filePath: string) => void;
   onError?: (error: Error) => void;
@@ -26,21 +27,25 @@ export function startWatcher(options: WatcherOptions): FSWatcher {
     activeWatcher.close();
   }
 
-  const { projectRoot, db, onReindex, onRemove, onError, onDiff } = options;
+  const { projectRoot, db, ignore, onReindex, onRemove, onError, onDiff } = options;
 
   const staleness = new StalenessEngine(db);
   const files = fileQueries(db);
 
+  const builtinIgnored = [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/.git/**",
+    "**/.next/**",
+    "**/.contextweave/**",
+    "**/coverage/**",
+  ];
+  const configIgnored = (ignore ?? []).map((p) => `**/${p}/**`);
+  const allIgnored = [...new Set([...builtinIgnored, ...configIgnored])];
+
   const watcher = watch(projectRoot, {
-    ignored: [
-      "**/node_modules/**",
-      "**/dist/**",
-      "**/build/**",
-      "**/.git/**",
-      "**/.next/**",
-      "**/.contextweave/**",
-      "**/coverage/**",
-    ],
+    ignored: allIgnored,
     persistent: true,
     ignoreInitial: true,
     awaitWriteFinish: {
