@@ -5,6 +5,7 @@ import { fileQueries } from "../../src/db/queries/files.js";
 import { symbolQueries } from "../../src/db/queries/symbols.js";
 import { edgeQueries } from "../../src/db/queries/edges.js";
 import { bfsTraversal, computePageRank, getDepthForBudget } from "../../src/core/graph.js";
+import { scoreNode } from "../../src/capsule/scorer.js";
 
 let db: Database.Database;
 
@@ -118,5 +119,39 @@ describe("getDepthForBudget", () => {
     expect(getDepthForBudget(3000)).toBe(4);
     expect(getDepthForBudget(7000)).toBe(5);
     expect(getDepthForBudget(15000)).toBe(6);
+  });
+});
+
+describe("scoreNode hub dampening", () => {
+  it("penalizes high-centrality non-pivots more than pivots", () => {
+    const now = Date.now();
+    const shared = {
+      distance: 1,
+      lastSeen: now,
+      observationCount: 0,
+      isExported: false,
+      lexicalBoost: 1,
+      localityBoost: 1,
+      mode: "feature" as const,
+    };
+
+    const nonPivotHubScore = scoreNode({
+      ...shared,
+      centrality: 0.35,
+      isPivot: false,
+    });
+    const pivotHubScore = scoreNode({
+      ...shared,
+      centrality: 0.35,
+      isPivot: true,
+    });
+    const nonPivotLowCentralityScore = scoreNode({
+      ...shared,
+      centrality: 0.05,
+      isPivot: false,
+    });
+
+    expect(nonPivotHubScore).toBeLessThan(pivotHubScore);
+    expect(nonPivotHubScore).toBeLessThan(nonPivotLowCentralityScore);
   });
 });

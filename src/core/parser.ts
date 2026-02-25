@@ -84,6 +84,35 @@ function hashContent(source: string): string {
   return createHash("sha256").update(source).digest("hex");
 }
 
+function isFunctionScoped(node: Parser.SyntaxNode): boolean {
+  let current: Parser.SyntaxNode | null = node.parent;
+  while (current) {
+    if (
+      current.type === "function_declaration" ||
+      current.type === "generator_function_declaration" ||
+      current.type === "function_expression" ||
+      current.type === "arrow_function" ||
+      current.type === "method_definition"
+    ) {
+      return true;
+    }
+    if (current.type === "program") return false;
+    current = current.parent;
+  }
+  return false;
+}
+
+function shouldSkipTrivialSymbol(
+  node: Parser.SyntaxNode,
+  kind: SymbolKind
+): boolean {
+  if (kind !== "variable") return false;
+  const isSingleLine = node.startPosition.row === node.endPosition.row;
+  if (!isSingleLine) return false;
+  if (!isFunctionScoped(node)) return false;
+  return true;
+}
+
 function nodeToSymbol(
   node: Parser.SyntaxNode,
   nameNode: Parser.SyntaxNode,
@@ -137,6 +166,10 @@ function parseSymbols(
           kind === "variable" && valueCapture?.node.type === "arrow_function"
             ? "arrow"
             : kind;
+
+        if (shouldSkipTrivialSymbol(defCapture.node, effectiveKind)) {
+          continue;
+        }
 
         symbols.push(
           nodeToSymbol(defCapture.node, nameCapture.node, effectiveKind, content)

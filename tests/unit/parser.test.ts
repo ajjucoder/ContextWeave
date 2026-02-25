@@ -91,4 +91,28 @@ describe("parseFile", () => {
   it("returns no errors for valid file", () => {
     expect(result.errors).toHaveLength(0);
   });
+
+  it("filters single-line local variable declarations in function scope", () => {
+    const inlineContent = `
+      export function outer(input: number): number {
+        const local = input + 1;
+        const helper = (value: number) => {
+          return value + local;
+        };
+        const localObject = {
+          value: helper(input),
+        };
+        return localObject.value;
+      }
+
+      const topLevel = 42;
+    `;
+    const inlineResult = parseFile("inline.ts", inlineContent, "typescript");
+    const names = inlineResult.symbols.map((s) => s.name);
+
+    expect(names).not.toContain("local");
+    expect(names).toContain("helper");
+    expect(names).toContain("localObject");
+    expect(names).toContain("topLevel");
+  });
 });
