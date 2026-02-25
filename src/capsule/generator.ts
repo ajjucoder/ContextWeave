@@ -6,7 +6,6 @@ import type {
   ScoredNode,
   CapsuleMetadata,
   CompressionLevel,
-  ObservationRecord,
   CapsuleUncertainty,
   SymbolRecord,
   FileRecord,
@@ -21,6 +20,7 @@ import { renderSymbol } from "./compressor.js";
 import { packNodes } from "./packer.js";
 import { formatCapsule } from "./formatter.js";
 import { createLogger } from "../utils/logger.js";
+import { MemorySearch } from "../memory/search.js";
 
 const logger = createLogger("generator");
 
@@ -158,6 +158,10 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   }
 
   logger.debug("pivot symbols found", { count: pivotSymbolIds.size });
+
+  const memorySearch = new MemorySearch(db);
+  const observationBudget = Math.floor(tokenBudget * 0.2);
+  const { observations } = memorySearch.getRelevantForCapsule(query, observationBudget);
 
   // Phase 2: Broad retrieval with BFS traversal
   const maxDepth = getBfsDepth(tokenBudget);
@@ -323,7 +327,6 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     });
   }
 
-  const observations: ObservationRecord[] = [];
   const hasObservationPayload = observations.some(
     (o) => o.note.trim().length > 0 && o.confidence > 0
   );
