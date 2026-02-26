@@ -141,7 +141,6 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const files = fileQueries(db);
 
   // Phase 1: Pivot Resolution
-  const allNames = symbols.getAllNames();
   const allFiles = files.getAll();
   const filePaths = allFiles.map((f) => f.path);
 
@@ -155,9 +154,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const pivotSymbolIds = new Set<number>();
 
   for (const term of expandedQueryTerms) {
-    const nameMatches = fuzzyMatch(term, allNames, 0.5);
-    for (const match of nameMatches.slice(0, 5)) {
-      const matched = symbols.getByName(match.name);
+    if (term.length >= 3) {
+      const ftsMatches = symbols.searchFTS(term, 15);
+      for (const symbol of ftsMatches) pivotSymbolIds.add(symbol.id);
+    } else {
+      // Trigram tokenizer is ineffective for very short terms.
+      const matched = symbols.getByName(term);
       for (const symbol of matched) pivotSymbolIds.add(symbol.id);
     }
 

@@ -15,6 +15,14 @@ export function symbolQueries(db: Database.Database) {
   const deleteById = db.prepare("DELETE FROM symbols WHERE id = ?");
   const deleteByFileId = db.prepare("DELETE FROM symbols WHERE file_id = ?");
   const getAllNames = db.prepare("SELECT DISTINCT name FROM symbols");
+  const searchFTS = db.prepare(`
+    SELECT s.*
+    FROM symbols_fts
+    JOIN symbols s ON s.id = symbols_fts.rowid
+    WHERE symbols_fts MATCH ?
+    ORDER BY rank
+    LIMIT ?
+  `);
   const countAll = db.prepare("SELECT COUNT(*) as count FROM symbols");
   const getAllIds = db.prepare("SELECT id FROM symbols");
   const getAll = db.prepare("SELECT * FROM symbols");
@@ -89,6 +97,13 @@ export function symbolQueries(db: Database.Database) {
 
     getAllNames(): string[] {
       return getAllNames.all().map((r) => (r as { name: string }).name);
+    },
+
+    searchFTS(term: string, limit: number): SymbolRecord[] {
+      const escaped = term.replace(/["*]/g, "");
+      if (!escaped) return [];
+      const pattern = `"${escaped}"`;
+      return searchFTS.all(pattern, limit).map(mapRow).filter(Boolean) as SymbolRecord[];
     },
 
     getAll(): SymbolRecord[] {
