@@ -244,6 +244,7 @@ export function indexSingleFile(
       ...existingFile,
       hash,
       lastIndexed: now,
+      mtime: existingFile.mtime,
       symbolCount: parseResult.symbols.length,
       error: parseResult.errors.length > 0 ? parseResult.errors.join("; ") : null,
     });
@@ -253,6 +254,7 @@ export function indexSingleFile(
       path: filePath,
       hash,
       lastIndexed: now,
+      mtime: now,
       language,
       symbolCount: parseResult.symbols.length,
       error: parseResult.errors.length > 0 ? parseResult.errors.join("; ") : null,

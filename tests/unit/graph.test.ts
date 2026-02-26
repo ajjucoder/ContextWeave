@@ -19,6 +19,7 @@ function createTestGraph(db: Database.Database) {
     path: "/test.ts",
     hash: "h1",
     lastIndexed: now,
+    mtime: 0,
     language: "typescript",
     symbolCount: 4,
     error: null,

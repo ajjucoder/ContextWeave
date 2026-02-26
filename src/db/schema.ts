@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS files (
   path         TEXT    NOT NULL UNIQUE,
   hash         TEXT    NOT NULL,
   last_indexed INTEGER NOT NULL,
+  mtime        INTEGER NOT NULL DEFAULT 0,
   language     TEXT    NOT NULL,
   symbol_count INTEGER NOT NULL DEFAULT 0,
   error        TEXT
@@ -87,6 +88,14 @@ CREATE TABLE IF NOT EXISTS bm25_stats (
   value TEXT NOT NULL
 );
 
+CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(
+  name,
+  kind,
+  content='symbols',
+  content_rowid='id',
+  tokenize='trigram'
+);
+
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version    INTEGER PRIMARY KEY,
   applied_at INTEGER NOT NULL
@@ -105,6 +114,10 @@ CREATE INDEX IF NOT EXISTS idx_observations_stale ON observations(stale);
 CREATE INDEX IF NOT EXISTS idx_observations_confidence ON observations(confidence);
 CREATE INDEX IF NOT EXISTS idx_capsule_log_session ON capsule_log(session_id);
 CREATE INDEX IF NOT EXISTS idx_bm25_term ON bm25_index(term);
+CREATE INDEX IF NOT EXISTS idx_symbols_name_cov ON symbols(name, id, file_id, kind, centrality, is_exported, start_line);
+CREATE INDEX IF NOT EXISTS idx_edges_src_cov ON edges(source_symbol_id, target_symbol_id, kind);
+CREATE INDEX IF NOT EXISTS idx_edges_tgt_cov ON edges(target_symbol_id, source_symbol_id, kind);
+CREATE INDEX IF NOT EXISTS idx_files_path_cov ON files(path, id, hash, mtime, symbol_count, last_indexed);
 `;
 
 export function createSchema(db: Database.Database): void {

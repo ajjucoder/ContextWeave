@@ -25,6 +25,7 @@ export interface FileRecord {
   path: string;
   hash: string;
   lastIndexed: number;
+  mtime: number;
   language: string;
   symbolCount: number;
   error: string | null;

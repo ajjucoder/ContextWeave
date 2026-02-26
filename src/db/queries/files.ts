@@ -3,12 +3,13 @@ import type { FileRecord } from "../../core/types.js";
 
 export function fileQueries(db: Database.Database) {
   const insert = db.prepare(`
-    INSERT INTO files (path, hash, last_indexed, language, symbol_count, error)
-    VALUES (@path, @hash, @lastIndexed, @language, @symbolCount, @error)
+    INSERT INTO files (path, hash, last_indexed, mtime, language, symbol_count, error)
+    VALUES (@path, @hash, @lastIndexed, @mtime, @language, @symbolCount, @error)
   `);
 
   const update = db.prepare(`
-    UPDATE files SET hash = @hash, last_indexed = @lastIndexed, symbol_count = @symbolCount, error = @error
+    UPDATE files
+    SET hash = @hash, last_indexed = @lastIndexed, mtime = @mtime, symbol_count = @symbolCount, error = @error
     WHERE id = @id
   `);
 
@@ -27,6 +28,7 @@ export function fileQueries(db: Database.Database) {
       path: r["path"] as string,
       hash: r["hash"] as string,
       lastIndexed: r["last_indexed"] as number,
+      mtime: (r["mtime"] as number) ?? 0,
       language: r["language"] as string,
       symbolCount: r["symbol_count"] as number,
       error: r["error"] as string | null,
@@ -39,6 +41,7 @@ export function fileQueries(db: Database.Database) {
         path: file.path,
         hash: file.hash,
         lastIndexed: file.lastIndexed,
+        mtime: file.mtime,
         language: file.language,
         symbolCount: file.symbolCount,
         error: file.error,
@@ -51,6 +54,7 @@ export function fileQueries(db: Database.Database) {
         id: file.id,
         hash: file.hash,
         lastIndexed: file.lastIndexed,
+        mtime: file.mtime,
         symbolCount: file.symbolCount,
         error: file.error,
       });

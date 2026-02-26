@@ -16,6 +16,63 @@ const migrations: Migration[] = [
       createSchema(db);
     },
   },
+  {
+    version: 2,
+    up: (db) => {
+      const filesCols = db.prepare("PRAGMA table_info(files)").all() as Array<{ name: string }>;
+      if (!filesCols.some((c) => c.name === "mtime")) {
+        db.exec("ALTER TABLE files ADD COLUMN mtime INTEGER NOT NULL DEFAULT 0");
+      }
+
+      db.exec(`
+        CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(
+          name,
+          kind,
+          content='symbols',
+          content_rowid='id',
+          tokenize='trigram'
+        )
+      `);
+
+      db.exec("INSERT INTO symbols_fts(rowid, name, kind) SELECT id, name, kind FROM symbols");
+
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS symbols_ai AFTER INSERT ON symbols BEGIN
+          INSERT INTO symbols_fts(rowid, name, kind) VALUES (new.id, new.name, new.kind);
+        END
+      `);
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS symbols_ad AFTER DELETE ON symbols BEGIN
+          INSERT INTO symbols_fts(symbols_fts, rowid, name, kind)
+          VALUES ('delete', old.id, old.name, old.kind);
+        END
+      `);
+      db.exec(`
+        CREATE TRIGGER IF NOT EXISTS symbols_au AFTER UPDATE ON symbols BEGIN
+          INSERT INTO symbols_fts(symbols_fts, rowid, name, kind)
+          VALUES ('delete', old.id, old.name, old.kind);
+          INSERT INTO symbols_fts(rowid, name, kind) VALUES (new.id, new.name, new.kind);
+        END
+      `);
+
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_symbols_name_cov
+        ON symbols(name, id, file_id, kind, centrality, is_exported, start_line)
+      `);
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_edges_src_cov
+        ON edges(source_symbol_id, target_symbol_id, kind)
+      `);
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_edges_tgt_cov
+        ON edges(target_symbol_id, source_symbol_id, kind)
+      `);
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_files_path_cov
+        ON files(path, id, hash, mtime, symbol_count, last_indexed)
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {
