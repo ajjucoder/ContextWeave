@@ -43,7 +43,7 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
   registerRememberTool(server, db, serverSessionId, projectRoot);
   registerRecallTool(server, db);
   registerStatusTool(server, db, projectRoot);
-  registerReindexTool(server, db, projectRoot);
+  registerReindexTool(server, db, projectRoot, config);
 
   const transport = new StdioServerTransport();
   let watcherStarted = false;

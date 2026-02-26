@@ -5,10 +5,11 @@ import { resolve } from "node:path";
 import { indexProject, indexSingleFile, isPathWithinRoot } from "../../core/indexer.js";
 import { runPageRankInBackground } from "../../core/graph.js";
 import { createLogger } from "../../utils/logger.js";
+import type { ProjectConfig } from "../../utils/config.js";
 
 const log = createLogger("reindex-tool");
 
-export function registerReindexTool(server: McpServer, db: Database.Database, projectRoot: string): void {
+export function registerReindexTool(server: McpServer, db: Database.Database, projectRoot: string, config?: ProjectConfig): void {
   const registerTool = (server.tool as (...args: any[]) => void).bind(server);
 
   registerTool(
@@ -44,7 +45,7 @@ export function registerReindexTool(server: McpServer, db: Database.Database, pr
           };
         }
 
-        const result = await indexProject(db, projectRoot);
+        const result = await indexProject(db, projectRoot, config?.ignore);
         runPageRankInBackground(dbPath);
         const elapsed = Date.now() - startTime;
 

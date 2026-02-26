@@ -131,7 +131,7 @@ function isAlwaysIgnored(relativePath: string): boolean {
   return ALWAYS_IGNORE_PATTERNS.some((re) => re.test(fileName) || re.test(normalizedPath));
 }
 
-async function discoverFiles(projectRoot: string): Promise<string[]> {
+async function discoverFiles(projectRoot: string, extraIgnore?: string[]): Promise<string[]> {
   const files: string[] = [];
   const pattern = "**/*.{ts,tsx,js,jsx,mjs,cjs,py,go,rs,java,c,h,cpp,cc,cxx,hpp,hxx,hh,cs,rb,rake,sh,bash,php}";
   const gitignorePatterns = loadGitignorePatterns(projectRoot);
@@ -144,6 +144,7 @@ async function discoverFiles(projectRoot: string): Promise<string[]> {
     const relativePath = fullPath.startsWith(resolvedRoot) ? fullPath.slice(resolvedRoot.length) : entry;
     if (isAlwaysIgnored(relativePath)) continue;
     if (gitignorePatterns.length > 0 && isIgnoredByGitignore(relativePath, gitignorePatterns)) continue;
+    if (extraIgnore && extraIgnore.length > 0 && extraIgnore.some((p) => fullPath.includes(`/${p}/`) || fullPath.includes(`\\${p}\\`) || relativePath.startsWith(p))) continue;
 
     try {
       const stat = lstatSync(fullPath);
@@ -461,11 +462,11 @@ function writeParseResult(
   return { symbolCount: parseResult.symbols.length, errors: parseResult.errors, diff };
 }
 
-export async function indexProject(db: Database.Database, projectRoot: string): Promise<{ filesIndexed: number; symbolsFound: number; errors: string[] }> {
+export async function indexProject(db: Database.Database, projectRoot: string, extraIgnore?: string[]): Promise<{ filesIndexed: number; symbolsFound: number; errors: string[] }> {
   const allErrors: string[] = [];
 
   log.info("starting parallel index", { projectRoot, workers: WORKER_CONCURRENCY });
-  const filePaths = await discoverFiles(projectRoot);
+  const filePaths = await discoverFiles(projectRoot, extraIgnore);
   log.info(`discovered ${filePaths.length} files`);
 
   const files = fileQueries(db);

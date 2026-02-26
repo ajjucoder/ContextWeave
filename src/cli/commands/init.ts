@@ -87,7 +87,7 @@ export async function autoInit(projectRoot: string): Promise<void> {
   const db = getDb(dbPath);
   runMigrations(db);
 
-  const result = await indexProject(db, projectRoot);
+  const result = await indexProject(db, projectRoot, DEFAULT_CONFIG.ignore);
   runPageRankInBackground(dbPath);
   closeDb();
 
@@ -121,7 +121,7 @@ export async function runInit(projectRoot: string): Promise<void> {
 
   process.stdout.write("  Indexing project...\n");
   const startTime = Date.now();
-  const result = await indexProject(db, projectRoot);
+  const result = await indexProject(db, projectRoot, DEFAULT_CONFIG.ignore);
   const elapsed = Date.now() - startTime;
 
   runPageRankInBackground(dbPath);

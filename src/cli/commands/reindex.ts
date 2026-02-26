@@ -4,6 +4,7 @@ import { getDb, closeDb } from "../../db/connection.js";
 import { runMigrations } from "../../db/migrations.js";
 import { indexProject, indexSingleFile } from "../../core/indexer.js";
 import { runPageRankInBackground } from "../../core/graph.js";
+import { loadConfig } from "../../utils/config.js";
 
 export async function runReindex(projectRoot: string, targetPath?: string): Promise<void> {
   const cwDir = resolve(projectRoot, ".contextweave");
@@ -28,7 +29,8 @@ export async function runReindex(projectRoot: string, targetPath?: string): Prom
     process.stdout.write(`  ${result.symbolCount} symbols (${elapsed}ms)\n`);
   } else {
     process.stdout.write("Reindexing entire project...\n");
-    const result = await indexProject(db, projectRoot);
+    const config = loadConfig(projectRoot);
+    const result = await indexProject(db, projectRoot, config.ignore);
     runPageRankInBackground(dbPath);
     const elapsed = Date.now() - startTime;
     process.stdout.write(`  ${result.filesIndexed} files, ${result.symbolsFound} symbols (${elapsed}ms)\n`);
