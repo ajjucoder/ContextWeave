@@ -2,6 +2,12 @@
 
 This project uses ContextWeave for AST-aware context retrieval and cross-session memory.
 
+## Commit Conventions
+
+- Use conventional commit format: `type(scope): description`
+- Never use emojis in commit messages
+- Types: feat, fix, docs, style, refactor, perf, test, chore
+
 ## Available Tools
 
 ### cw_capsule
