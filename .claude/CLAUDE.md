@@ -13,13 +13,13 @@ cw_capsule({ query: "UserService", token_budget: 4000, mode: "feature" })
 ### cw_impact
 Analyze dependency impact of changing a symbol.
 ```
-cw_impact({ symbol: "validateEmail" })
+cw_impact({ target: "validateEmail" })
 ```
 
 ### cw_flow
 Trace incoming/outgoing call flow around a symbol.
 ```
-cw_flow({ symbol: "handleRequest", direction: "outgoing" })
+cw_flow({ source: "handleRequest" })
 ```
 
 ### cw_remember
@@ -43,5 +43,5 @@ cw_status()
 ### cw_reindex
 Reindex a file or entire project.
 ```
-cw_reindex({ file: "src/core/parser.ts" })
+cw_reindex({ path: "src/core/parser.ts" })
 ```
