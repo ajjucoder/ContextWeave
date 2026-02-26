@@ -9,13 +9,15 @@ import { createLogger } from "../../utils/logger.js";
 const log = createLogger("reindex-tool");
 
 export function registerReindexTool(server: McpServer, db: Database.Database, projectRoot: string): void {
-  server.tool(
+  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
+
+  registerTool(
     "cw_reindex",
     "Force reindex a file, directory, or the entire project. Updates the AST graph and centrality scores.",
     {
       path: z.string().optional().describe("Specific file or directory to reindex (omit for full project)"),
     },
-    async ({ path }) => {
+    async ({ path }: { path?: string }) => {
       const startTime = Date.now();
       const dbPath = resolve(projectRoot, ".contextweave", "contextweave.db");
 

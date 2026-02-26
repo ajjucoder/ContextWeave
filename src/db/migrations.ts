@@ -47,8 +47,9 @@ const migrations: Migration[] = [
           VALUES ('delete', old.id, old.name, old.kind);
         END
       `);
+      db.exec("DROP TRIGGER IF EXISTS symbols_au");
       db.exec(`
-        CREATE TRIGGER IF NOT EXISTS symbols_au AFTER UPDATE ON symbols BEGIN
+        CREATE TRIGGER symbols_au AFTER UPDATE OF name, kind ON symbols BEGIN
           INSERT INTO symbols_fts(symbols_fts, rowid, name, kind)
           VALUES ('delete', old.id, old.name, old.kind);
           INSERT INTO symbols_fts(rowid, name, kind) VALUES (new.id, new.name, new.kind);

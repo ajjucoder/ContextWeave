@@ -64,14 +64,16 @@ function traceImpact(db: Database.Database, symbolId: number, maxDepth: number):
 }
 
 export function registerImpactTool(server: McpServer, db: Database.Database): void {
-  server.tool(
+  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
+
+  registerTool(
     "cw_impact",
     "Analyze what breaks if a symbol or file changes. Shows dependent symbols that would be affected.",
     {
       target: z.string().describe("Symbol name or file path to analyze impact for"),
       depth: z.number().optional().describe("Max depth of impact analysis (default: 3)"),
     },
-    async ({ target, depth }) => {
+    async ({ target, depth }: { target: string; depth?: number }) => {
       const maxDepth = depth ?? 3;
       const symbols = symbolQueries(db);
       const allNames = symbols.getAllNames();

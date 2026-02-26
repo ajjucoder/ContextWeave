@@ -24,4 +24,13 @@ describe("createSchema FTS sync", () => {
     const results = symbolQueries(db).searchFTS("UserService", 5);
     expect(results.some((s) => s.name === "UserService")).toBe(true);
   });
+
+  it("updates FTS rows only when symbol name/kind changes", () => {
+    const trigger = db
+      .prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'symbols_au'")
+      .get() as { sql: string } | undefined;
+
+    expect(trigger).toBeTruthy();
+    expect(trigger?.sql).toContain("AFTER UPDATE OF name, kind ON symbols");
+  });
 });

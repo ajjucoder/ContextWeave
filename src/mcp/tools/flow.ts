@@ -146,17 +146,18 @@ function resolveSymbol(db: Database.Database, name: string): number | null {
 }
 
 export function registerFlowTool(server: McpServer, db: Database.Database): void {
+  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
   const inputSchema: Record<string, z.ZodTypeAny> = {
     source: z.string().describe("Source symbol name"),
     target: z.string().optional().describe("Target symbol name (omit to trace all outgoing flows)"),
     max_hops: z.number().optional().describe("Maximum path length (default: 5)"),
   };
 
-  server.tool(
+  registerTool(
     "cw_flow",
     "Trace call flow between symbols or from a symbol outward. Shows how data/control flows through the codebase.",
     inputSchema,
-    async ({ source, target, max_hops }) => {
+    async ({ source, target, max_hops }: { source: string; target?: string; max_hops?: number }) => {
       const maxHops = max_hops ?? 5;
       const sourceId = resolveSymbol(db, source);
 

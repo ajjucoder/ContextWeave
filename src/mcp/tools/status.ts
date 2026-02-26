@@ -8,13 +8,15 @@ import { observationQueries } from "../../db/queries/observations.js";
 import { capsuleLogQueries } from "../../db/queries/capsule-log.js";
 
 export function registerStatusTool(server: McpServer, db: Database.Database, projectRoot: string): void {
-  server.tool(
+  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
+
+  registerTool(
     "cw_status",
     "Show index health: file count, symbol count, edge count, stale observations, and last index time.",
     {
       verbose: z.boolean().optional().describe("Show per-file details (default: false)"),
     },
-    async ({ verbose }) => {
+    async ({ verbose }: { verbose?: boolean }) => {
       const files = fileQueries(db);
       const symbols = symbolQueries(db);
       const edges = edgeQueries(db);

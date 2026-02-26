@@ -14,17 +14,18 @@ export function registerCapsuleTool(
 ): void {
   const defaultBudget = config?.tokenBudget ?? 4000;
   const defaultMode = config?.defaultMode ?? "feature";
+  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
   const inputSchema: Record<string, z.ZodTypeAny> = {
     query: z.string().describe("What you're working on or looking for"),
     token_budget: z.number().optional().describe(`Max tokens for the capsule (default: ${defaultBudget})`),
     mode: z.enum(["debug", "refactor", "feature", "review"]).optional().describe(`Task mode affecting scoring weights (default: ${defaultMode})`),
   };
 
-  server.tool(
+  registerTool(
     "cw_capsule",
     "Generate token-budgeted code context for a query. Returns compressed AST-aware context capsule with multi-level compression.",
     inputSchema,
-    async ({ query, token_budget, mode }) => {
+    async ({ query, token_budget, mode }: { query: string; token_budget?: number; mode?: CapsuleMode }) => {
       const result = generateCapsule(db, {
         query,
         tokenBudget: token_budget ?? defaultBudget,

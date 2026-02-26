@@ -16,10 +16,13 @@ Session execution context:
 
 Verification addendum (2026-02-26, `feat/verify-10m-scale-audit`):
 - A 15-agent verification swarm was run specifically against the nine 10M fixes and MCP runtime behavior.
-- Verified implemented: CW10M-P0-001, CW10M-P0-002, CW10M-P0-003.
-- Verified missing: CW10M-P0-004, CW10M-P1-001, CW10M-P1-002, CW10M-P1-003, CW10M-P1-004, CW10M-P2-001.
-- Additional runtime defect fixed in-session: MCP schema compatibility crash (`keyValidator._parse is not a function`) via `zod/v3` tool schema import alignment.
-- Additional correctness defect fixed in-session: `createSchema` now installs FTS sync triggers + rebuild so non-migration bootstrap paths keep `symbols_fts` synchronized.
+- Verified implemented after execution + re-verification: CW10M-P0-001..004, CW10M-P1-001..004, CW10M-P2-001.
+- Additional runtime defect fixed in-session: MCP schema compatibility crash (`keyValidator._parse is not a function`) via bound MCP tool registration and `zod/v3` schema alignment.
+- Additional correctness defects fixed in-session:
+  - `createSchema` now installs FTS sync triggers + rebuild so non-migration bootstrap paths keep `symbols_fts` synchronized.
+  - MCP startup/shutdown lifecycle now has guarded cleanup for watcher/database paths.
+  - Parallel indexing now prunes deleted files and tolerates failed worker batches without aborting successful batches.
+- End-to-end gate completed: `npx vitest run`, `npm run lint`, and `npm run build` all pass on this branch.
 
 ## Ticket Backlog (10M)
 
@@ -74,7 +77,7 @@ Verification addendum (2026-02-26, `feat/verify-10m-scale-audit`):
   - `npx vitest run tests/core/watcher-smoke.test.ts`
   - `npm run lint`
   - `npm run build`
-- status: todo
+- status: done
 
 ### CW10M-P1-001
 - owner: codex
@@ -87,7 +90,7 @@ Verification addendum (2026-02-26, `feat/verify-10m-scale-audit`):
   - `npx vitest run tests/core/incremental-index.test.ts`
   - `npm run lint`
   - `npm run build`
-- status: todo
+- status: done
 
 ### CW10M-P1-002
 - owner: codex
@@ -100,7 +103,7 @@ Verification addendum (2026-02-26, `feat/verify-10m-scale-audit`):
   - `npx vitest run tests/core/parallel-index.test.ts`
   - `npm run lint`
   - `npm run build`
-- status: todo
+- status: done
 
 ### CW10M-P1-003
 - owner: codex
@@ -113,7 +116,7 @@ Verification addendum (2026-02-26, `feat/verify-10m-scale-audit`):
   - `npx vitest run tests/core/background-pagerank.test.ts`
   - `npm run lint`
   - `npm run build`
-- status: todo
+- status: done
 
 ### CW10M-P1-004
 - owner: codex
@@ -125,7 +128,7 @@ Verification addendum (2026-02-26, `feat/verify-10m-scale-audit`):
   - `npx vitest run tests/core/scoped-bfs.test.ts`
   - `npm run lint`
   - `npm run build`
-- status: todo
+- status: done
 
 ### CW10M-P2-001
 - owner: codex
@@ -138,7 +141,7 @@ Verification addendum (2026-02-26, `feat/verify-10m-scale-audit`):
   - `npx vitest run tests/capsule/light-symbol.test.ts`
   - `npm run lint`
   - `npm run build`
-- status: todo
+- status: done
 
 ### CW10M-P2-002
 - owner: codex
@@ -152,7 +155,7 @@ Verification addendum (2026-02-26, `feat/verify-10m-scale-audit`):
   - `npx vitest run`
   - `npm run lint`
   - `npm run build`
-- status: todo
+- status: done
 
 ## Execution Order (10M)
 1. CW10M-P0-001

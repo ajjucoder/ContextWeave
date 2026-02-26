@@ -4,7 +4,9 @@ import type Database from "better-sqlite3";
 import { MemorySearch } from "../../memory/search.js";
 
 export function registerRecallTool(server: McpServer, db: Database.Database): void {
-  server.tool(
+  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
+
+  registerTool(
     "cw_recall",
     "Retrieve relevant prior observations from cross-session memory using BM25 search.",
     {
@@ -13,7 +15,7 @@ export function registerRecallTool(server: McpServer, db: Database.Database): vo
       include_stale: z.boolean().optional().describe("Include stale observations (default: false)"),
       limit: z.number().optional().describe("Max results (default: 10)"),
     },
-    async ({ query, scope, include_stale, limit }) => {
+    async ({ query, scope, include_stale, limit }: { query: string; scope?: string; include_stale?: boolean; limit?: number }) => {
       const search = new MemorySearch(db);
       const results = search.search(query, {
         scope,

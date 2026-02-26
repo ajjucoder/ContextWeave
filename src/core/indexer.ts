@@ -41,6 +41,7 @@ interface WorkerFileParseResult {
   mtime: number;
   hash: string;
   language: string;
+  parsedAt: number;
   parseResult: ParseResult | null;
   error: string | null;
 }
@@ -193,6 +194,7 @@ function runParseWorkerBatch(filePaths: string[]): Promise<WorkerFileParseResult
             mtime: 0,
             hash: "",
             language: "unknown",
+            parsedAt: Date.now(),
             parseResult: null,
             error: null,
           } satisfies WorkerFileParseResult;
@@ -203,13 +205,22 @@ function runParseWorkerBatch(filePaths: string[]): Promise<WorkerFileParseResult
           const content = readFileSync(filePath, "utf-8");
           const hash = hashFile(content);
           const parseResult = parseFile(filePath, content, language);
-          return { filePath, mtime, hash, language, parseResult, error: null } satisfies WorkerFileParseResult;
+          return {
+            filePath,
+            mtime,
+            hash,
+            language,
+            parsedAt: Date.now(),
+            parseResult,
+            error: null,
+          } satisfies WorkerFileParseResult;
         } catch (err) {
           return {
             filePath,
             mtime: 0,
             hash: "",
             language,
+            parsedAt: Date.now(),
             parseResult: null,
             error: err instanceof Error ? err.message : String(err),
           } satisfies WorkerFileParseResult;
@@ -229,7 +240,11 @@ function runParseWorkerBatch(filePaths: string[]): Promise<WorkerFileParseResult
 
     worker.once("message", (message) => {
       settled = true;
-      resolvePromise(message as WorkerFileParseResult[]);
+      const parsed = (message as WorkerFileParseResult[]).map((result) => ({
+        ...result,
+        parsedAt: result.parsedAt ?? Date.now(),
+      }));
+      resolvePromise(parsed);
     });
 
     worker.once("error", (error) => {
@@ -252,6 +267,7 @@ function writeParseResult(
   hash: string,
   fileMtime: number,
   language: string,
+  parsedAt: number,
   parseResult: ParseResult
 ): { symbolCount: number; errors: string[]; diff: IndexDiff | null } {
   const files = fileQueries(db);
@@ -259,7 +275,11 @@ function writeParseResult(
   const edgesDb = edgeQueries(db);
 
   const existingFile = files.getByPath(filePath);
-  const now = Date.now();
+  const now = parsedAt;
+
+  if (existingFile && existingFile.lastIndexed > parsedAt) {
+    return { symbolCount: existingFile.symbolCount, errors: [], diff: null };
+  }
 
   if (existingFile && existingFile.hash === hash) {
     files.updateMtime(existingFile.id, fileMtime);
@@ -350,6 +370,17 @@ export async function indexProject(db: Database.Database, projectRoot: string): 
   log.info(`discovered ${filePaths.length} files`);
 
   const files = fileQueries(db);
+  const discovered = new Set(filePaths);
+  let prunedCount = 0;
+  for (const existing of files.getAll()) {
+    if (discovered.has(existing.path)) continue;
+    files.deleteById(existing.id);
+    prunedCount++;
+  }
+  if (prunedCount > 0) {
+    log.info(`pruned ${prunedCount} deleted files`);
+  }
+
   const toProcess: string[] = [];
   let skippedCount = 0;
 
@@ -381,7 +412,15 @@ export async function indexProject(db: Database.Database, projectRoot: string): 
     batches.push(toProcess.slice(i, i + batchSize));
   }
 
-  const workerResults = await Promise.all(batches.map((batch) => runParseWorkerBatch(batch)));
+  const settledBatches = await Promise.allSettled(batches.map((batch) => runParseWorkerBatch(batch)));
+  const workerResults: WorkerFileParseResult[][] = [];
+  for (const batch of settledBatches) {
+    if (batch.status === "fulfilled") {
+      workerResults.push(batch.value);
+      continue;
+    }
+    allErrors.push(`worker batch failed: ${batch.reason instanceof Error ? batch.reason.message : String(batch.reason)}`);
+  }
 
   let totalSymbols = 0;
   const indexAll = db.transaction(() => {
@@ -394,12 +433,13 @@ export async function indexProject(db: Database.Database, projectRoot: string): 
 
         const result = writeParseResult(
           db,
-          parsed.filePath,
-          parsed.hash,
-          parsed.mtime,
-          parsed.language,
-          parsed.parseResult
-        );
+            parsed.filePath,
+            parsed.hash,
+            parsed.mtime,
+            parsed.language,
+            parsed.parsedAt,
+            parsed.parseResult
+          );
         totalSymbols += result.symbolCount;
         allErrors.push(...result.errors);
       }
@@ -445,7 +485,7 @@ export function indexSingleFile(
 
   const hash = hashFile(content);
   const parseResult = parseFile(filePath, content, language);
-  return writeParseResult(db, filePath, hash, fileMtime, language, parseResult);
+  return writeParseResult(db, filePath, hash, fileMtime, language, Date.now(), parseResult);
 }
 
 export function removeFile(db: Database.Database, filePath: string): void {

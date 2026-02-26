@@ -15,13 +15,14 @@ for (const filePath of filePaths) {
     const content = readFileSync(filePath, "utf-8");
     const hash = hashFile(content);
     const parseResult = parseFile(filePath, content, language);
-    results.push({ filePath, mtime, hash, language, parseResult, error: null });
+    results.push({ filePath, mtime, hash, language, parsedAt: Date.now(), parseResult, error: null });
   } catch (err) {
     results.push({
       filePath,
       mtime: 0,
       hash: "",
       language,
+      parsedAt: Date.now(),
       parseResult: null,
       error: err instanceof Error ? err.message : String(err),
     });

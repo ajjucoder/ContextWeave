@@ -206,3 +206,43 @@
 - `audits/IMPLEMENTATION_PLAN_END_TO_END.md`
 - `audits/SPRINT_PROGRESS.md`
 - `audits/SESSION_LOG_2026-02-26_10M_SCALE.md`
+
+---
+
+## Completion Continuation (Finalization Pass)
+
+### What Was Completed After the Earlier 30% Snapshot
+1. Implemented and committed remaining 10M plan tickets:
+   - CW10M-P0-004: `@parcel/watcher` migration + async watcher lifecycle.
+   - CW10M-P1-001: incremental indexing with mtime fast path.
+   - CW10M-P1-002: parallel indexing with parser worker threads.
+   - CW10M-P1-003: non-blocking background PageRank worker.
+   - CW10M-P1-004: scoped lazy BFS traversal.
+   - CW10M-P2-001: light symbol fetch path for capsule packing.
+2. Fixed MCP tool registration regression by binding `server.tool` context in all MCP tool files.
+3. Applied hardening fixes from bug-finder review:
+   - guarded MCP startup/shutdown cleanup in `src/mcp/server.ts`.
+   - stale-write guard in `src/core/indexer.ts` using parse timestamps.
+   - deleted-file pruning during full reindex in `src/core/indexer.ts`.
+   - tolerant worker-batch handling via `Promise.allSettled` in `src/core/indexer.ts`.
+   - narrowed FTS update trigger to `UPDATE OF name, kind` in schema/migration paths.
+4. Added/extended regression coverage:
+   - `tests/core/reindex-prune.test.ts`
+   - `tests/db/schema-fts-sync.test.ts` (trigger contract assertion)
+   - `tests/integration/mcp-tool-schema-compat.test.ts` expanded to all changed MCP tools.
+
+### Agent Work Completed
+- 10 verifier agents for fix-by-fix validation (initial wave contained mixed path-scoping quality; direct worktree checks were used as source-of-truth).
+- 5 bug/slop agents for runtime and code-quality risks.
+- 1 dedicated QA agent for targeted gate.
+- 1 additional final full-gate awaiter verification pass.
+
+### Fresh Verification Evidence (Final Pass)
+- `npx vitest run tests/core/reindex-prune.test.ts tests/db/schema-fts-sync.test.ts tests/integration/mcp-tool-schema-compat.test.ts` -> pass (`3` files, `10` tests)
+- `npx vitest run` -> pass (`20` files, `90` tests)
+- `npm run lint` -> pass (`tsc --noEmit`)
+- `npm run build` -> pass (`tsup`)
+
+### Completion Truth
+- 10M ticket completion: `10/10` done (`100.0%`).
+- Production readiness gate (tests/lint/build): pass.

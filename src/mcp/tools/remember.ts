@@ -12,7 +12,9 @@ export function registerRememberTool(
   sessionId: string,
   projectRoot: string
 ): void {
-  server.tool(
+  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
+
+  registerTool(
     "cw_remember",
     "Persist a cross-session observation about the codebase. Observations survive between sessions and inform future context capsules.",
     {
@@ -21,7 +23,7 @@ export function registerRememberTool(
       symbol: z.string().optional().describe("Symbol name to associate with (optional)"),
       confidence: z.number().min(0).max(1).optional().describe("Confidence level 0-1 (default: 1.0)"),
     },
-    async ({ scope, note, symbol, confidence }) => {
+    async ({ scope, note, symbol, confidence }: { scope: string; note: string; symbol?: string; confidence?: number }) => {
       const store = new ObservationStore(db);
       sessionQueries(db).ensureSession(sessionId, projectRoot);
 

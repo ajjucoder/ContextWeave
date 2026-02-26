@@ -129,7 +129,7 @@ CREATE TRIGGER IF NOT EXISTS symbols_ad AFTER DELETE ON symbols BEGIN
   INSERT INTO symbols_fts(symbols_fts, rowid, name, kind) VALUES ('delete', old.id, old.name, old.kind);
 END;
 
-CREATE TRIGGER IF NOT EXISTS symbols_au AFTER UPDATE ON symbols BEGIN
+CREATE TRIGGER IF NOT EXISTS symbols_au AFTER UPDATE OF name, kind ON symbols BEGIN
   INSERT INTO symbols_fts(symbols_fts, rowid, name, kind) VALUES ('delete', old.id, old.name, old.kind);
   INSERT INTO symbols_fts(rowid, name, kind) VALUES (new.id, new.name, new.kind);
 END;

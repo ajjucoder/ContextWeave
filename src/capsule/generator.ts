@@ -8,7 +8,6 @@ import type {
   CompressionLevel,
   CapsuleUncertainty,
   LightSymbolRecord,
-  SymbolRecord,
   FileRecord,
 } from "../core/types.js";
 import { symbolQueries } from "../db/queries/symbols.js";

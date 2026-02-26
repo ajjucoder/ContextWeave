@@ -45,26 +45,62 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
   registerStatusTool(server, db, projectRoot);
   registerReindexTool(server, db, projectRoot);
 
-  await startWatcher({ projectRoot, db, ignore: config?.ignore, sessionId: serverSessionId });
-  log.info("file watcher started", { projectRoot });
-
   const transport = new StdioServerTransport();
+  let watcherStarted = false;
+  let shuttingDown: Promise<void> | null = null;
 
-  async function shutdown(signal: string): Promise<void> {
-    log.info("shutting down", { signal });
-    await stopWatcher();
-    closeDb();
-    process.exit(0);
+  async function cleanupResources(reason: string): Promise<void> {
+    try {
+      if (watcherStarted) {
+        await stopWatcher();
+      }
+    } catch (error) {
+      log.error("failed to stop file watcher", {
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    try {
+      closeDb();
+      serverDb = null;
+    } catch (error) {
+      log.error("failed to close database", {
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
-  process.on("SIGINT", () => {
+  async function shutdown(signal: string): Promise<void> {
+    if (shuttingDown) return shuttingDown;
+
+    shuttingDown = (async () => {
+      log.info("shutting down", { signal });
+      await cleanupResources(`signal:${signal}`);
+      process.exit(0);
+    })();
+
+    return shuttingDown;
+  }
+
+  process.once("SIGINT", () => {
     void shutdown("SIGINT");
   });
 
-  process.on("SIGTERM", () => {
+  process.once("SIGTERM", () => {
     void shutdown("SIGTERM");
   });
 
-  log.info("starting MCP server", { projectRoot });
-  await server.connect(transport);
+  try {
+    await startWatcher({ projectRoot, db, ignore: config?.ignore, sessionId: serverSessionId });
+    watcherStarted = true;
+    log.info("file watcher started", { projectRoot });
+
+    log.info("starting MCP server", { projectRoot });
+    await server.connect(transport);
+  } catch (error) {
+    await cleanupResources("startup_failure");
+    throw error;
+  }
 }
