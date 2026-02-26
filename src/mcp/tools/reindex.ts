@@ -2,7 +2,7 @@ import { z } from "zod/v3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
 import { resolve } from "node:path";
-import { indexProject, indexSingleFile } from "../../core/indexer.js";
+import { indexProject, indexSingleFile, isPathWithinRoot } from "../../core/indexer.js";
 import { runPageRankInBackground } from "../../core/graph.js";
 import { createLogger } from "../../utils/logger.js";
 
@@ -18,34 +18,52 @@ export function registerReindexTool(server: McpServer, db: Database.Database, pr
       path: z.string().optional().describe("Specific file or directory to reindex (omit for full project)"),
     },
     async ({ path }: { path?: string }) => {
-      const startTime = Date.now();
-      const dbPath = resolve(projectRoot, ".contextweave", "contextweave.db");
+      try {
+        const startTime = Date.now();
+        const dbPath = resolve(projectRoot, ".contextweave", "contextweave.db");
 
-      if (path) {
-        const result = indexSingleFile(db, path, projectRoot);
+        if (path) {
+          const fullPath = resolve(projectRoot, path);
+
+          if (!isPathWithinRoot(fullPath, projectRoot)) {
+            return {
+              content: [{ type: "text" as const, text: `Error: path "${path}" is outside the project root` }],
+              isError: true,
+            };
+          }
+
+          const result = indexSingleFile(db, fullPath, projectRoot);
+          runPageRankInBackground(dbPath);
+          const elapsed = Date.now() - startTime;
+
+          return {
+            content: [{
+              type: "text" as const,
+              text: `Reindexed ${path}: ${result.symbolCount} symbols (${elapsed}ms)${result.errors.length > 0 ? `\nErrors: ${result.errors.join(", ")}` : ""}`,
+            }],
+          };
+        }
+
+        const result = await indexProject(db, projectRoot);
         runPageRankInBackground(dbPath);
         const elapsed = Date.now() - startTime;
+
+        log.info(`full reindex completed in ${elapsed}ms`);
 
         return {
           content: [{
             type: "text" as const,
-            text: `Reindexed ${path}: ${result.symbolCount} symbols (${elapsed}ms)${result.errors.length > 0 ? `\nErrors: ${result.errors.join(", ")}` : ""}`,
+            text: `Reindexed project: ${result.filesIndexed} files, ${result.symbolsFound} symbols (${elapsed}ms)${result.errors.length > 0 ? `\n${result.errors.length} errors` : ""}`,
           }],
         };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        log.error("reindex failed", { error: message });
+        return {
+          content: [{ type: "text" as const, text: `Reindex failed: ${message}` }],
+          isError: true,
+        };
       }
-
-      const result = await indexProject(db, projectRoot);
-      runPageRankInBackground(dbPath);
-      const elapsed = Date.now() - startTime;
-
-      log.info(`full reindex completed in ${elapsed}ms`);
-
-      return {
-        content: [{
-          type: "text" as const,
-          text: `Reindexed project: ${result.filesIndexed} files, ${result.symbolsFound} symbols (${elapsed}ms)${result.errors.length > 0 ? `\n${result.errors.length} errors` : ""}`,
-        }],
-      };
     }
   );
 }
