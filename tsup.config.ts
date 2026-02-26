@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     index: "src/index.ts",
     "parser-worker": "src/core/parser-worker.js",
+    "pagerank-worker": "src/core/pagerank-worker.js",
   },
   format: ["esm"],
   target: "node22",

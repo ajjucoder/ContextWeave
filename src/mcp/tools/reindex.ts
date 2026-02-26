@@ -1,8 +1,9 @@
 import { z } from "zod/v3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
+import { resolve } from "node:path";
 import { indexProject, indexSingleFile } from "../../core/indexer.js";
-import { updateCentralityScores } from "../../core/graph.js";
+import { runPageRankInBackground } from "../../core/graph.js";
 import { createLogger } from "../../utils/logger.js";
 
 const log = createLogger("reindex-tool");
@@ -16,10 +17,11 @@ export function registerReindexTool(server: McpServer, db: Database.Database, pr
     },
     async ({ path }) => {
       const startTime = Date.now();
+      const dbPath = resolve(projectRoot, ".contextweave", "contextweave.db");
 
       if (path) {
         const result = indexSingleFile(db, path, projectRoot);
-        updateCentralityScores(db);
+        runPageRankInBackground(dbPath);
         const elapsed = Date.now() - startTime;
 
         return {
@@ -31,7 +33,7 @@ export function registerReindexTool(server: McpServer, db: Database.Database, pr
       }
 
       const result = await indexProject(db, projectRoot);
-      updateCentralityScores(db);
+      runPageRankInBackground(dbPath);
       const elapsed = Date.now() - startTime;
 
       log.info(`full reindex completed in ${elapsed}ms`);

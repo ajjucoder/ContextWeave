@@ -1,9 +1,14 @@
 import type Database from "better-sqlite3";
+import { Worker } from "node:worker_threads";
+import { fileURLToPath } from "node:url";
+import { dirname, join, sep } from "node:path";
 import { symbolQueries } from "../db/queries/symbols.js";
 import { edgeQueries } from "../db/queries/edges.js";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("graph");
+const PAGERANK_WORKER = join(dirname(fileURLToPath(import.meta.url)), "pagerank-worker.js");
+const USE_TSX_WORKER_LOADER = PAGERANK_WORKER.includes(`${sep}src${sep}`);
 
 export interface BfsNode {
   symbolId: number;
@@ -214,6 +219,27 @@ export function updateCentralityScores(db: Database.Database): void {
   for (const [symbolId, rank] of ranks) {
     symbolsQ.updateCentrality(symbolId, rank);
   }
+}
+
+export function runPageRankInBackground(dbPath: string): void {
+  const worker = new Worker(
+    PAGERANK_WORKER,
+    USE_TSX_WORKER_LOADER
+      ? { workerData: { dbPath }, execArgv: ["--import", "tsx"] }
+      : { workerData: { dbPath } }
+  );
+
+  worker.once("error", (err) => {
+    log.error("background PageRank worker error", err);
+  });
+
+  worker.once("exit", (code) => {
+    if (code === 0) {
+      log.info("background PageRank completed");
+    } else {
+      log.warn(`background PageRank worker exited with code ${code}`);
+    }
+  });
 }
 
 export function getDepthForBudget(tokenBudget: number): number {

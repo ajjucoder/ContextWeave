@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { getDb, closeDb } from "../../db/connection.js";
 import { runMigrations } from "../../db/migrations.js";
 import { indexProject } from "../../core/indexer.js";
-import { updateCentralityScores } from "../../core/graph.js";
+import { runPageRankInBackground } from "../../core/graph.js";
 const DEFAULT_CONFIG = {
   version: 1,
   ignore: ["node_modules", "dist", "build", ".git", ".next", "coverage"],
@@ -88,7 +88,7 @@ export async function autoInit(projectRoot: string): Promise<void> {
   runMigrations(db);
 
   const result = await indexProject(db, projectRoot);
-  updateCentralityScores(db);
+  runPageRankInBackground(dbPath);
   closeDb();
 
   process.stderr.write(
@@ -124,7 +124,7 @@ export async function runInit(projectRoot: string): Promise<void> {
   const result = await indexProject(db, projectRoot);
   const elapsed = Date.now() - startTime;
 
-  updateCentralityScores(db);
+  runPageRankInBackground(dbPath);
 
   process.stdout.write(`  Indexed ${result.filesIndexed} files, ${result.symbolsFound} symbols (${elapsed}ms)\n`);
 
