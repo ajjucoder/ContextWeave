@@ -1,8 +1,12 @@
 import { readFileSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, sep } from "node:path";
 import { glob } from "node:fs/promises";
+import { Worker } from "node:worker_threads";
+import { cpus } from "node:os";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import type Database from "better-sqlite3";
-import type { ParsedSymbol, SymbolRecord, IndexDiff } from "./types.js";
+import type { ParsedSymbol, SymbolRecord, IndexDiff, ParseResult } from "./types.js";
 import { parseFile, detectLanguage } from "./parser.js";
 import { hashFile } from "../utils/hash.js";
 import { fileQueries } from "../db/queries/files.js";
@@ -31,6 +35,19 @@ const IGNORE_PATTERNS = [
   "vendor",
   ".bundle",
 ];
+
+interface WorkerFileParseResult {
+  filePath: string;
+  mtime: number;
+  hash: string;
+  language: string;
+  parseResult: ParseResult | null;
+  error: string | null;
+}
+
+const WORKER_CONCURRENCY = Math.max(2, Math.min(8, cpus().length - 1));
+const WORKER_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "parser-worker.js");
+const USE_TSX_WORKER_LOADER = WORKER_SCRIPT.includes(`${sep}src${sep}`);
 
 function shouldIgnore(filePath: string): boolean {
   return IGNORE_PATTERNS.some((pattern) => filePath.includes(`/${pattern}/`) || filePath.includes(`\\${pattern}\\`));
@@ -165,72 +182,89 @@ function resolveEdges(
   }
 }
 
-export async function indexProject(db: Database.Database, projectRoot: string): Promise<{ filesIndexed: number; symbolsFound: number; errors: string[] }> {
-  const allErrors: string[] = [];
+function runParseWorkerBatch(filePaths: string[]): Promise<WorkerFileParseResult[]> {
+  if (USE_TSX_WORKER_LOADER) {
+    return Promise.resolve(
+      filePaths.map((filePath) => {
+        const language = detectLanguage(filePath);
+        if (!language) {
+          return {
+            filePath,
+            mtime: 0,
+            hash: "",
+            language: "unknown",
+            parseResult: null,
+            error: null,
+          } satisfies WorkerFileParseResult;
+        }
 
-  log.info("starting full index", { projectRoot });
-  const filePaths = await discoverFiles(projectRoot);
-  log.info(`discovered ${filePaths.length} files`);
+        try {
+          const mtime = statSync(filePath).mtimeMs;
+          const content = readFileSync(filePath, "utf-8");
+          const hash = hashFile(content);
+          const parseResult = parseFile(filePath, content, language);
+          return { filePath, mtime, hash, language, parseResult, error: null } satisfies WorkerFileParseResult;
+        } catch (err) {
+          return {
+            filePath,
+            mtime: 0,
+            hash: "",
+            language,
+            parseResult: null,
+            error: err instanceof Error ? err.message : String(err),
+          } satisfies WorkerFileParseResult;
+        }
+      })
+    );
+  }
 
-  let totalSymbols = 0;
+  return new Promise((resolvePromise, rejectPromise) => {
+    const worker = new Worker(
+      WORKER_SCRIPT,
+      USE_TSX_WORKER_LOADER
+        ? { workerData: { filePaths }, execArgv: ["--import", "tsx"] }
+        : { workerData: { filePaths } }
+    );
+    let settled = false;
 
-  const indexAll = db.transaction(() => {
-    for (const filePath of filePaths) {
-      const result = indexSingleFile(db, filePath, projectRoot);
-      totalSymbols += result.symbolCount;
-      allErrors.push(...result.errors);
-    }
+    worker.once("message", (message) => {
+      settled = true;
+      resolvePromise(message as WorkerFileParseResult[]);
+    });
+
+    worker.once("error", (error) => {
+      if (settled) return;
+      settled = true;
+      rejectPromise(error);
+    });
+
+    worker.once("exit", (code) => {
+      if (settled || code === 0) return;
+      settled = true;
+      rejectPromise(new Error(`Parser worker exited with code ${code}`));
+    });
   });
-
-  indexAll();
-
-  log.info(`indexed ${filePaths.length} files, ${totalSymbols} symbols`);
-  return { filesIndexed: filePaths.length, symbolsFound: totalSymbols, errors: allErrors };
 }
 
-export function indexSingleFile(
+function writeParseResult(
   db: Database.Database,
   filePath: string,
-  _projectRoot: string
+  hash: string,
+  fileMtime: number,
+  language: string,
+  parseResult: ParseResult
 ): { symbolCount: number; errors: string[]; diff: IndexDiff | null } {
   const files = fileQueries(db);
   const symbolsDb = symbolQueries(db);
   const edgesDb = edgeQueries(db);
 
-  const language = detectLanguage(filePath);
-  if (!language) return { symbolCount: 0, errors: [], diff: null };
-
   const existingFile = files.getByPath(filePath);
   const now = Date.now();
-
-  let fileMtime = 0;
-  try {
-    fileMtime = statSync(filePath).mtimeMs;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { symbolCount: 0, errors: [`Failed to stat ${filePath}: ${message}`], diff: null };
-  }
-
-  if (existingFile && existingFile.mtime === fileMtime) {
-    return { symbolCount: existingFile.symbolCount, errors: [], diff: null };
-  }
-
-  let content: string;
-  try {
-    content = readFileSync(filePath, "utf-8");
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    return { symbolCount: 0, errors: [`Failed to read ${filePath}: ${message}`], diff: null };
-  }
-
-  const hash = hashFile(content);
 
   if (existingFile && existingFile.hash === hash) {
     files.updateMtime(existingFile.id, fileMtime);
     return { symbolCount: existingFile.symbolCount, errors: [], diff: null };
   }
-
-  const parseResult = parseFile(filePath, content, language);
 
   let fileId: number;
   let diff: IndexDiff | null = null;
@@ -276,7 +310,6 @@ export function indexSingleFile(
   }
 
   const symbolMap = new Map<string, number>();
-
   const symbolsToInsert = diff
     ? [...diff.added, ...diff.modified.map((m) => m.new), ...diff.renamed.map((r) => r.new)]
     : parseResult.symbols;
@@ -306,8 +339,113 @@ export function indexSingleFile(
   }
 
   resolveEdges(db, fileId, parseResult, symbolMap);
-
   return { symbolCount: parseResult.symbols.length, errors: parseResult.errors, diff };
+}
+
+export async function indexProject(db: Database.Database, projectRoot: string): Promise<{ filesIndexed: number; symbolsFound: number; errors: string[] }> {
+  const allErrors: string[] = [];
+
+  log.info("starting parallel index", { projectRoot, workers: WORKER_CONCURRENCY });
+  const filePaths = await discoverFiles(projectRoot);
+  log.info(`discovered ${filePaths.length} files`);
+
+  const files = fileQueries(db);
+  const toProcess: string[] = [];
+  let skippedCount = 0;
+
+  for (const filePath of filePaths) {
+    const existing = files.getByPath(filePath);
+    if (existing) {
+      try {
+        const mtime = statSync(filePath).mtimeMs;
+        if (mtime === existing.mtime) {
+          skippedCount++;
+          continue;
+        }
+      } catch {
+      }
+    }
+    toProcess.push(filePath);
+  }
+
+  log.info(`skipped ${skippedCount} unchanged files, processing ${toProcess.length}`);
+
+  if (toProcess.length === 0) {
+    return { filesIndexed: filePaths.length, symbolsFound: 0, errors: [] };
+  }
+
+  const workerCount = Math.min(WORKER_CONCURRENCY, toProcess.length);
+  const batchSize = Math.max(1, Math.ceil(toProcess.length / workerCount));
+  const batches: string[][] = [];
+  for (let i = 0; i < toProcess.length; i += batchSize) {
+    batches.push(toProcess.slice(i, i + batchSize));
+  }
+
+  const workerResults = await Promise.all(batches.map((batch) => runParseWorkerBatch(batch)));
+
+  let totalSymbols = 0;
+  const indexAll = db.transaction(() => {
+    for (const batchResult of workerResults) {
+      for (const parsed of batchResult) {
+        if (parsed.error || !parsed.parseResult) {
+          if (parsed.error) allErrors.push(`${parsed.filePath}: ${parsed.error}`);
+          continue;
+        }
+
+        const result = writeParseResult(
+          db,
+          parsed.filePath,
+          parsed.hash,
+          parsed.mtime,
+          parsed.language,
+          parsed.parseResult
+        );
+        totalSymbols += result.symbolCount;
+        allErrors.push(...result.errors);
+      }
+    }
+  });
+
+  indexAll();
+
+  log.info(`indexed ${toProcess.length} files, ${totalSymbols} symbols`);
+  return { filesIndexed: filePaths.length, symbolsFound: totalSymbols, errors: allErrors };
+}
+
+export function indexSingleFile(
+  db: Database.Database,
+  filePath: string,
+  _projectRoot: string
+): { symbolCount: number; errors: string[]; diff: IndexDiff | null } {
+  const files = fileQueries(db);
+  const language = detectLanguage(filePath);
+  if (!language) return { symbolCount: 0, errors: [], diff: null };
+
+  const existingFile = files.getByPath(filePath);
+
+  let fileMtime = 0;
+  try {
+    fileMtime = statSync(filePath).mtimeMs;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { symbolCount: 0, errors: [`Failed to stat ${filePath}: ${message}`], diff: null };
+  }
+
+  if (existingFile && existingFile.mtime === fileMtime) {
+    return { symbolCount: existingFile.symbolCount, errors: [], diff: null };
+  }
+
+  let content: string;
+  try {
+    content = readFileSync(filePath, "utf-8");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { symbolCount: 0, errors: [`Failed to read ${filePath}: ${message}`], diff: null };
+  }
+
+  const hash = hashFile(content);
+  const parseResult = parseFile(filePath, content, language);
+  return writeParseResult(db, filePath, hash, fileMtime, language, parseResult);
 }
 
 export function removeFile(db: Database.Database, filePath: string): void {
