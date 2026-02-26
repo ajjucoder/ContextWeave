@@ -92,6 +92,16 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
     void shutdown("SIGTERM");
   });
 
+  process.on("uncaughtException", (err) => {
+    log.error("uncaught exception", { error: err.message, stack: err.stack });
+    void shutdown("uncaughtException");
+  });
+
+  process.on("unhandledRejection", (reason) => {
+    const message = reason instanceof Error ? reason.message : String(reason);
+    log.error("unhandled rejection", { error: message });
+  });
+
   try {
     await startWatcher({ projectRoot, db, ignore: config?.ignore, sessionId: serverSessionId });
     watcherStarted = true;
