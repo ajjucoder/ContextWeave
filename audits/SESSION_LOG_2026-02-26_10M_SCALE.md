@@ -131,3 +131,78 @@
 ## Pending Work After This Session
 - Tasks 4-10 from `docs/plans/2026-02-26-10m-line-scale.md` remain pending.
 - Ticketized status and completion math are tracked in `audits/SPRINT_PROGRESS.md`.
+
+---
+
+## Verification + Repair Session (15-Agent Audit)
+
+### Metadata
+- date: 2026-02-26
+- branch: `feat/verify-10m-scale-audit`
+- worktree: `/path/to/worktree`
+- user request: verify whether 10M plan is fully complete, run 15 agents, find/fix MCP bugs and slop, document everything
+
+### Skills and Workflow Used
+- `using-superpowers`: skill-first workflow.
+- `executing-plans`: verification against written 10M plan.
+- `dispatching-parallel-agents`: 15-agent split into verification + bug/slop review waves.
+- `verification-before-completion`: fresh command evidence before each claim.
+
+### Agent Execution Record
+1. Worktree created from `main`: `feat/verify-10m-scale-audit`.
+2. Verification wave launched (8 agents due runtime cap):
+   - Fix #1 verified implemented.
+   - Fix #2 verified implemented on capsule path, but bootstrap-path regression identified.
+   - Fix #3 verified implemented.
+   - Fixes #4, #5, #6, #7, #8 verified not implemented.
+3. Verification wave 2 launched (7 agents):
+   - Fix #9 verified not implemented.
+   - MCP runtime root-cause/fix worker implemented patch for `keyValidator._parse` crash.
+   - Five reviewers produced prioritized bug/slop findings (path-scope risks, config validation, lifecycle concerns, scaling hotspots).
+4. All 15 requested agent missions were completed and closed.
+
+### Root-Cause and Fixes Applied
+1. MCP runtime crash (`keyValidator._parse is not a function`)
+   - root cause: MCP SDK tool schema parser uses Zod v3 internals while MCP tool definitions used Zod v4 validators.
+   - fix: changed MCP tool schema imports to `zod/v3` in:
+     - `src/mcp/tools/capsule.ts`
+     - `src/mcp/tools/flow.ts`
+     - `src/mcp/tools/impact.ts`
+     - `src/mcp/tools/recall.ts`
+     - `src/mcp/tools/reindex.ts`
+     - `src/mcp/tools/remember.ts`
+     - `src/mcp/tools/status.ts`
+   - regression test added: `tests/integration/mcp-tool-schema-compat.test.ts`.
+2. FTS bootstrap divergence (`createSchema` path missing FTS sync)
+   - root cause: `createSchema` created `symbols_fts` but not sync triggers/rebuild, causing empty FTS matches in integration bootstrap path.
+   - fix: added FTS sync trigger bundle + rebuild command in `src/db/schema.ts`.
+   - regression test added: `tests/db/schema-fts-sync.test.ts`.
+3. Type-check stabilization for MCP schema patch
+   - `cw_capsule` and `cw_flow` schemas now use local `inputSchema: Record<string, z.ZodTypeAny>` to prevent deep generic inference blowups.
+
+### Fresh Verification Commands and Outcomes
+- `npm test -- tests/integration/mcp-tool-schema-compat.test.ts` -> pass
+- `npm test -- tests/db/schema-fts-sync.test.ts` -> pass
+- `npm test -- tests/integration/capsule.test.ts` -> pass
+- `npm run build` -> pass
+- `npm run lint` -> fail in this runtime due Node heap OOM (`tsc --noEmit`)
+
+### Plan Completion Truth Check (from code + evidence)
+- implemented: fixes 1-3
+- not implemented: fixes 4-9
+- conclusion: repository does **not** currently satisfy “all 9 fixes complete / 10M ready” claim.
+
+### Files Changed in This Verification Session
+- `src/db/schema.ts`
+- `src/mcp/tools/capsule.ts`
+- `src/mcp/tools/flow.ts`
+- `src/mcp/tools/impact.ts`
+- `src/mcp/tools/recall.ts`
+- `src/mcp/tools/reindex.ts`
+- `src/mcp/tools/remember.ts`
+- `src/mcp/tools/status.ts`
+- `tests/db/schema-fts-sync.test.ts`
+- `tests/integration/mcp-tool-schema-compat.test.ts`
+- `audits/IMPLEMENTATION_PLAN_END_TO_END.md`
+- `audits/SPRINT_PROGRESS.md`
+- `audits/SESSION_LOG_2026-02-26_10M_SCALE.md`

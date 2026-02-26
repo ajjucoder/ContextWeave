@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "zod/v3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
 import { symbolQueries } from "../../db/queries/symbols.js";
@@ -146,14 +146,16 @@ function resolveSymbol(db: Database.Database, name: string): number | null {
 }
 
 export function registerFlowTool(server: McpServer, db: Database.Database): void {
+  const inputSchema: Record<string, z.ZodTypeAny> = {
+    source: z.string().describe("Source symbol name"),
+    target: z.string().optional().describe("Target symbol name (omit to trace all outgoing flows)"),
+    max_hops: z.number().optional().describe("Maximum path length (default: 5)"),
+  };
+
   server.tool(
     "cw_flow",
     "Trace call flow between symbols or from a symbol outward. Shows how data/control flows through the codebase.",
-    {
-      source: z.string().describe("Source symbol name"),
-      target: z.string().optional().describe("Target symbol name (omit to trace all outgoing flows)"),
-      max_hops: z.number().optional().describe("Maximum path length (default: 5)"),
-    },
+    inputSchema,
     async ({ source, target, max_hops }) => {
       const maxHops = max_hops ?? 5;
       const sourceId = resolveSymbol(db, source);

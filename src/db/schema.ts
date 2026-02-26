@@ -120,7 +120,25 @@ CREATE INDEX IF NOT EXISTS idx_edges_tgt_cov ON edges(target_symbol_id, source_s
 CREATE INDEX IF NOT EXISTS idx_files_path_cov ON files(path, id, hash, mtime, symbol_count, last_indexed);
 `;
 
+const FTS_SYNC = `
+CREATE TRIGGER IF NOT EXISTS symbols_ai AFTER INSERT ON symbols BEGIN
+  INSERT INTO symbols_fts(rowid, name, kind) VALUES (new.id, new.name, new.kind);
+END;
+
+CREATE TRIGGER IF NOT EXISTS symbols_ad AFTER DELETE ON symbols BEGIN
+  INSERT INTO symbols_fts(symbols_fts, rowid, name, kind) VALUES ('delete', old.id, old.name, old.kind);
+END;
+
+CREATE TRIGGER IF NOT EXISTS symbols_au AFTER UPDATE ON symbols BEGIN
+  INSERT INTO symbols_fts(symbols_fts, rowid, name, kind) VALUES ('delete', old.id, old.name, old.kind);
+  INSERT INTO symbols_fts(rowid, name, kind) VALUES (new.id, new.name, new.kind);
+END;
+
+INSERT INTO symbols_fts(symbols_fts) VALUES('rebuild');
+`;
+
 export function createSchema(db: Database.Database): void {
   db.exec(TABLES);
   db.exec(INDEXES);
+  db.exec(FTS_SYNC);
 }

@@ -14,6 +14,13 @@ Session execution context:
 - worktree: `/path/to/worktree`
 - mode: `single-agent with awaiter sub-agents for long-running commands`
 
+Verification addendum (2026-02-26, `feat/verify-10m-scale-audit`):
+- A 15-agent verification swarm was run specifically against the nine 10M fixes and MCP runtime behavior.
+- Verified implemented: CW10M-P0-001, CW10M-P0-002, CW10M-P0-003.
+- Verified missing: CW10M-P0-004, CW10M-P1-001, CW10M-P1-002, CW10M-P1-003, CW10M-P1-004, CW10M-P2-001.
+- Additional runtime defect fixed in-session: MCP schema compatibility crash (`keyValidator._parse is not a function`) via `zod/v3` tool schema import alignment.
+- Additional correctness defect fixed in-session: `createSchema` now installs FTS sync triggers + rebuild so non-migration bootstrap paths keep `symbols_fts` synchronized.
+
 ## Ticket Backlog (10M)
 
 ### CW10M-P0-001
