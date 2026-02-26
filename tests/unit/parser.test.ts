@@ -6,6 +6,22 @@ import { parseFile, detectLanguage } from "../../src/core/parser.js";
 const FIXTURE_PATH = resolve(__dirname, "../fixtures/sample.ts");
 const FIXTURE_CONTENT = readFileSync(FIXTURE_PATH, "utf-8");
 
+const languageFixtures = [
+  { language: "go", fileName: "sample.go", extProbe: "foo.go" },
+  { language: "rust", fileName: "sample.rs", extProbe: "foo.rs" },
+  { language: "java", fileName: "sample.java", extProbe: "Foo.java" },
+  { language: "c", fileName: "sample.c", extProbe: "foo.c" },
+  { language: "c", fileName: "sample.c", extProbe: "foo.h" },
+  { language: "cpp", fileName: "sample.cpp", extProbe: "foo.cpp" },
+  { language: "cpp", fileName: "sample.cpp", extProbe: "foo.hxx" },
+  { language: "csharp", fileName: "sample.cs", extProbe: "foo.cs" },
+  { language: "ruby", fileName: "sample.rb", extProbe: "foo.rb" },
+  { language: "ruby", fileName: "sample.rb", extProbe: "Rakefile.rake" },
+  { language: "bash", fileName: "sample.sh", extProbe: "run.sh" },
+  { language: "bash", fileName: "sample.sh", extProbe: "run.bash" },
+  { language: "php", fileName: "sample.php", extProbe: "foo.php" },
+];
+
 describe("detectLanguage", () => {
   it("detects TypeScript", () => {
     expect(detectLanguage("foo.ts")).toBe("typescript");
@@ -19,9 +35,20 @@ describe("detectLanguage", () => {
     expect(detectLanguage("foo.js")).toBe("javascript");
   });
 
+  it("detects Python", () => {
+    expect(detectLanguage("foo.py")).toBe("python");
+  });
+
+  it("detects all added language extensions", () => {
+    for (const fixture of languageFixtures) {
+      expect(detectLanguage(fixture.extProbe)).toBe(fixture.language);
+    }
+  });
+
   it("returns null for unknown extensions", () => {
-    expect(detectLanguage("foo.py")).toBeNull();
-    expect(detectLanguage("foo.rs")).toBeNull();
+    expect(detectLanguage("foo.kt")).toBeNull();
+    expect(detectLanguage("foo.swift")).toBeNull();
+    expect(detectLanguage("foo.elm")).toBeNull();
   });
 });
 
@@ -114,5 +141,18 @@ describe("parseFile", () => {
     expect(names).toContain("helper");
     expect(names).toContain("localObject");
     expect(names).toContain("topLevel");
+  });
+
+  it("parses all language fixtures with symbols, imports, and calls", () => {
+    for (const fixture of languageFixtures) {
+      const path = resolve(__dirname, `../fixtures/${fixture.fileName}`);
+      const content = readFileSync(path, "utf-8");
+      const parsed = parseFile(path, content, fixture.language);
+
+      expect(parsed.errors).toHaveLength(0);
+      expect(parsed.symbols.length).toBeGreaterThan(0);
+      expect(parsed.imports.length).toBeGreaterThan(0);
+      expect(parsed.calls.length).toBeGreaterThan(0);
+    }
   });
 });

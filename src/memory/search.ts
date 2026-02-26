@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import type { ObservationRecord } from "../core/types.js";
 import { ObservationStore } from "./observations.js";
+import { countTokens } from "../utils/tokens.js";
 
 interface SearchOptions {
   scope?: string;
@@ -11,12 +12,6 @@ interface SearchOptions {
 interface ScoredObservation {
   observation: ObservationRecord;
   score: number;
-}
-
-const TOKENS_PER_CHAR = 0.25;
-
-function estimateTokens(text: string): number {
-  return Math.ceil(text.length * TOKENS_PER_CHAR);
 }
 
 function formatObservation(obs: ObservationRecord): string {
@@ -66,7 +61,7 @@ export class MemorySearch {
 
     for (const { observation } of results) {
       const text = formatObservation(observation);
-      const tokens = estimateTokens(text);
+      const tokens = countTokens(text);
       if (tokensUsed + tokens > budget) break;
       selected.push(observation);
       tokensUsed += tokens;

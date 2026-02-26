@@ -40,7 +40,7 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
   registerCapsuleTool(server, db, projectRoot, config, serverSessionId);
   registerImpactTool(server, db);
   registerFlowTool(server, db);
-  registerRememberTool(server, db);
+  registerRememberTool(server, db, serverSessionId, projectRoot);
   registerRecallTool(server, db);
   registerStatusTool(server, db, projectRoot);
   registerReindexTool(server, db, projectRoot);

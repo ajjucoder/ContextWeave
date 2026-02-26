@@ -12,6 +12,21 @@ export default defineConfig({
   banner: {
     js: "#!/usr/bin/env node",
   },
-  external: ["better-sqlite3", "tree-sitter", "tree-sitter-typescript", "tree-sitter-javascript"],
+  external: [
+    "better-sqlite3",
+    "tree-sitter",
+    "tree-sitter-typescript",
+    "tree-sitter-javascript",
+    "tree-sitter-python",
+    "tree-sitter-go",
+    "tree-sitter-rust",
+    "tree-sitter-java",
+    "tree-sitter-c",
+    "tree-sitter-cpp",
+    "tree-sitter-c-sharp",
+    "tree-sitter-ruby",
+    "tree-sitter-bash",
+    "tree-sitter-php",
+  ],
   noExternal: [],
 });

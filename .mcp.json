@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "contextweave": {
+      "command": "node",
+      "args": ["/path/to/ContextWeave/dist/index.js", "serve"],
+      "cwd": "/path/to/ContextWeave"
+    }
+  }
+}

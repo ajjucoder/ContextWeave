@@ -10,12 +10,40 @@ export interface BfsNode {
   distance: number;
 }
 
+export interface AdjacencyMap {
+  outgoing: Map<number, number[]>;
+  incoming: Map<number, number[]>;
+  degree: Map<number, number>;
+}
+
+export function buildAdjacencyMap(db: Database.Database): AdjacencyMap {
+  const outgoing = new Map<number, number[]>();
+  const incoming = new Map<number, number[]>();
+  const degree = new Map<number, number>();
+
+  for (const edge of edgeQueries(db).getAll()) {
+    const out = outgoing.get(edge.sourceSymbolId);
+    if (out) out.push(edge.targetSymbolId);
+    else outgoing.set(edge.sourceSymbolId, [edge.targetSymbolId]);
+
+    const inc = incoming.get(edge.targetSymbolId);
+    if (inc) inc.push(edge.sourceSymbolId);
+    else incoming.set(edge.targetSymbolId, [edge.sourceSymbolId]);
+
+    degree.set(edge.sourceSymbolId, (degree.get(edge.sourceSymbolId) ?? 0) + 1);
+    degree.set(edge.targetSymbolId, (degree.get(edge.targetSymbolId) ?? 0) + 1);
+  }
+
+  return { outgoing, incoming, degree };
+}
+
 export function bfsTraversal(
   db: Database.Database,
   pivotIds: number[],
-  maxDepth: number
+  maxDepth: number,
+  adjacency?: AdjacencyMap
 ): BfsNode[] {
-  const edges = edgeQueries(db);
+  const graph = adjacency ?? buildAdjacencyMap(db);
   const visited = new Map<number, number>();
   const queue: BfsNode[] = [];
 
@@ -32,11 +60,11 @@ export function bfsTraversal(
 
     if (current.distance >= maxDepth) continue;
 
-    const outgoing = edges.getBySource(current.symbolId);
-    const incoming = edges.getByTarget(current.symbolId);
+    const outgoing = graph.outgoing.get(current.symbolId) ?? [];
+    const incoming = graph.incoming.get(current.symbolId) ?? [];
     const neighbors = [
-      ...outgoing.map((e) => e.targetSymbolId),
-      ...incoming.map((e) => e.sourceSymbolId),
+      ...outgoing,
+      ...incoming,
     ];
 
     for (const neighborId of neighbors) {
@@ -65,13 +93,12 @@ export function computePageRank(db: Database.Database): Map<number, number> {
   const symbols = symbolQueries(db);
   const edges = edgeQueries(db);
 
-  const allSymbols = symbols.getAll();
+  const symbolIds = symbols.getAllIds();
   const allEdges = edges.getAll();
 
-  if (allSymbols.length === 0) return new Map();
+  if (symbolIds.length === 0) return new Map();
 
-  const n = allSymbols.length;
-  const symbolIds = allSymbols.map((s) => s.id);
+  const n = symbolIds.length;
   const idToIndex = new Map(symbolIds.map((id, i) => [id, i]));
 
   const outLinks = new Map<number, number[]>();
@@ -89,15 +116,20 @@ export function computePageRank(db: Database.Database): Map<number, number> {
   let newRanks = new Float64Array(n);
 
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
-    newRanks.fill((1 - DAMPING) / n);
+    let danglingSum = 0;
+    for (let i = 0; i < n; i++) {
+      const links = outLinks.get(i);
+      if (!links || links.length === 0) {
+        danglingSum += ranks[i]!;
+      }
+    }
+    const danglingContribution = (DAMPING * danglingSum) / n;
+
+    newRanks.fill((1 - DAMPING) / n + danglingContribution);
 
     for (let i = 0; i < n; i++) {
       const links = outLinks.get(i);
       if (!links || links.length === 0) {
-        const share = ranks[i]! / n;
-        for (let j = 0; j < n; j++) {
-          newRanks[j] = newRanks[j]! + DAMPING * share;
-        }
         continue;
       }
 

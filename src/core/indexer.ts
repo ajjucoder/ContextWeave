@@ -23,6 +23,13 @@ const IGNORE_PATTERNS = [
   "__pycache__",
   ".turbo",
   ".cache",
+  "venv",
+  ".venv",
+  "env",
+  "target",
+  ".tox",
+  "vendor",
+  ".bundle",
 ];
 
 function shouldIgnore(filePath: string): boolean {
@@ -31,7 +38,7 @@ function shouldIgnore(filePath: string): boolean {
 
 async function discoverFiles(projectRoot: string): Promise<string[]> {
   const files: string[] = [];
-  const pattern = "**/*.{ts,tsx,js,jsx,mjs,cjs}";
+  const pattern = "**/*.{ts,tsx,js,jsx,mjs,cjs,py,go,rs,java,c,h,cpp,cc,cxx,hpp,hxx,hh,cs,rb,rake,sh,bash,php}";
 
   for await (const entry of glob(pattern, { cwd: projectRoot })) {
     const fullPath = resolve(projectRoot, entry);

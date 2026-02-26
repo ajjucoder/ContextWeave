@@ -18,6 +18,16 @@ const languageModules: Record<string, () => Parser.Language> = {
   tsx: () => require("tree-sitter-typescript").tsx,
   javascript: () => require("tree-sitter-javascript"),
   jsx: () => require("tree-sitter-javascript"),
+  python: () => require("tree-sitter-python"),
+  go: () => require("tree-sitter-go"),
+  rust: () => require("tree-sitter-rust"),
+  java: () => require("tree-sitter-java"),
+  c: () => require("tree-sitter-c"),
+  cpp: () => require("tree-sitter-cpp"),
+  csharp: () => require("tree-sitter-c-sharp"),
+  ruby: () => require("tree-sitter-ruby"),
+  bash: () => require("tree-sitter-bash"),
+  php: () => require("tree-sitter-php").php,
 };
 
 const extensionToLanguage: Record<string, string> = {
@@ -27,6 +37,24 @@ const extensionToLanguage: Record<string, string> = {
   ".jsx": "jsx",
   ".mjs": "javascript",
   ".cjs": "javascript",
+  ".py": "python",
+  ".go": "go",
+  ".rs": "rust",
+  ".java": "java",
+  ".c": "c",
+  ".h": "c",
+  ".cpp": "cpp",
+  ".cc": "cpp",
+  ".cxx": "cpp",
+  ".hpp": "cpp",
+  ".hxx": "cpp",
+  ".hh": "cpp",
+  ".cs": "csharp",
+  ".rb": "ruby",
+  ".rake": "ruby",
+  ".sh": "bash",
+  ".bash": "bash",
+  ".php": "php",
 };
 
 export function detectLanguage(filePath: string): string | null {
@@ -54,6 +82,10 @@ function isExported(node: Parser.SyntaxNode): boolean {
   const parent = node.parent;
   if (!parent) return false;
   if (parent.type === "export_statement") return true;
+  if (parent.type === "module") return true;
+  if (parent.type === "source_file") return true;
+  if (parent.type === "translation_unit") return true;
+  if (parent.type === "compilation_unit") return true;
   if (parent.type === "program") return false;
   return isExported(parent);
 }
@@ -69,7 +101,8 @@ function buildSignature(node: Parser.SyntaxNode, content: string): string {
 
   const bodyStart = bodyChild.startPosition.row;
   if (bodyStart === startLine) {
-    return trimmed.slice(0, trimmed.indexOf("{")).trim() || trimmed;
+    const bodyCol = bodyChild.startPosition.column;
+    return firstLine.slice(0, bodyCol).trim() || trimmed;
   }
 
   const sigLines: string[] = [];
@@ -92,11 +125,30 @@ function isFunctionScoped(node: Parser.SyntaxNode): boolean {
       current.type === "generator_function_declaration" ||
       current.type === "function_expression" ||
       current.type === "arrow_function" ||
-      current.type === "method_definition"
+      current.type === "method_definition" ||
+      current.type === "function_definition" ||
+      current.type === "method_declaration" ||
+      current.type === "constructor_declaration" ||
+      current.type === "func_literal" ||
+      current.type === "function_item" ||
+      current.type === "closure_expression" ||
+      current.type === "lambda_expression" ||
+      current.type === "lambda" ||
+      current.type === "method" ||
+      current.type === "singleton_method" ||
+      current.type === "anonymous_function_creation_expression"
     ) {
       return true;
     }
-    if (current.type === "program") return false;
+    if (
+      current.type === "program" ||
+      current.type === "module" ||
+      current.type === "source_file" ||
+      current.type === "translation_unit" ||
+      current.type === "compilation_unit"
+    ) {
+      return false;
+    }
     current = current.parent;
   }
   return false;
@@ -162,10 +214,17 @@ function parseSymbols(
         seen.add(defCapture.node.id);
 
         const valueCapture = match.captures.find((c) => c.name === "value");
-        const effectiveKind =
-          kind === "variable" && valueCapture?.node.type === "arrow_function"
-            ? "arrow"
-            : kind;
+        const valueType = valueCapture?.node.type;
+        const effectiveKind = kind === "variable" && valueType && (
+          valueType === "arrow_function" ||
+          valueType === "closure_expression" ||
+          valueType === "lambda_expression" ||
+          valueType === "lambda" ||
+          valueType === "func_literal" ||
+          valueType === "anonymous_function_creation_expression"
+        )
+          ? "arrow"
+          : kind;
 
         if (shouldSkipTrivialSymbol(defCapture.node, effectiveKind)) {
           continue;

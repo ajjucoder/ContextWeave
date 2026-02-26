@@ -150,30 +150,63 @@ Force reindex a file, directory, or the entire project. Rebuilds the AST graph a
 
 ---
 
+## Language Support
+
+ContextWeave supports 12 languages via tree-sitter grammars. It indexes functions, classes, methods, variables, imports, exports, and call expressions for each.
+
+| Language | Extensions |
+|----------|-----------|
+| TypeScript | `.ts`, `.tsx` |
+| JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` |
+| Python | `.py` |
+| Go | `.go` |
+| Rust | `.rs` |
+| Java | `.java` |
+| C | `.c`, `.h` |
+| C++ | `.cpp`, `.cc`, `.cxx`, `.hpp` |
+| C# | `.cs` |
+| Ruby | `.rb` |
+| Bash | `.sh`, `.bash` |
+| PHP | `.php` |
+
+---
+
 ## Installation
 
-```bash
-npm install contextweave
-```
+### Global Setup (Recommended)
 
-Initialize ContextWeave in your project root. This creates `.contextweave/config.json`, seeds the SQLite database, and runs an initial full index.
+Install once and it works in every project — no per-project setup.
 
 ```bash
-npx cw init
+git clone https://github.com/ajjucoder/ContextWeave.git
+cd ContextWeave
+npm install
+npm run build
 ```
 
-Add the MCP server to your `.mcp.json`:
+Add to `~/.claude/settings.json`:
 
 ```json
 {
   "mcpServers": {
     "contextweave": {
       "command": "node",
-      "args": ["./node_modules/.bin/cw", "serve"]
+      "args": ["/absolute/path/to/ContextWeave/dist/index.js", "serve"]
     }
   }
 }
 ```
+
+That's it. When you open Claude Code in any project, ContextWeave connects, auto-initializes `.contextweave/` if it doesn't exist, indexes the project, and starts the file watcher. No `cw init` required.
+
+### Per-Project Setup (Alternative)
+
+```bash
+npm install contextweave
+npx cw init
+```
+
+`cw init` creates `.contextweave/config.json`, seeds the SQLite database, runs a full index, and prints the `.mcp.json` snippet to add to the project root.
 
 Start the server manually (Claude Code starts it automatically via `.mcp.json`):
 
@@ -245,6 +278,19 @@ Manual observations via `cw_remember` are stored at confidence 1.0 by default, s
 
 Average token reduction across test fixtures: **74.7%** with quality gates maintaining pivot coverage above 80%. The compression pipeline avoids the common failure mode of naive context windows: low-signal utility code (logging helpers, re-exports, deeply generic utilities) is pushed to L3 reference entries or dropped entirely while the symbols directly relevant to the query are preserved at full source.
 
+### Real-World QA Results
+
+Tested against four production codebases across four languages:
+
+| Project | Language | Files | Symbols | Index Time | Capsule Time |
+|---------|----------|-------|---------|------------|--------------|
+| ebps | Python | 55 | 844 | 719ms | 5–11ms |
+| Nudgy | Rust + TSX | 16 | 65 | 1,152ms | 1–7ms |
+| codex-team-orchestrator | TypeScript | 237 | 3,148 | 4,238ms | 12–21ms |
+| polymarket-arbitrage-sim | TypeScript | 100 | 717 | 1,866ms | 3–10ms |
+
+**0 crashes, 0 query misses** across 408 files and 4,774 symbols. Capsule generation averages 1–21ms after index. The most common quality pattern: focused queries on specific symbols return `low` uncertainty; broad generic terms in large codebases return `weak` uncertainty due to the 4,000-token budget covering too many matches — expected behavior, not a bug.
+
 ---
 
 ## Technical Stack
@@ -252,10 +298,11 @@ Average token reduction across test fixtures: **74.7%** with quality gates maint
 | Component | Technology |
 |-----------|-----------|
 | Runtime | Node.js ≥22, TypeScript ESM |
-| AST parsing | tree-sitter with TypeScript and JavaScript grammars |
+| AST parsing | tree-sitter with 12 language grammars |
 | Database | better-sqlite3 (embedded SQLite) |
 | File watching | chokidar v5 |
 | MCP transport | `@modelcontextprotocol/sdk` stdio |
+| Token counting | gpt-tokenizer (exact cl100k_base counts) |
 | Memory search | Custom BM25 full-text search over SQLite |
 | Schema validation | zod |
 

@@ -1,6 +1,6 @@
 import { mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { getDb } from "../../db/connection.js";
+import { getDb, closeDb } from "../../db/connection.js";
 import { runMigrations } from "../../db/migrations.js";
 import { indexProject } from "../../core/indexer.js";
 import { updateCentralityScores } from "../../core/graph.js";
@@ -13,6 +13,88 @@ const DEFAULT_CONFIG = {
   confidenceDecay: 0.1,
   gcThreshold: 0.1,
 };
+
+function generateClaudeMd(projectRoot: string): void {
+  const claudeDir = resolve(projectRoot, ".claude");
+  const claudeMdPath = resolve(claudeDir, "CLAUDE.md");
+
+  if (existsSync(claudeMdPath)) return;
+  if (!existsSync(claudeDir)) mkdirSync(claudeDir, { recursive: true });
+
+  const content = `# ContextWeave MCP Tools
+
+This project uses ContextWeave for AST-aware context retrieval and cross-session memory.
+
+## Available Tools
+
+### cw_capsule
+Generate a token-budgeted context capsule for a query.
+\`\`\`
+cw_capsule({ query: "UserService", token_budget: 4000, mode: "feature" })
+\`\`\`
+
+### cw_impact
+Analyze dependency impact of changing a symbol.
+\`\`\`
+cw_impact({ symbol: "validateEmail" })
+\`\`\`
+
+### cw_flow
+Trace incoming/outgoing call flow around a symbol.
+\`\`\`
+cw_flow({ symbol: "handleRequest", direction: "outgoing" })
+\`\`\`
+
+### cw_remember
+Store a cross-session observation.
+\`\`\`
+cw_remember({ scope: "architecture", note: "Auth uses JWT refresh tokens" })
+\`\`\`
+
+### cw_recall
+Search remembered observations.
+\`\`\`
+cw_recall({ query: "auth" })
+\`\`\`
+
+### cw_status
+Show indexing and memory status.
+\`\`\`
+cw_status()
+\`\`\`
+
+### cw_reindex
+Reindex a file or entire project.
+\`\`\`
+cw_reindex({ file: "src/core/parser.ts" })
+\`\`\`
+`;
+
+  writeFileSync(claudeMdPath, content);
+  process.stdout.write(`  Created ${claudeMdPath}\n`);
+}
+
+export async function autoInit(projectRoot: string): Promise<void> {
+  const cwDir = resolve(projectRoot, ".contextweave");
+  if (existsSync(cwDir)) return;
+
+  mkdirSync(cwDir, { recursive: true });
+
+  const configPath = resolve(cwDir, "config.json");
+  writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n");
+
+  const dbPath = resolve(cwDir, "contextweave.db");
+  const db = getDb(dbPath);
+  runMigrations(db);
+
+  const result = await indexProject(db, projectRoot);
+  updateCentralityScores(db);
+  closeDb();
+
+  process.stderr.write(
+    `[contextweave] auto-initialized: ${result.filesIndexed} files, ${result.symbolsFound} symbols\n`
+  );
+}
 
 export async function runInit(projectRoot: string): Promise<void> {
   const cwDir = resolve(projectRoot, ".contextweave");
@@ -49,6 +131,8 @@ export async function runInit(projectRoot: string): Promise<void> {
   if (result.errors.length > 0) {
     process.stdout.write(`  ${result.errors.length} files had parse errors\n`);
   }
+
+  generateClaudeMd(projectRoot);
 
   process.stdout.write("\nContextWeave initialized successfully!\n");
   process.stdout.write("\nTo use with Claude Code, add to .mcp.json:\n");

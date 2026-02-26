@@ -3,9 +3,15 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
 import { ObservationStore } from "../../memory/observations.js";
 import { symbolQueries } from "../../db/queries/symbols.js";
+import { sessionQueries } from "../../db/queries/sessions.js";
 import { fuzzyMatch } from "../../utils/fuzzy.js";
 
-export function registerRememberTool(server: McpServer, db: Database.Database): void {
+export function registerRememberTool(
+  server: McpServer,
+  db: Database.Database,
+  sessionId: string,
+  projectRoot: string
+): void {
   server.tool(
     "cw_remember",
     "Persist a cross-session observation about the codebase. Observations survive between sessions and inform future context capsules.",
@@ -17,6 +23,7 @@ export function registerRememberTool(server: McpServer, db: Database.Database): 
     },
     async ({ scope, note, symbol, confidence }) => {
       const store = new ObservationStore(db);
+      sessionQueries(db).ensureSession(sessionId, projectRoot);
 
       let symbolId: number | undefined;
       if (symbol) {
@@ -32,7 +39,7 @@ export function registerRememberTool(server: McpServer, db: Database.Database): 
       }
 
       const result = store.create({
-        sessionId: "current",
+        sessionId,
         scope,
         note,
         symbolId,

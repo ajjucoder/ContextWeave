@@ -16,6 +16,7 @@ export function symbolQueries(db: Database.Database) {
   const deleteByFileId = db.prepare("DELETE FROM symbols WHERE file_id = ?");
   const getAllNames = db.prepare("SELECT DISTINCT name FROM symbols");
   const countAll = db.prepare("SELECT COUNT(*) as count FROM symbols");
+  const getAllIds = db.prepare("SELECT id FROM symbols");
   const getAll = db.prepare("SELECT * FROM symbols");
   const getExported = db.prepare("SELECT * FROM symbols WHERE is_exported = 1");
 
@@ -92,6 +93,10 @@ export function symbolQueries(db: Database.Database) {
 
     getAll(): SymbolRecord[] {
       return getAll.all().map(mapRow).filter(Boolean) as SymbolRecord[];
+    },
+
+    getAllIds(): number[] {
+      return getAllIds.all().map((r) => (r as { id: number }).id);
     },
 
     getExported(): SymbolRecord[] {

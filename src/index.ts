@@ -19,7 +19,14 @@ async function main(): Promise<void> {
     }
     case "serve": {
       const { runServe } = await import("./cli/commands/serve.js");
-      await runServe(projectRoot);
+      const daemon = args.includes("--daemon");
+      const daemonChild = args.includes("--daemon-child");
+      await runServe(projectRoot, { daemon, daemonChild });
+      break;
+    }
+    case "stop": {
+      const { runStop } = await import("./cli/commands/stop.js");
+      runStop(projectRoot);
       break;
     }
     case "status": {
@@ -49,6 +56,7 @@ async function main(): Promise<void> {
           "Commands:",
           "  init       Initialize ContextWeave in current project",
           "  serve      Start MCP server (used by Claude Code)",
+          "  stop       Stop daemonized MCP server",
           "  status     Show index health",
           "  reindex    Force reindex (optional: path)",
           "  version    Show version",
@@ -57,6 +65,7 @@ async function main(): Promise<void> {
           "Options:",
           "  --debug    Enable debug logging",
           "  --verbose  Verbose output (status command)",
+          "  --daemon   Run `serve` in background mode",
           "",
         ].join("\n")
       );

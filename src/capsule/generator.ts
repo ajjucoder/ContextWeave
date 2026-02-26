@@ -12,9 +12,11 @@ import type {
 } from "../core/types.js";
 import { symbolQueries } from "../db/queries/symbols.js";
 import { fileQueries } from "../db/queries/files.js";
-import { edgeQueries } from "../db/queries/edges.js";
+import { buildAdjacencyMap } from "../core/graph.js";
 import { fuzzyMatch } from "../utils/fuzzy.js";
 import { countTokens } from "../utils/tokens.js";
+import { expandQueryWithSynonyms } from "../utils/synonyms.js";
+import { getDirectoryWeight } from "../utils/directory-weights.js";
 import { scoreNode, assignCompressionLevel } from "./scorer.js";
 import { renderSymbol } from "./compressor.js";
 import { packNodes } from "./packer.js";
@@ -89,7 +91,12 @@ function toDisplayPath(filePath: string, root: string | null): string {
   return filePath.slice(rootWithSep.length).replaceAll("\\", "/");
 }
 
-function getLexicalScore(symbol: SymbolRecord, file: FileRecord, queryTerms: string[]): number {
+function getLexicalScore(
+  symbol: SymbolRecord,
+  file: FileRecord,
+  queryTerms: string[],
+  exactQueryTerms: Set<string>
+): number {
   const symbolName = symbol.name.toLowerCase();
   const signature = symbol.signature.toLowerCase();
   const filePath = file.path.toLowerCase();
@@ -97,16 +104,17 @@ function getLexicalScore(symbol: SymbolRecord, file: FileRecord, queryTerms: str
   let score = 0;
   for (const term of queryTerms) {
     if (!term) continue;
+    const termWeight = exactQueryTerms.has(term) ? 1 : 0.5;
     if (symbolName.includes(term)) {
-      score += 2;
+      score += 2 * termWeight;
       continue;
     }
     if (signature.includes(term)) {
-      score += 1.5;
+      score += 1.5 * termWeight;
       continue;
     }
     if (filePath.includes(term)) {
-      score += 1;
+      score += 1 * termWeight;
     }
   }
   return score;
@@ -131,21 +139,22 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   const symbols = symbolQueries(db);
   const files = fileQueries(db);
-  const edges = edgeQueries(db);
 
   // Phase 1: Pivot Resolution
   const allNames = symbols.getAllNames();
   const allFiles = files.getAll();
   const filePaths = allFiles.map((f) => f.path);
 
-  const queryTerms = query
+  const exactQueryTerms = query
     .trim()
     .split(/\s+/)
     .map((term) => term.toLowerCase())
     .filter(Boolean);
+  const expandedQueryTerms = expandQueryWithSynonyms(exactQueryTerms);
+  const exactQueryTermSet = new Set(exactQueryTerms);
   const pivotSymbolIds = new Set<number>();
 
-  for (const term of queryTerms) {
+  for (const term of expandedQueryTerms) {
     const nameMatches = fuzzyMatch(term, allNames, 0.5);
     for (const match of nameMatches.slice(0, 5)) {
       const matched = symbols.getByName(match.name);
@@ -168,9 +177,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const { observations } = memorySearch.getRelevantForCapsule(query, observationBudget);
 
   // Phase 2: Broad retrieval with BFS traversal
+  const adjacency = buildAdjacencyMap(db);
   const maxDepth = getBfsDepth(tokenBudget);
   const visited = new Map<number, number>(); // symbolId -> distance
-  const degreeBySymbol = new Map<number, number>();
 
   const queue: Array<{ id: number; depth: number }> = [];
   for (const id of pivotSymbolIds) {
@@ -183,13 +192,10 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     const { id, depth } = queue[qi++]!;
     if (depth >= maxDepth) continue;
 
-    const outEdges = edges.getBySource(id);
-    const inEdges = edges.getByTarget(id);
-    degreeBySymbol.set(id, outEdges.length + inEdges.length);
+    const outEdges = adjacency.outgoing.get(id) ?? [];
+    const inEdges = adjacency.incoming.get(id) ?? [];
 
-    for (const edge of [...outEdges, ...inEdges]) {
-      const neighborId =
-        edge.sourceSymbolId === id ? edge.targetSymbolId : edge.sourceSymbolId;
+    for (const neighborId of [...outEdges, ...inEdges]) {
       if (!visited.has(neighborId)) {
         visited.set(neighborId, depth + 1);
         queue.push({ id: neighborId, depth: depth + 1 });
@@ -227,10 +233,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     const file = getFile(symbol.fileId);
     if (!file) continue;
 
-    const degree =
-      degreeBySymbol.get(symbolId) ??
-      (edges.getBySource(symbolId).length + edges.getByTarget(symbolId).length);
-    const lexicalScore = getLexicalScore(symbol, file, queryTerms);
+    const degree = adjacency.degree.get(symbolId) ?? 0;
+    const lexicalScore = getLexicalScore(symbol, file, expandedQueryTerms, exactQueryTermSet);
 
     centralityValues.push(symbol.centrality);
     degreeValues.push(degree);
@@ -252,7 +256,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   for (const candidate of candidates) {
     const sameFileAsPivot = pivotFileIds.has(candidate.file.id);
     const sameDirAsPivot = pivotDirs.has(dirname(candidate.file.path));
-    const localityBoost = sameFileAsPivot ? 1.35 : sameDirAsPivot ? 1.15 : 1;
+    const directoryWeight = getDirectoryWeight(candidate.file.path);
+    const localityBoost =
+      (sameFileAsPivot ? 1.35 : sameDirAsPivot ? 1.15 : 1) * directoryWeight;
     const lexicalBoost = 1 + Math.min(1.5, candidate.lexicalScore * 0.3);
 
     let hubPenalty = 1;
@@ -335,7 +341,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   );
   const codeRatio = hasObservationPayload ? 0.8 : 1.0;
 
-  const baseLexThreshold = queryTerms.length === 0 ? 0 : 1;
+  const baseLexThreshold = exactQueryTerms.length === 0 ? 0 : 1;
   const baseCandidateLimit = Math.max(60, Math.floor(tokenBudget / 10));
   const MIN_UTILIZATION = 0.45;
 

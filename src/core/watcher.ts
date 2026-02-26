@@ -42,6 +42,14 @@ export function startWatcher(options: WatcherOptions): FSWatcher {
     "**/.next/**",
     "**/.contextweave/**",
     "**/coverage/**",
+    "**/venv/**",
+    "**/.venv/**",
+    "**/env/**",
+    "**/target/**",
+    "**/.tox/**",
+    "**/vendor/**",
+    "**/.bundle/**",
+    "**/__pycache__/**",
   ];
   const configIgnored = (ignore ?? []).map((p) => `**/${p}/**`);
   const allIgnored = [...new Set([...builtinIgnored, ...configIgnored])];
