@@ -1,7 +1,10 @@
 import type Database from "better-sqlite3";
 import type { IndexDiff } from "../core/types.js";
-import { observationQueries } from "../db/queries/observations.js";
+import { ObservationStore } from "./observations.js";
 import { symbolQueries } from "../db/queries/symbols.js";
+import { createLogger } from "../utils/logger.js";
+
+const log = createLogger("passive-observations");
 
 export function captureQueryObservation(
   db: Database.Database,
@@ -22,23 +25,18 @@ export function captureQueryObservation(
       if (symbol) names.push(symbol.name);
     }
 
-    const firstSymbol = symbols.getById(pivotArray[0]!);
-
-    observationQueries(db).insert({
+    const store = new ObservationStore(db);
+    store.create({
       sessionId,
-      agentId: "claude-code",
-      symbolId: pivotArray[0] ?? null,
-      fileId: firstSymbol?.fileId ?? null,
       scope: "passive",
       note: `[auto] Query: "${query}" resolved to: ${names.join(", ")}`,
+      symbolId: pivotArray[0],
       confidence: 0.5,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      stale: false,
-      staleReason: null,
-      archived: false,
     });
-  } catch {
+  } catch (err) {
+    log.debug("failed to capture query observation", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
 
@@ -67,20 +65,17 @@ export function captureFileChangeObservation(
     const removedNames = diff.deleted.map((s: { name: string }) => s.name);
     const modifiedNames = diff.modified.map((s) => s.new.name);
 
-    observationQueries(db).insert({
+    const store = new ObservationStore(db);
+    store.create({
       sessionId,
-      agentId: "claude-code",
-      symbolId: null,
-      fileId,
       scope: "passive",
       note: `[auto] Modified: ${relativePath} — added: [${addedNames.join(", ")}], removed: [${removedNames.join(", ")}], changed: [${modifiedNames.join(", ")}]`,
+      fileId,
       confidence: 0.6,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-      stale: false,
-      staleReason: null,
-      archived: false,
     });
-  } catch {
+  } catch (err) {
+    log.debug("failed to capture file change observation", {
+      error: err instanceof Error ? err.message : String(err),
+    });
   }
 }
