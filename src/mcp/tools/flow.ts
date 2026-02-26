@@ -150,7 +150,7 @@ export function registerFlowTool(server: McpServer, db: Database.Database): void
   const inputSchema: Record<string, z.ZodTypeAny> = {
     source: z.string().describe("Source symbol name"),
     target: z.string().optional().describe("Target symbol name (omit to trace all outgoing flows)"),
-    max_hops: z.number().optional().describe("Maximum path length (default: 5)"),
+    max_hops: z.number().min(1).max(20).optional().describe("Maximum path length (default: 5)"),
   };
 
   registerTool(
@@ -158,6 +158,7 @@ export function registerFlowTool(server: McpServer, db: Database.Database): void
     "Trace call flow between symbols or from a symbol outward. Shows how data/control flows through the codebase.",
     inputSchema,
     async ({ source, target, max_hops }: { source: string; target?: string; max_hops?: number }) => {
+      try {
       const maxHops = max_hops ?? 5;
       const sourceId = resolveSymbol(db, source);
 
@@ -213,6 +214,13 @@ export function registerFlowTool(server: McpServer, db: Database.Database): void
       return {
         content: [{ type: "text" as const, text: lines.join("\n") }],
       };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text" as const, text: `Flow analysis failed: ${message}` }],
+          isError: true,
+        };
+      }
     }
   );
 }

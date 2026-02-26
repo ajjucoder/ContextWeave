@@ -13,33 +13,41 @@ export function registerRecallTool(server: McpServer, db: Database.Database): vo
       query: z.string().describe("What to search for in memory"),
       scope: z.string().optional().describe("Filter by scope category"),
       include_stale: z.boolean().optional().describe("Include stale observations (default: false)"),
-      limit: z.number().optional().describe("Max results (default: 10)"),
+      limit: z.number().min(1).max(500).optional().describe("Max results (default: 10)"),
     },
     async ({ query, scope, include_stale, limit }: { query: string; scope?: string; include_stale?: boolean; limit?: number }) => {
-      const search = new MemorySearch(db);
-      const results = search.search(query, {
-        scope,
-        includeStale: include_stale,
-        limit: limit ?? 10,
-      });
+      try {
+        const search = new MemorySearch(db);
+        const results = search.search(query, {
+          scope,
+          includeStale: include_stale,
+          limit: limit ?? 10,
+        });
 
-      if (results.length === 0) {
+        if (results.length === 0) {
+          return {
+            content: [{ type: "text" as const, text: `No observations found for "${query}"` }],
+          };
+        }
+
+        const lines = [`Memory recall for "${query}" (${results.length} results):\n`];
+
+        for (const { observation: obs } of results) {
+          const staleTag = obs.stale ? " [STALE]" : "";
+          const confidenceTag = obs.confidence < 1.0 ? ` (confidence: ${obs.confidence.toFixed(2)})` : "";
+          lines.push(`[${obs.scope}]${staleTag}${confidenceTag} ${obs.note}`);
+        }
+
         return {
-          content: [{ type: "text" as const, text: `No observations found for "${query}"` }],
+          content: [{ type: "text" as const, text: lines.join("\n") }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text" as const, text: `Recall failed: ${message}` }],
+          isError: true,
         };
       }
-
-      const lines = [`Memory recall for "${query}" (${results.length} results):\n`];
-
-      for (const { observation: obs } of results) {
-        const staleTag = obs.stale ? " [STALE]" : "";
-        const confidenceTag = obs.confidence < 1.0 ? ` (confidence: ${obs.confidence.toFixed(2)})` : "";
-        lines.push(`[${obs.scope}]${staleTag}${confidenceTag} ${obs.note}`);
-      }
-
-      return {
-        content: [{ type: "text" as const, text: lines.join("\n") }],
-      };
     }
   );
 }

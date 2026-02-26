@@ -17,7 +17,7 @@ export function registerCapsuleTool(
   const registerTool = (server.tool as (...args: any[]) => void).bind(server);
   const inputSchema: Record<string, z.ZodTypeAny> = {
     query: z.string().describe("What you're working on or looking for"),
-    token_budget: z.number().optional().describe(`Max tokens for the capsule (default: ${defaultBudget})`),
+    token_budget: z.number().min(100).max(100000).optional().describe(`Max tokens for the capsule (default: ${defaultBudget})`),
     mode: z.enum(["debug", "refactor", "feature", "review"]).optional().describe(`Task mode affecting scoring weights (default: ${defaultMode})`),
   };
 
@@ -26,17 +26,25 @@ export function registerCapsuleTool(
     "Generate token-budgeted code context for a query. Returns compressed AST-aware context capsule with multi-level compression.",
     inputSchema,
     async ({ query, token_budget, mode }: { query: string; token_budget?: number; mode?: CapsuleMode }) => {
-      const result = generateCapsule(db, {
-        query,
-        tokenBudget: token_budget ?? defaultBudget,
-        mode: (mode ?? defaultMode) as CapsuleMode,
-        sessionId,
-        projectRoot,
-      });
+      try {
+        const result = generateCapsule(db, {
+          query,
+          tokenBudget: token_budget ?? defaultBudget,
+          mode: (mode ?? defaultMode) as CapsuleMode,
+          sessionId,
+          projectRoot,
+        });
 
-      return {
-        content: [{ type: "text" as const, text: result.content }],
-      };
+        return {
+          content: [{ type: "text" as const, text: result.content }],
+        };
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return {
+          content: [{ type: "text" as const, text: `Capsule generation failed: ${message}` }],
+          isError: true,
+        };
+      }
     }
   );
 }
