@@ -24,6 +24,10 @@ All notable changes to ContextWeave are documented in this file.
 - **symbolMap collision**: Changed from last-wins to first-wins deduplication for symbol name collisions during indexing.
 - **config.ignore wiring**: `config.ignore` from `.contextweave/config.json` is now passed through to `discoverFiles()` and `indexProject()` in all callers (MCP reindex tool, CLI reindex, CLI init, auto-init). Previously it only applied to the file watcher.
 
+### Added
+
+- **`.cwignore` support**: Place a `.cwignore` file at the project root to exclude files and directories from indexing. Uses the same pattern syntax as `.gitignore` (glob patterns, negation with `!`, directory patterns with trailing `/`).
+
 ### Performance
 
 - **Batch degree queries**: Added `getBatchSymbolDegrees()` using `json_each()` for O(2) SQL queries instead of O(2N) individual queries during capsule scoring.

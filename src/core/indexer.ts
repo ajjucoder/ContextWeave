@@ -56,10 +56,9 @@ function shouldIgnore(filePath: string): boolean {
   return IGNORE_PATTERNS.some((pattern) => filePath.includes(`/${pattern}/`) || filePath.includes(`\\${pattern}\\`));
 }
 
-function loadGitignorePatterns(projectRoot: string): string[] {
-  const gitignorePath = resolve(projectRoot, ".gitignore");
+function loadIgnoreFile(filePath: string): string[] {
   try {
-    const content = readFileSync(gitignorePath, "utf-8");
+    const content = readFileSync(filePath, "utf-8");
     return content
       .split("\n")
       .map((line) => line.trim())
@@ -67,6 +66,14 @@ function loadGitignorePatterns(projectRoot: string): string[] {
   } catch {
     return [];
   }
+}
+
+function loadGitignorePatterns(projectRoot: string): string[] {
+  return loadIgnoreFile(resolve(projectRoot, ".gitignore"));
+}
+
+function loadCwignorePatterns(projectRoot: string): string[] {
+  return loadIgnoreFile(resolve(projectRoot, ".cwignore"));
 }
 
 function matchesGitignorePattern(relativePath: string, pattern: string): boolean {
@@ -135,6 +142,7 @@ async function discoverFiles(projectRoot: string, extraIgnore?: string[]): Promi
   const files: string[] = [];
   const pattern = "**/*.{ts,tsx,js,jsx,mjs,cjs,py,go,rs,java,c,h,cpp,cc,cxx,hpp,hxx,hh,cs,rb,rake,sh,bash,php}";
   const gitignorePatterns = loadGitignorePatterns(projectRoot);
+  const cwignorePatterns = loadCwignorePatterns(projectRoot);
   const resolvedRoot = resolve(projectRoot) + sep;
 
   for await (const entry of glob(pattern, { cwd: projectRoot })) {
@@ -144,6 +152,7 @@ async function discoverFiles(projectRoot: string, extraIgnore?: string[]): Promi
     const relativePath = fullPath.startsWith(resolvedRoot) ? fullPath.slice(resolvedRoot.length) : entry;
     if (isAlwaysIgnored(relativePath)) continue;
     if (gitignorePatterns.length > 0 && isIgnoredByGitignore(relativePath, gitignorePatterns)) continue;
+    if (cwignorePatterns.length > 0 && isIgnoredByGitignore(relativePath, cwignorePatterns)) continue;
     if (extraIgnore && extraIgnore.length > 0 && extraIgnore.some((p) => fullPath.includes(`/${p}/`) || fullPath.includes(`\\${p}\\`) || relativePath.startsWith(p))) continue;
 
     try {

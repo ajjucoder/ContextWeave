@@ -24,6 +24,16 @@ beforeAll(async () => {
     "secrets/\n*.log\nbuild/\n"
   );
 
+  mkdirSync(resolve(TEMP_DIR, "vendor"), { recursive: true });
+  writeFileSync(resolve(TEMP_DIR, "vendor/lib.ts"), "export const vendor = true;");
+  mkdirSync(resolve(TEMP_DIR, "templates"), { recursive: true });
+  writeFileSync(resolve(TEMP_DIR, "templates/base.ts"), "export const tmpl = true;");
+
+  writeFileSync(
+    resolve(TEMP_DIR, ".cwignore"),
+    "vendor/\ntemplates/\n"
+  );
+
   db = new Database(":memory:");
   db.pragma("foreign_keys = ON");
   createSchema(db);
@@ -57,5 +67,17 @@ describe("gitignore and .env filtering", () => {
     const result = indexSingleFile(db, resolve(TEMP_DIR, ".env"), TEMP_DIR);
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors[0]).toContain("security exclusion");
+  });
+});
+
+describe(".cwignore filtering", () => {
+  it("excludes .cwignore patterns from indexing", async () => {
+    const files = fileQueries(db);
+    const allFiles = files.getAll();
+    const paths = allFiles.map((f) => f.path);
+
+    expect(paths.some((p) => p.includes("vendor/"))).toBe(false);
+    expect(paths.some((p) => p.includes("templates/"))).toBe(false);
+    expect(paths.some((p) => p.includes("app.ts"))).toBe(true);
   });
 });
