@@ -2,6 +2,51 @@
 
 ## Session
 - date: 2026-02-26
+- branch: `main`
+- execution mode: `superpowers:systematic-debugging + test-driven-development + verification-before-completion + finishing-a-development-branch`
+- source plan: `audits/IMPLEMENTATION_PLAN_END_TO_END.md` (Production Readiness Follow-up)
+- tracker plan: `audits/IMPLEMENTATION_PLAN_END_TO_END.md`
+
+## Ticket Status
+
+| Ticket | Tier | Status | Owner | Scope/Files | Evidence |
+|---|---|---|---|---|---|
+| CWREADY-P0-001 | P0 | done | codex | deterministic dependency install (`package.json`, `package-lock.json`) | `npm install` pass (without `--legacy-peer-deps`), `npm run lint` pass, `npm test` pass, `npm run build` pass |
+| CWREADY-P0-002 | P0 | done | codex | security hardening (`@modelcontextprotocol/sdk` upgrade) | `npm audit --json` pass with `0` vulnerabilities |
+| CWREADY-P1-001 | P1 | done | codex | parser typing compatibility for tree-sitter `0.21.x` (`src/core/parser.ts`) | `npm run lint` pass after type fix |
+| CWREADY-P1-002 | P1 | done | codex | MCP quality/perf validation (`bench/token-reduction-test.ts`, integration tests) | `npx tsx bench/token-reduction-test.ts` pass (`86%` overall reduction), `npx vitest run tests/integration/capsule.test.ts tests/integration/mcp-tool-schema-compat.test.ts` pass (`16` tests) |
+
+## Completion Summary
+- p0_completion: 2/2 done (100.0%)
+- p1_completion: 2/2 done (100.0%)
+- p2_completion: 0/0 done (0.0%)
+- overall_completion: 4/4 done (100.0%)
+
+## Test Evidence and Gate State
+- install/runtime:
+  - `npm install` -> pass
+  - `npm run lint` -> pass
+  - `npm test` -> pass (`20` files, `90` tests)
+  - `npm run build` -> pass
+  - `npm audit --json` -> pass (`0` total vulnerabilities)
+- MCP behavior/performance:
+  - `npx tsx bench/token-reduction-test.ts` -> pass
+    - files: `237`, symbols: `3148`, edges: `17512`
+    - total capsule cost: `16669` tokens vs naive `~117824` tokens
+    - overall reduction across task queries: `86%`
+  - `npx vitest run tests/integration/capsule.test.ts tests/integration/mcp-tool-schema-compat.test.ts` -> pass (`2` files, `16` tests)
+
+## Blockers and Next Actions
+- blockers: none open
+- next actions:
+  1. commit production-readiness follow-up changes on `main`
+  2. push `main` to remote
+  3. optional: expand benchmark harness to run nightly against fixed project set
+
+---
+
+## Session
+- date: 2026-02-26
 - branch: `feat/verify-10m-scale-audit`
 - execution mode: `superpowers:executing-plans + using-git-worktrees + dispatching-parallel-agents + verification-before-completion`
 - source plan: `docs/plans/2026-02-26-10m-line-scale.md`

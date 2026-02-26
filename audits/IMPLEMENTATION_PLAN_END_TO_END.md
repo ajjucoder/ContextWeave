@@ -2,6 +2,59 @@
 
 Source reminder: root [`IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md)
 
+## Production Readiness Follow-up (2026-02-26, `main`)
+
+## Scope
+Close final production blockers on `main`:
+- deterministic dependency resolution with plain `npm install`
+- security vulnerability remediation from `npm audit`
+- MCP quality/performance validation evidence on real indexed project data
+
+### CWREADY-P0-001
+- owner: codex
+- scope/files: `package.json`, `package-lock.json`
+- acceptance criteria:
+  - `npm install` succeeds without `--legacy-peer-deps`.
+  - watcher/runtime dependencies resolve cleanly from lockfile.
+- linked tests:
+  - `npm install`
+  - `npm run lint`
+  - `npm test`
+  - `npm run build`
+- status: done
+
+### CWREADY-P0-002
+- owner: codex
+- scope/files: `package.json`, `package-lock.json`
+- acceptance criteria:
+  - high-severity audit finding on `@modelcontextprotocol/sdk` is removed.
+  - repo audit status is clean.
+- linked tests:
+  - `npm audit --json`
+- status: done
+
+### CWREADY-P1-001
+- owner: codex
+- scope/files: `src/core/parser.ts`
+- acceptance criteria:
+  - parser language loader typings remain compatible with pinned `tree-sitter` line.
+  - lint/build stay green.
+- linked tests:
+  - `npm run lint`
+  - `npm run build`
+- status: done
+
+### CWREADY-P1-002
+- owner: codex
+- scope/files: `bench/token-reduction-test.ts`, integration test verification
+- acceptance criteria:
+  - measured token reduction on real-project benchmark remains significant.
+  - MCP integration schema/capsule tests pass.
+- linked tests:
+  - `npx tsx bench/token-reduction-test.ts`
+  - `npx vitest run tests/integration/capsule.test.ts tests/integration/mcp-tool-schema-compat.test.ts`
+- status: done
+
 ## 10M Line Scale Plan (2026-02-26 Session)
 
 Source reminder: [`docs/plans/2026-02-26-10m-line-scale.md`](../docs/plans/2026-02-26-10m-line-scale.md)
@@ -174,7 +227,7 @@ Verification addendum (2026-02-26, `feat/verify-10m-scale-audit`):
 ## Scope
 Execute Sprints 1-4 in `IMPLEMENTATION_PLAN.md` without shortcuts, with test evidence attached before any ticket is marked `done`.
 
-Compatibility note: the runtime-stable parser versions for this environment are `tree-sitter-c@0.23.6`, `tree-sitter-javascript@0.23.1`, and `tree-sitter-php@0.23.11`.
+Compatibility note: the runtime-stable parser versions for this environment are `tree-sitter@0.21.1`, `tree-sitter-c@0.23.2`, `tree-sitter-python@0.23.4`, `tree-sitter-rust@0.23.1`, `tree-sitter-javascript@0.23.1`, and `tree-sitter-php@0.23.11`.
 
 ## Ticket Backlog
 
