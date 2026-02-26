@@ -2,6 +2,165 @@
 
 Source reminder: root [`IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md)
 
+## 10M Line Scale Plan (2026-02-26 Session)
+
+Source reminder: [`docs/plans/2026-02-26-10m-line-scale.md`](../docs/plans/2026-02-26-10m-line-scale.md)
+
+## Scope
+Execute the 10M+ line scale plan in ticket form with strict red/green verification and lint/build evidence before moving ticket status to `done`.
+
+Session execution context:
+- branch: `feat/10m-line-scale`
+- worktree: `/path/to/worktree`
+- mode: `single-agent with awaiter sub-agents for long-running commands`
+
+## Ticket Backlog (10M)
+
+### CW10M-P0-001
+- owner: codex
+- scope/files: `src/db/schema.ts`, `src/db/migrations.ts`, `src/db/queries/files.ts`, `src/core/types.ts`, `src/core/indexer.ts`, `tests/db/migrations.test.ts`, `tests/unit/db.test.ts`, `tests/unit/graph.test.ts`
+- acceptance criteria:
+  - Migration v2 creates `symbols_fts`.
+  - `files` table has `mtime`.
+  - Covering indexes (`idx_symbols_name_cov`, `idx_edges_src_cov`, related indexes) exist.
+  - `FileRecord` + file query paths handle `mtime`.
+- linked tests:
+  - `npx vitest run tests/db/migrations.test.ts`
+  - `npm run lint`
+  - `npm run build`
+- status: done
+
+### CW10M-P0-002
+- owner: codex
+- scope/files: `src/db/queries/symbols.ts`, `src/capsule/generator.ts`, `tests/db/symbols-fts.test.ts`
+- acceptance criteria:
+  - `symbolQueries.searchFTS()` exists and returns ranked matches.
+  - Capsule pivot resolution removes global symbol-name scan (`getAllNames` + fuzzy loop) and uses FTS for 3+ char terms.
+  - Short terms still resolve via exact-name fallback.
+- linked tests:
+  - `npx vitest run tests/db/symbols-fts.test.ts`
+  - `npm run lint`
+  - `npm run build`
+- status: done
+
+### CW10M-P0-003
+- owner: codex
+- scope/files: `src/core/graph.ts`, `src/capsule/generator.ts`, `tests/core/lazy-bfs.test.ts`
+- acceptance criteria:
+  - `lazyBfsTraversal()` is exported and traverses via per-node edge queries.
+  - Capsule phase-2 traversal uses lazy BFS rather than preloading full adjacency map.
+  - Degree lookup in ranking no longer reads `adjacency.degree` from a full graph preload.
+- linked tests:
+  - `npx vitest run tests/core/lazy-bfs.test.ts`
+  - `npm run lint`
+  - `npm run build`
+- status: done
+
+### CW10M-P0-004
+- owner: codex
+- scope/files: `src/core/watcher.ts`, `src/mcp/server.ts` (and call sites), `package.json`, `package-lock.json`, `tests/core/watcher-smoke.test.ts`
+- acceptance criteria:
+  - Watcher backend migrated to `@parcel/watcher`.
+  - `startWatcher`/`stopWatcher` async contract adopted at call sites.
+  - Smoke import test + typecheck/build pass.
+- linked tests:
+  - `npx vitest run tests/core/watcher-smoke.test.ts`
+  - `npm run lint`
+  - `npm run build`
+- status: todo
+
+### CW10M-P1-001
+- owner: codex
+- scope/files: `src/core/indexer.ts`, `src/db/queries/files.ts`, `tests/core/incremental-index.test.ts`
+- acceptance criteria:
+  - Unchanged `mtime` path skips file read/parse.
+  - Hash-equal with mtime drift updates mtime only.
+  - Test validates unchanged-file fast path.
+- linked tests:
+  - `npx vitest run tests/core/incremental-index.test.ts`
+  - `npm run lint`
+  - `npm run build`
+- status: todo
+
+### CW10M-P1-002
+- owner: codex
+- scope/files: `src/core/parser-worker.ts`, `src/core/indexer.ts`, `tests/core/parallel-index.test.ts`
+- acceptance criteria:
+  - Parsing parallelized using worker threads.
+  - SQLite writes remain on main thread.
+  - Parallel index test passes.
+- linked tests:
+  - `npx vitest run tests/core/parallel-index.test.ts`
+  - `npm run lint`
+  - `npm run build`
+- status: todo
+
+### CW10M-P1-003
+- owner: codex
+- scope/files: `src/core/graph.ts`, `src/core/pagerank-worker.ts`, DB connection setup, post-index call site, `tests/core/background-pagerank.test.ts`
+- acceptance criteria:
+  - Centrality updates run in background worker.
+  - DB connection supports WAL-mode concurrency.
+  - Sync index path is no longer blocked by PageRank.
+- linked tests:
+  - `npx vitest run tests/core/background-pagerank.test.ts`
+  - `npm run lint`
+  - `npm run build`
+- status: todo
+
+### CW10M-P1-004
+- owner: codex
+- scope/files: `src/core/graph.ts`, `src/capsule/generator.ts`, `tests/core/scoped-bfs.test.ts`
+- acceptance criteria:
+  - Scoped lazy BFS can restrict traversal to pivot directory set.
+  - Capsule traversal uses scoped mode when pivot directories are available.
+- linked tests:
+  - `npx vitest run tests/core/scoped-bfs.test.ts`
+  - `npm run lint`
+  - `npm run build`
+- status: todo
+
+### CW10M-P2-001
+- owner: codex
+- scope/files: `src/core/types.ts`, `src/db/queries/symbols.ts`, `src/capsule/generator.ts`, `tests/capsule/light-symbol.test.ts`
+- acceptance criteria:
+  - Light symbol record/query exists and omits full source in traversal-stage fetches.
+  - Full source is fetched only for packed/rendered nodes.
+  - Light-symbol tests pass.
+- linked tests:
+  - `npx vitest run tests/capsule/light-symbol.test.ts`
+  - `npm run lint`
+  - `npm run build`
+- status: todo
+
+### CW10M-P2-002
+- owner: codex
+- scope/files: repo-wide verification and smoke checks
+- acceptance criteria:
+  - Full test suite passes.
+  - Lint and build pass.
+  - Migration path check for existing DBs succeeds.
+  - Functional smoke verification recorded.
+- linked tests:
+  - `npx vitest run`
+  - `npm run lint`
+  - `npm run build`
+- status: todo
+
+## Execution Order (10M)
+1. CW10M-P0-001
+2. CW10M-P0-002
+3. CW10M-P0-003
+4. CW10M-P0-004
+5. CW10M-P1-001
+6. CW10M-P1-002
+7. CW10M-P1-003
+8. CW10M-P1-004
+9. CW10M-P2-001
+10. CW10M-P2-002
+
+---
+
 ## Scope
 Execute Sprints 1-4 in `IMPLEMENTATION_PLAN.md` without shortcuts, with test evidence attached before any ticket is marked `done`.
 
