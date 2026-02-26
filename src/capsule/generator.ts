@@ -12,7 +12,7 @@ import type {
 } from "../core/types.js";
 import { symbolQueries } from "../db/queries/symbols.js";
 import { fileQueries } from "../db/queries/files.js";
-import { buildAdjacencyMap } from "../core/graph.js";
+import { getSymbolDegree, lazyBfsTraversal } from "../core/graph.js";
 import { fuzzyMatch } from "../utils/fuzzy.js";
 import { countTokens } from "../utils/tokens.js";
 import { expandQueryWithSynonyms } from "../utils/synonyms.js";
@@ -178,32 +178,10 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const observationBudget = Math.floor(tokenBudget * 0.2);
   const { observations } = memorySearch.getRelevantForCapsule(query, observationBudget);
 
-  // Phase 2: Broad retrieval with BFS traversal
-  const adjacency = buildAdjacencyMap(db);
+  // Phase 2: Lazy BFS traversal keeps memory stable on large graphs.
   const maxDepth = getBfsDepth(tokenBudget);
-  const visited = new Map<number, number>(); // symbolId -> distance
-
-  const queue: Array<{ id: number; depth: number }> = [];
-  for (const id of pivotSymbolIds) {
-    queue.push({ id, depth: 0 });
-    visited.set(id, 0);
-  }
-
-  let qi = 0;
-  while (qi < queue.length) {
-    const { id, depth } = queue[qi++]!;
-    if (depth >= maxDepth) continue;
-
-    const outEdges = adjacency.outgoing.get(id) ?? [];
-    const inEdges = adjacency.incoming.get(id) ?? [];
-
-    for (const neighborId of [...outEdges, ...inEdges]) {
-      if (!visited.has(neighborId)) {
-        visited.set(neighborId, depth + 1);
-        queue.push({ id: neighborId, depth: depth + 1 });
-      }
-    }
-  }
+  const bfsNodes = lazyBfsTraversal(db, [...pivotSymbolIds], maxDepth);
+  const visited = new Map<number, number>(bfsNodes.map((n) => [n.symbolId, n.distance]));
 
   logger.debug("bfs traversal complete", { nodesVisited: visited.size });
 
@@ -235,7 +213,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     const file = getFile(symbol.fileId);
     if (!file) continue;
 
-    const degree = adjacency.degree.get(symbolId) ?? 0;
+    const degree = getSymbolDegree(db, symbolId);
     const lexicalScore = getLexicalScore(symbol, file, expandedQueryTerms, exactQueryTermSet);
 
     centralityValues.push(symbol.centrality);

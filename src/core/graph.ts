@@ -85,6 +85,50 @@ export function bfsTraversal(
   return result;
 }
 
+export function lazyBfsTraversal(
+  db: Database.Database,
+  pivotIds: number[],
+  maxDepth: number
+): BfsNode[] {
+  const getOutgoing = db.prepare("SELECT target_symbol_id FROM edges WHERE source_symbol_id = ?");
+  const getIncoming = db.prepare("SELECT source_symbol_id FROM edges WHERE target_symbol_id = ?");
+
+  const visited = new Map<number, number>();
+  const queue: BfsNode[] = [];
+
+  for (const id of pivotIds) {
+    visited.set(id, 0);
+    queue.push({ symbolId: id, distance: 0 });
+  }
+
+  let head = 0;
+  while (head < queue.length) {
+    const current = queue[head++]!;
+    if (current.distance >= maxDepth) continue;
+
+    const outgoing = (getOutgoing.all(current.symbolId) as Array<{ target_symbol_id: number }>)
+      .map((r) => r.target_symbol_id);
+    const incoming = (getIncoming.all(current.symbolId) as Array<{ source_symbol_id: number }>)
+      .map((r) => r.source_symbol_id);
+
+    for (const neighborId of [...outgoing, ...incoming]) {
+      const existing = visited.get(neighborId);
+      const newDist = current.distance + 1;
+      if (existing !== undefined && existing <= newDist) continue;
+      visited.set(neighborId, newDist);
+      queue.push({ symbolId: neighborId, distance: newDist });
+    }
+  }
+
+  return Array.from(visited.entries()).map(([symbolId, distance]) => ({ symbolId, distance }));
+}
+
+export function getSymbolDegree(db: Database.Database, symbolId: number): number {
+  const out = db.prepare("SELECT COUNT(*) as c FROM edges WHERE source_symbol_id = ?").get(symbolId) as { c: number };
+  const inc = db.prepare("SELECT COUNT(*) as c FROM edges WHERE target_symbol_id = ?").get(symbolId) as { c: number };
+  return out.c + inc.c;
+}
+
 const DAMPING = 0.85;
 const MAX_ITERATIONS = 50;
 const CONVERGENCE_THRESHOLD = 1e-6;
