@@ -19,6 +19,7 @@ export function fileQueries(db: Database.Database) {
   const deleteById = db.prepare("DELETE FROM files WHERE id = ?");
   const deleteByPath = db.prepare("DELETE FROM files WHERE path = ?");
   const countAll = db.prepare("SELECT COUNT(*) as count FROM files");
+  const updateMtime = db.prepare("UPDATE files SET mtime = ? WHERE id = ?");
 
   function mapRow(row: unknown): FileRecord | undefined {
     if (!row) return undefined;
@@ -58,6 +59,10 @@ export function fileQueries(db: Database.Database) {
         symbolCount: file.symbolCount,
         error: file.error,
       });
+    },
+
+    updateMtime(id: number, mtime: number): void {
+      updateMtime.run(mtime, id);
     },
 
     getByPath(path: string): FileRecord | undefined {

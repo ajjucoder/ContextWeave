@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { glob } from "node:fs/promises";
 import type Database from "better-sqlite3";
@@ -200,6 +200,21 @@ export function indexSingleFile(
   const language = detectLanguage(filePath);
   if (!language) return { symbolCount: 0, errors: [], diff: null };
 
+  const existingFile = files.getByPath(filePath);
+  const now = Date.now();
+
+  let fileMtime = 0;
+  try {
+    fileMtime = statSync(filePath).mtimeMs;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return { symbolCount: 0, errors: [`Failed to stat ${filePath}: ${message}`], diff: null };
+  }
+
+  if (existingFile && existingFile.mtime === fileMtime) {
+    return { symbolCount: existingFile.symbolCount, errors: [], diff: null };
+  }
+
   let content: string;
   try {
     content = readFileSync(filePath, "utf-8");
@@ -209,10 +224,9 @@ export function indexSingleFile(
   }
 
   const hash = hashFile(content);
-  const existingFile = files.getByPath(filePath);
-  const now = Date.now();
 
   if (existingFile && existingFile.hash === hash) {
+    files.updateMtime(existingFile.id, fileMtime);
     return { symbolCount: existingFile.symbolCount, errors: [], diff: null };
   }
 
@@ -244,7 +258,7 @@ export function indexSingleFile(
       ...existingFile,
       hash,
       lastIndexed: now,
-      mtime: existingFile.mtime,
+      mtime: fileMtime,
       symbolCount: parseResult.symbols.length,
       error: parseResult.errors.length > 0 ? parseResult.errors.join("; ") : null,
     });
@@ -254,7 +268,7 @@ export function indexSingleFile(
       path: filePath,
       hash,
       lastIndexed: now,
-      mtime: now,
+      mtime: fileMtime,
       language,
       symbolCount: parseResult.symbols.length,
       error: parseResult.errors.length > 0 ? parseResult.errors.join("; ") : null,
