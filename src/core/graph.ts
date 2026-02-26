@@ -179,10 +179,46 @@ export function scopedLazyBfsTraversal(
   return Array.from(visited.entries()).map(([symbolId, distance]) => ({ symbolId, distance }));
 }
 
+const degreeStmtCache = new WeakMap<Database.Database, { out: Database.Statement; inc: Database.Statement }>();
+
 export function getSymbolDegree(db: Database.Database, symbolId: number): number {
-  const out = db.prepare("SELECT COUNT(*) as c FROM edges WHERE source_symbol_id = ?").get(symbolId) as { c: number };
-  const inc = db.prepare("SELECT COUNT(*) as c FROM edges WHERE target_symbol_id = ?").get(symbolId) as { c: number };
+  let stmts = degreeStmtCache.get(db);
+  if (!stmts) {
+    stmts = {
+      out: db.prepare("SELECT COUNT(*) as c FROM edges WHERE source_symbol_id = ?"),
+      inc: db.prepare("SELECT COUNT(*) as c FROM edges WHERE target_symbol_id = ?"),
+    };
+    degreeStmtCache.set(db, stmts);
+  }
+  const out = stmts.out.get(symbolId) as { c: number };
+  const inc = stmts.inc.get(symbolId) as { c: number };
   return out.c + inc.c;
+}
+
+export function getBatchSymbolDegrees(db: Database.Database, symbolIds: number[]): Map<number, number> {
+  if (symbolIds.length === 0) return new Map();
+
+  const degrees = new Map<number, number>();
+  for (const id of symbolIds) {
+    degrees.set(id, 0);
+  }
+
+  const outStmt = db.prepare(
+    "SELECT source_symbol_id as id, COUNT(*) as c FROM edges WHERE source_symbol_id IN (SELECT value FROM json_each(?)) GROUP BY source_symbol_id"
+  );
+  const incStmt = db.prepare(
+    "SELECT target_symbol_id as id, COUNT(*) as c FROM edges WHERE target_symbol_id IN (SELECT value FROM json_each(?)) GROUP BY target_symbol_id"
+  );
+
+  const json = JSON.stringify(symbolIds);
+  for (const row of outStmt.all(json) as Array<{ id: number; c: number }>) {
+    degrees.set(row.id, (degrees.get(row.id) ?? 0) + row.c);
+  }
+  for (const row of incStmt.all(json) as Array<{ id: number; c: number }>) {
+    degrees.set(row.id, (degrees.get(row.id) ?? 0) + row.c);
+  }
+
+  return degrees;
 }
 
 const DAMPING = 0.85;

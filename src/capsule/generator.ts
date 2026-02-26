@@ -12,7 +12,7 @@ import type {
 } from "../core/types.js";
 import { symbolQueries } from "../db/queries/symbols.js";
 import { fileQueries } from "../db/queries/files.js";
-import { getSymbolDegree, scopedLazyBfsTraversal } from "../core/graph.js";
+import { getBatchSymbolDegrees, scopedLazyBfsTraversal } from "../core/graph.js";
 import { fuzzyMatch } from "../utils/fuzzy.js";
 import { countTokens } from "../utils/tokens.js";
 import { expandQueryWithSynonyms } from "../utils/synonyms.js";
@@ -208,13 +208,16 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const centralityValues: number[] = [];
   const degreeValues: number[] = [];
 
+  const allVisitedIds = [...visited.keys()];
+  const batchDegrees = getBatchSymbolDegrees(db, allVisitedIds);
+
   for (const [symbolId, distance] of visited) {
     const symbol = symbols.getByIdLight(symbolId);
     if (!symbol) continue;
     const file = getFile(symbol.fileId);
     if (!file) continue;
 
-    const degree = getSymbolDegree(db, symbolId);
+    const degree = batchDegrees.get(symbolId) ?? 0;
     const lexicalScore = getLexicalScore(symbol, file, expandedQueryTerms, exactQueryTermSet);
 
     centralityValues.push(symbol.centrality);
