@@ -31,13 +31,22 @@ export class BM25Index {
   private readonly stmtInsertTerm: Database.Statement;
   private readonly stmtDeleteTerm: Database.Statement;
   private readonly stmtGetTermDocs: Database.Statement;
-  private readonly stmtGetDocTerms: Database.Statement;
   private readonly stmtGetStat: Database.Statement;
   private readonly stmtUpsertStat: Database.Statement;
   private readonly stmtGetAllDocLengths: Database.Statement;
+  private readonly stmtGetDocLength: Database.Statement;
+  private readonly stmtInsertDocLength: Database.Statement;
+  private readonly stmtDeleteDocLength: Database.Statement;
 
   constructor(db: Database.Database) {
     this.db = db;
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS bm25_doc_lengths (
+        observation_id INTEGER PRIMARY KEY,
+        dl INTEGER NOT NULL
+      )
+    `);
 
     this.stmtInsertTerm = db.prepare(`
       INSERT OR REPLACE INTO bm25_index (term, observation_id, tf)
@@ -52,10 +61,6 @@ export class BM25Index {
       "SELECT observation_id, tf FROM bm25_index WHERE term = ?"
     );
 
-    this.stmtGetDocTerms = db.prepare(
-      "SELECT term, tf FROM bm25_index WHERE observation_id = ?"
-    );
-
     this.stmtGetStat = db.prepare(
       "SELECT value FROM bm25_stats WHERE key = ?"
     );
@@ -65,7 +70,19 @@ export class BM25Index {
     `);
 
     this.stmtGetAllDocLengths = db.prepare(
-      "SELECT observation_id, SUM(tf) as dl FROM bm25_index GROUP BY observation_id"
+      "SELECT observation_id, dl FROM bm25_doc_lengths"
+    );
+
+    this.stmtGetDocLength = db.prepare(
+      "SELECT dl FROM bm25_doc_lengths WHERE observation_id = ?"
+    );
+
+    this.stmtInsertDocLength = db.prepare(
+      "INSERT OR REPLACE INTO bm25_doc_lengths (observation_id, dl) VALUES (?, ?)"
+    );
+
+    this.stmtDeleteDocLength = db.prepare(
+      "DELETE FROM bm25_doc_lengths WHERE observation_id = ?"
     );
   }
 
@@ -92,13 +109,15 @@ export class BM25Index {
 
     this.db.transaction(() => {
       this.stmtDeleteTerm.run(observationId);
+      this.stmtDeleteDocLength.run(observationId);
       for (const [term, count] of tf) {
         this.stmtInsertTerm.run({
           term,
           observationId,
-          tf: count / dl,
+          tf: count,
         });
       }
+      this.stmtInsertDocLength.run(observationId, dl);
       this.writeStat("doc_count", docCount);
       this.writeStat("avg_dl", newAvgDl);
     })();
@@ -110,13 +129,14 @@ export class BM25Index {
     const docCount = this.readStat("doc_count");
     if (docCount <= 0) return;
 
-    const terms = this.stmtGetDocTerms.all(observationId) as Array<{ term: string; tf: number }>;
-    const dl = terms.reduce((sum, t) => sum + t.tf, 0);
+    const dlRow = this.stmtGetDocLength.get(observationId) as { dl: number } | undefined;
+    const dl = dlRow?.dl ?? 0;
 
     const newDocCount = Math.max(0, docCount - 1);
 
     this.db.transaction(() => {
       this.stmtDeleteTerm.run(observationId);
+      this.stmtDeleteDocLength.run(observationId);
 
       if (newDocCount === 0) {
         this.writeStat("doc_count", 0);
@@ -142,6 +162,11 @@ export class BM25Index {
 
     if (N === 0 || avgdl === 0) return [];
 
+    const docLengths = new Map<number, number>();
+    for (const row of this.stmtGetAllDocLengths.all() as Array<{ observation_id: number; dl: number }>) {
+      docLengths.set(row.observation_id, row.dl);
+    }
+
     const scores = new Map<number, number>();
 
     for (const token of tokens) {
@@ -154,8 +179,9 @@ export class BM25Index {
 
       for (const doc of docs) {
         const tf = doc.tf;
+        const dl = docLengths.get(doc.observation_id) ?? avgdl;
         const numerator = tf * (K1 + 1);
-        const denominator = tf + K1 * (1 - B + B * (tf / avgdl));
+        const denominator = tf + K1 * (1 - B + B * (dl / avgdl));
         const termScore = idf * (numerator / denominator);
         scores.set(doc.observation_id, (scores.get(doc.observation_id) ?? 0) + termScore);
       }
