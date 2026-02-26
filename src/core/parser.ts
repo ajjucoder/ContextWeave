@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
 import { extname } from "node:path";
 import { getQueries } from "./queries/index.js";
+import { createLogger } from "../utils/logger.js";
 import type {
   ParsedSymbol,
   ParsedImport,
@@ -12,6 +13,7 @@ import type {
 } from "./types.js";
 
 const require = createRequire(import.meta.url);
+const log = createLogger("parser");
 
 type TreeSitterLanguage = ReturnType<Parser["getLanguage"]>;
 
@@ -236,7 +238,8 @@ function parseSymbols(
           nodeToSymbol(defCapture.node, nameCapture.node, effectiveKind, content)
         );
       }
-    } catch {
+    } catch (err) {
+      log.debug("query execution failed in parseSymbols", { kind, error: err instanceof Error ? err.message : String(err) });
     }
   };
 
@@ -312,7 +315,8 @@ function parseImports(
 
       imports.push({ names, source, kind });
     }
-  } catch {
+  } catch (err) {
+    log.debug("query execution failed in parseImports", { language, error: err instanceof Error ? err.message : String(err) });
   }
 
   return imports;
@@ -358,7 +362,8 @@ function parseCalls(
         });
       }
     }
-  } catch {
+  } catch (err) {
+    log.debug("query execution failed in parseCalls", { language, error: err instanceof Error ? err.message : String(err) });
   }
 
   return calls;
