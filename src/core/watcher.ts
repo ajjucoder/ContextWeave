@@ -1,4 +1,4 @@
-import { watch, type FSWatcher } from "chokidar";
+import * as parcelWatcher from "@parcel/watcher";
 import type Database from "better-sqlite3";
 import type { IndexDiff } from "./types.js";
 import { indexSingleFile, removeFile } from "./indexer.js";
@@ -21,48 +21,37 @@ export interface WatcherOptions {
   onDiff?: (filePath: string, diff: IndexDiff, fileId: number) => void;
 }
 
-let activeWatcher: FSWatcher | null = null;
+let activeSubscription: parcelWatcher.AsyncSubscription | null = null;
 
-export function startWatcher(options: WatcherOptions): FSWatcher {
-  if (activeWatcher) {
+const BUILTIN_IGNORE = [
+  "node_modules",
+  "dist",
+  "build",
+  ".git",
+  ".next",
+  ".contextweave",
+  "coverage",
+  "venv",
+  ".venv",
+  "env",
+  "target",
+  ".tox",
+  "vendor",
+  ".bundle",
+  "__pycache__",
+];
+
+export async function startWatcher(options: WatcherOptions): Promise<void> {
+  if (activeSubscription) {
     log.warn("watcher already active, closing previous");
-    activeWatcher.close();
+    await activeSubscription.unsubscribe();
+    activeSubscription = null;
   }
 
   const { projectRoot, db, ignore, sessionId, onReindex, onRemove, onError, onDiff } = options;
-
   const staleness = new StalenessEngine(db);
   const files = fileQueries(db);
-
-  const builtinIgnored = [
-    "**/node_modules/**",
-    "**/dist/**",
-    "**/build/**",
-    "**/.git/**",
-    "**/.next/**",
-    "**/.contextweave/**",
-    "**/coverage/**",
-    "**/venv/**",
-    "**/.venv/**",
-    "**/env/**",
-    "**/target/**",
-    "**/.tox/**",
-    "**/vendor/**",
-    "**/.bundle/**",
-    "**/__pycache__/**",
-  ];
-  const configIgnored = (ignore ?? []).map((p) => `**/${p}/**`);
-  const allIgnored = [...new Set([...builtinIgnored, ...configIgnored])];
-
-  const watcher = watch(projectRoot, {
-    ignored: allIgnored,
-    persistent: true,
-    ignoreInitial: true,
-    awaitWriteFinish: {
-      stabilityThreshold: 200,
-      pollInterval: 50,
-    },
-  });
+  const allIgnore = [...BUILTIN_IGNORE, ...(ignore ?? [])];
 
   const handleChange = (filePath: string) => {
     const language = detectLanguage(filePath);
@@ -83,8 +72,9 @@ export function startWatcher(options: WatcherOptions): FSWatcher {
 
       onReindex?.(filePath, result.symbolCount);
     } catch (err) {
-      log.error(`failed to reindex ${filePath}`, err);
-      onError?.(err instanceof Error ? err : new Error(String(err)));
+      const error = err instanceof Error ? err : new Error(String(err));
+      log.error(`failed to reindex ${filePath}`, error);
+      onError?.(error);
     }
   };
 
@@ -97,30 +87,41 @@ export function startWatcher(options: WatcherOptions): FSWatcher {
       log.debug(`removed ${filePath} from index`);
       onRemove?.(filePath);
     } catch (err) {
-      log.error(`failed to remove ${filePath}`, err);
-      onError?.(err instanceof Error ? err : new Error(String(err)));
+      const error = err instanceof Error ? err : new Error(String(err));
+      log.error(`failed to remove ${filePath}`, error);
+      onError?.(error);
     }
   };
 
-  watcher
-    .on("add", handleChange)
-    .on("change", handleChange)
-    .on("unlink", handleRemove)
-    .on("error", (err: unknown) => {
-      const error = err instanceof Error ? err : new Error(String(err));
-      log.error("watcher error", error);
-      onError?.(error);
-    });
+  activeSubscription = await parcelWatcher.subscribe(
+    projectRoot,
+    (err, events) => {
+      if (err) {
+        const error = err instanceof Error ? err : new Error(String(err));
+        log.error("watcher error", error);
+        onError?.(error);
+        return;
+      }
 
-  activeWatcher = watcher;
+      for (const event of events) {
+        if (event.type === "delete") {
+          handleRemove(event.path);
+        } else {
+          handleChange(event.path);
+        }
+      }
+    },
+    {
+      ignore: allIgnore.map((p) => `**/${p}/**`),
+    }
+  );
+
   log.info("file watcher started", { projectRoot });
-
-  return watcher;
 }
 
-export function stopWatcher(): void {
-  if (!activeWatcher) return;
-  activeWatcher.close();
-  activeWatcher = null;
+export async function stopWatcher(): Promise<void> {
+  if (!activeSubscription) return;
+  await activeSubscription.unsubscribe();
+  activeSubscription = null;
   log.info("file watcher stopped");
 }

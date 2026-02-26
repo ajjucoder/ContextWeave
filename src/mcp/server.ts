@@ -45,23 +45,24 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
   registerStatusTool(server, db, projectRoot);
   registerReindexTool(server, db, projectRoot);
 
-  startWatcher({ projectRoot, db, ignore: config?.ignore, sessionId: serverSessionId });
+  await startWatcher({ projectRoot, db, ignore: config?.ignore, sessionId: serverSessionId });
   log.info("file watcher started", { projectRoot });
 
   const transport = new StdioServerTransport();
 
-  process.on("SIGINT", () => {
-    log.info("shutting down");
-    stopWatcher();
+  async function shutdown(signal: string): Promise<void> {
+    log.info("shutting down", { signal });
+    await stopWatcher();
     closeDb();
     process.exit(0);
+  }
+
+  process.on("SIGINT", () => {
+    void shutdown("SIGINT");
   });
 
   process.on("SIGTERM", () => {
-    log.info("shutting down");
-    stopWatcher();
-    closeDb();
-    process.exit(0);
+    void shutdown("SIGTERM");
   });
 
   log.info("starting MCP server", { projectRoot });
