@@ -47,6 +47,21 @@ export interface SymbolRecord {
   lastSeen: number;
 }
 
+export interface LightSymbolRecord {
+  id: number;
+  fileId: number;
+  name: string;
+  kind: SymbolKind;
+  startLine: number;
+  endLine: number;
+  signature: string;
+  bodyHash: string;
+  isExported: boolean;
+  docComment: string | null;
+  centrality: number;
+  lastSeen: number;
+}
+
 export interface EdgeRecord {
   id: number;
   sourceSymbolId: number;

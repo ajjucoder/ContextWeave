@@ -7,12 +7,13 @@ import type {
   CapsuleMetadata,
   CompressionLevel,
   CapsuleUncertainty,
+  LightSymbolRecord,
   SymbolRecord,
   FileRecord,
 } from "../core/types.js";
 import { symbolQueries } from "../db/queries/symbols.js";
 import { fileQueries } from "../db/queries/files.js";
-import { getSymbolDegree, lazyBfsTraversal } from "../core/graph.js";
+import { getSymbolDegree, scopedLazyBfsTraversal } from "../core/graph.js";
 import { fuzzyMatch } from "../utils/fuzzy.js";
 import { countTokens } from "../utils/tokens.js";
 import { expandQueryWithSynonyms } from "../utils/synonyms.js";
@@ -38,7 +39,7 @@ interface CapsuleParams {
 }
 
 interface RankedCandidate {
-  symbol: SymbolRecord;
+  symbol: LightSymbolRecord;
   file: FileRecord;
   score: number;
   distance: number;
@@ -92,7 +93,7 @@ function toDisplayPath(filePath: string, root: string | null): string {
 }
 
 function getLexicalScore(
-  symbol: SymbolRecord,
+  symbol: LightSymbolRecord,
   file: FileRecord,
   queryTerms: string[],
   exactQueryTerms: Set<string>
@@ -178,14 +179,6 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const observationBudget = Math.floor(tokenBudget * 0.2);
   const { observations } = memorySearch.getRelevantForCapsule(query, observationBudget);
 
-  // Phase 2: Lazy BFS traversal keeps memory stable on large graphs.
-  const maxDepth = getBfsDepth(tokenBudget);
-  const bfsNodes = lazyBfsTraversal(db, [...pivotSymbolIds], maxDepth);
-  const visited = new Map<number, number>(bfsNodes.map((n) => [n.symbolId, n.distance]));
-
-  logger.debug("bfs traversal complete", { nodesVisited: visited.size });
-
-  // Phase 3: Stage B reranking (intent + locality + hub dampening)
   const fileCache = new Map<number, FileRecord | undefined>();
   const getFile = (fileId: number): FileRecord | undefined => {
     if (!fileCache.has(fileId)) fileCache.set(fileId, files.getById(fileId));
@@ -203,12 +196,21 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     pivotDirs.add(dirname(file.path));
   }
 
+  // Phase 2: Lazy BFS traversal keeps memory stable on large graphs.
+  const maxDepth = getBfsDepth(tokenBudget);
+  const scopeDirs = pivotDirs.size > 0 ? [...pivotDirs] : null;
+  const bfsNodes = scopedLazyBfsTraversal(db, [...pivotSymbolIds], maxDepth, scopeDirs);
+  const visited = new Map<number, number>(bfsNodes.map((n) => [n.symbolId, n.distance]));
+
+  logger.debug("bfs traversal complete", { nodesVisited: visited.size });
+
+  // Phase 3: Stage B reranking (intent + locality + hub dampening)
   const candidates: RankedCandidate[] = [];
   const centralityValues: number[] = [];
   const degreeValues: number[] = [];
 
   for (const [symbolId, distance] of visited) {
-    const symbol = symbols.getById(symbolId);
+    const symbol = symbols.getByIdLight(symbolId);
     if (!symbol) continue;
     const file = getFile(symbol.fileId);
     if (!file) continue;
@@ -303,16 +305,20 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     const cache = new Map<number, FileRecord>();
 
     return sel.map(({ symbol, file, score, distance }) => {
+      const fullSymbol = symbols.getById(symbol.id) ?? {
+        ...symbol,
+        fullSource: "",
+      };
       const displayFile =
         cache.get(file.id) ??
         ({ ...file, path: toDisplayPath(file.path, root) } satisfies FileRecord);
       if (!cache.has(file.id)) cache.set(file.id, displayFile);
 
       const compressionLevel = assignCompressionLevel(score, distance, maxSc);
-      const rendered = renderSymbol(symbol, displayFile, compressionLevel);
+      const rendered = renderSymbol(fullSymbol, displayFile, compressionLevel);
       const tokenCount = countTokens(rendered);
 
-      return { symbol, file: displayFile, score, distance, compressionLevel, rendered, tokenCount };
+      return { symbol: fullSymbol, file: displayFile, score, distance, compressionLevel, rendered, tokenCount };
     });
   }
 

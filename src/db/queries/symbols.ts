@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { SymbolRecord } from "../../core/types.js";
+import type { LightSymbolRecord, SymbolRecord } from "../../core/types.js";
 
 export function symbolQueries(db: Database.Database) {
   const insert = db.prepare(`
@@ -10,6 +10,9 @@ export function symbolQueries(db: Database.Database) {
   const updateCentrality = db.prepare("UPDATE symbols SET centrality = @centrality WHERE id = @id");
   const getByFileId = db.prepare("SELECT * FROM symbols WHERE file_id = ?");
   const getById = db.prepare("SELECT * FROM symbols WHERE id = ?");
+  const getByIdLight = db.prepare(
+    "SELECT id, file_id, name, kind, start_line, end_line, signature, body_hash, is_exported, doc_comment, centrality, last_seen FROM symbols WHERE id = ?"
+  );
   const getByName = db.prepare("SELECT * FROM symbols WHERE name = ?");
   const getByBodyHash = db.prepare("SELECT * FROM symbols WHERE body_hash = ?");
   const deleteById = db.prepare("DELETE FROM symbols WHERE id = ?");
@@ -48,6 +51,25 @@ export function symbolQueries(db: Database.Database) {
     };
   }
 
+  function mapRowLight(row: unknown): LightSymbolRecord | undefined {
+    if (!row) return undefined;
+    const r = row as Record<string, unknown>;
+    return {
+      id: r["id"] as number,
+      fileId: r["file_id"] as number,
+      name: r["name"] as string,
+      kind: r["kind"] as LightSymbolRecord["kind"],
+      startLine: r["start_line"] as number,
+      endLine: r["end_line"] as number,
+      signature: r["signature"] as string,
+      bodyHash: r["body_hash"] as string,
+      isExported: (r["is_exported"] as number) === 1,
+      docComment: r["doc_comment"] as string | null,
+      centrality: r["centrality"] as number,
+      lastSeen: r["last_seen"] as number,
+    };
+  }
+
   return {
     insert(symbol: Omit<SymbolRecord, "id">): number {
       const result = insert.run({
@@ -77,6 +99,10 @@ export function symbolQueries(db: Database.Database) {
 
     getById(id: number): SymbolRecord | undefined {
       return mapRow(getById.get(id));
+    },
+
+    getByIdLight(id: number): LightSymbolRecord | undefined {
+      return mapRowLight(getByIdLight.get(id));
     },
 
     getByName(name: string): SymbolRecord[] {

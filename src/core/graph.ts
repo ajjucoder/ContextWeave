@@ -128,6 +128,57 @@ export function lazyBfsTraversal(
   return Array.from(visited.entries()).map(([symbolId, distance]) => ({ symbolId, distance }));
 }
 
+export function scopedLazyBfsTraversal(
+  db: Database.Database,
+  pivotIds: number[],
+  maxDepth: number,
+  scopeDirs: string[] | null
+): BfsNode[] {
+  const getOutgoing = db.prepare(
+    "SELECT e.target_symbol_id, f.path FROM edges e JOIN symbols s ON s.id = e.target_symbol_id JOIN files f ON f.id = s.file_id WHERE e.source_symbol_id = ?"
+  );
+  const getIncoming = db.prepare(
+    "SELECT e.source_symbol_id, f.path FROM edges e JOIN symbols s ON s.id = e.source_symbol_id JOIN files f ON f.id = s.file_id WHERE e.target_symbol_id = ?"
+  );
+
+  const isInScope = (filePath: string): boolean => {
+    if (!scopeDirs || scopeDirs.length === 0) return true;
+    return scopeDirs.some((dir) => filePath.startsWith(`${dir}/`) || filePath.startsWith(`${dir}\\`));
+  };
+
+  const visited = new Map<number, number>();
+  const queue: BfsNode[] = [];
+
+  for (const id of pivotIds) {
+    visited.set(id, 0);
+    queue.push({ symbolId: id, distance: 0 });
+  }
+
+  let head = 0;
+  while (head < queue.length) {
+    const current = queue[head++]!;
+    if (current.distance >= maxDepth) continue;
+
+    const outgoing = (getOutgoing.all(current.symbolId) as Array<{ target_symbol_id: number; path: string }>)
+      .filter((row) => isInScope(row.path))
+      .map((row) => row.target_symbol_id);
+
+    const incoming = (getIncoming.all(current.symbolId) as Array<{ source_symbol_id: number; path: string }>)
+      .filter((row) => isInScope(row.path))
+      .map((row) => row.source_symbol_id);
+
+    for (const neighborId of [...outgoing, ...incoming]) {
+      const existing = visited.get(neighborId);
+      const newDist = current.distance + 1;
+      if (existing !== undefined && existing <= newDist) continue;
+      visited.set(neighborId, newDist);
+      queue.push({ symbolId: neighborId, distance: newDist });
+    }
+  }
+
+  return Array.from(visited.entries()).map(([symbolId, distance]) => ({ symbolId, distance }));
+}
+
 export function getSymbolDegree(db: Database.Database, symbolId: number): number {
   const out = db.prepare("SELECT COUNT(*) as c FROM edges WHERE source_symbol_id = ?").get(symbolId) as { c: number };
   const inc = db.prepare("SELECT COUNT(*) as c FROM edges WHERE target_symbol_id = ?").get(symbolId) as { c: number };
