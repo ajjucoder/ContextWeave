@@ -13,7 +13,9 @@ import type {
 
 const require = createRequire(import.meta.url);
 
-const languageModules: Record<string, () => Parser.Language> = {
+type TreeSitterLanguage = ReturnType<Parser["getLanguage"]>;
+
+const languageModules: Record<string, () => TreeSitterLanguage> = {
   typescript: () => require("tree-sitter-typescript").typescript,
   tsx: () => require("tree-sitter-typescript").tsx,
   javascript: () => require("tree-sitter-javascript"),
