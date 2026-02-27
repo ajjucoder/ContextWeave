@@ -47,3 +47,15 @@ export function estimateTokens(symbol: SymbolRecord, level: CompressionLevel): n
   }
   return countTokens(`${symbol.kind} ${symbol.name}`);
 }
+
+export interface FileSummarySymbol {
+  name: string;
+  kind: string;
+}
+
+export function renderFileSummary(filePath: string, symbols: FileSummarySymbol[]): string {
+  const MAX_NAMES = 8;
+  const names = symbols.slice(0, MAX_NAMES).map((s) => s.name);
+  const suffix = symbols.length > MAX_NAMES ? `, +${symbols.length - MAX_NAMES} more` : "";
+  return `[file] ${filePath}: ${symbols.length} symbols (${names.join(", ")}${suffix})`;
+}

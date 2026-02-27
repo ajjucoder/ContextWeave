@@ -364,7 +364,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   let selected = selectCandidates(baseLexThreshold, 1, baseCandidateLimit);
   let scoredNodes = buildScoredNodes(selected);
-  let { packed, tokensUsed } = packNodes(scoredNodes, tokenBudget, codeRatio);
+  let { packed, tokensUsed, fileSummaries } = packNodes(scoredNodes, tokenBudget, codeRatio);
 
   if (tokensUsed < tokenBudget * MIN_UTILIZATION && candidates.length > selected.length) {
     // Strategy 1: promote existing nodes to better compression (L3→L0)
@@ -384,6 +384,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       scoredNodes = promotedNodes;
       packed = promotedResult.packed;
       tokensUsed = promotedResult.tokensUsed;
+      fileSummaries = promotedResult.fileSummaries;
       logger.debug("auto-expanded via promotion", { selectedCount: selected.length, tokensUsed });
     }
   }
@@ -462,7 +463,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     generatedAt: Date.now(),
   };
 
-  const content = formatCapsule(packed, observations, metadata);
+  const content = formatCapsule(packed, observations, metadata, fileSummaries);
 
   logger.info("capsule generated", {
     symbolCount: packed.length,

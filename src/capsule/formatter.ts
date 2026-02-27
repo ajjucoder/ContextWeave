@@ -10,7 +10,8 @@ const LEVEL_LABEL: Record<number, string> = {
 export function formatCapsule(
   packedNodes: ScoredNode[],
   observations: ObservationRecord[],
-  metadata: CapsuleMetadata
+  metadata: CapsuleMetadata,
+  fileSummaries: string[] = []
 ): string {
   const fileCount = new Set(packedNodes.map((n) => n.file.path)).size;
   const pivotPct = Math.round(metadata.quality.pivotCoverage * 100);
@@ -50,6 +51,13 @@ export function formatCapsule(
   }
 
   const parts = [header, ...codeSections];
+
+  if (fileSummaries.length > 0) {
+    parts.push("\n--- Unpacked Files ---");
+    for (const summary of fileSummaries) {
+      parts.push(summary);
+    }
+  }
 
   if (metadata.quality.reasons.length > 0) {
     parts.push("\n--- Quality Notes ---");
