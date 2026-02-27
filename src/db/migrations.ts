@@ -122,6 +122,18 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 5,
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS file_clusters (
+          file_id    INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+          cluster_id INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_file_clusters_cluster ON file_clusters(cluster_id);
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

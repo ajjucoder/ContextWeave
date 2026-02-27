@@ -13,6 +13,7 @@ import { symbolQueries } from "../db/queries/symbols.js";
 import { edgeQueries } from "../db/queries/edges.js";
 import { createLogger } from "../utils/logger.js";
 import { upsertFileSummary } from "./file-summaries.js";
+import { computeClusters } from "./clusters.js";
 
 const log = createLogger("indexer");
 
@@ -822,6 +823,8 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
   });
 
   upsertSummaries();
+
+  computeClusters(db);
 
   log.info(`indexed ${toProcess.length} files, ${totalSymbols} symbols`);
   return { filesIndexed: filePaths.length, symbolsFound: totalSymbols, errors: allErrors };

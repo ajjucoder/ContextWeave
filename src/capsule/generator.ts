@@ -31,6 +31,7 @@ import { captureQueryObservation } from "../memory/passive.js";
 import { SessionContext } from "./session-context.js";
 import { decomposeQuery, mergeSubQueryTerms } from "./query-decomposer.js";
 import { searchFilesByQuery } from "../core/file-summaries.js";
+import { getFileClusterId, getClusterFileIds } from "../core/clusters.js";
 
 const logger = createLogger("generator");
 
@@ -211,6 +212,20 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const candidateFileIds = candidateFiles.length > 0
     ? new Set(candidateFiles.map((f) => f.fileId))
     : null;
+
+  if (candidateFileIds && candidateFileIds.size > 0) {
+    const MAX_CANDIDATE_FILES = 100;
+    for (const fileId of [...candidateFileIds]) {
+      if (candidateFileIds.size >= MAX_CANDIDATE_FILES) break;
+      const clusterId = getFileClusterId(db, fileId);
+      if (clusterId !== null) {
+        for (const clusteredFileId of getClusterFileIds(db, clusterId)) {
+          if (candidateFileIds.size >= MAX_CANDIDATE_FILES) break;
+          candidateFileIds.add(clusteredFileId);
+        }
+      }
+    }
+  }
 
   for (const term of expandedQueryTerms) {
     if (term.length >= 3) {

@@ -1,0 +1,118 @@
+import type Database from "better-sqlite3";
+
+interface FileEdgeRow {
+  file_a: number;
+  file_b: number;
+  import_count: number;
+}
+
+const MAX_CLUSTER_SIZE = 20;
+const MIN_CROSS_FILE_EDGES = 1;
+
+function buildUnionFind(size: number): { parent: number[]; rank: number[] } {
+  const parent = Array.from({ length: size }, (_, i) => i);
+  const rank = new Array(size).fill(0);
+  return { parent, rank };
+}
+
+function find(parent: number[], x: number): number {
+  if (parent[x] !== x) parent[x] = find(parent, parent[x]!);
+  return parent[x]!;
+}
+
+function union(parent: number[], rank: number[], x: number, y: number): void {
+  const rootX = find(parent, x);
+  const rootY = find(parent, y);
+  if (rootX === rootY) return;
+  if (rank[rootX]! < rank[rootY]!) {
+    parent[rootX] = rootY;
+  } else if (rank[rootX]! > rank[rootY]!) {
+    parent[rootY] = rootX;
+  } else {
+    parent[rootY] = rootX;
+    rank[rootX]!++;
+  }
+}
+
+export function computeClusters(db: Database.Database): void {
+  db.prepare("DELETE FROM file_clusters").run();
+
+  const allFiles = db.prepare("SELECT id FROM files").all() as Array<{ id: number }>;
+  if (allFiles.length === 0) return;
+
+  const fileIds = allFiles.map((f) => f.id);
+  const indexMap = new Map(fileIds.map((id, i) => [id, i]));
+
+  const { parent, rank } = buildUnionFind(fileIds.length);
+
+  const crossFileEdges = db.prepare(`
+    SELECT
+      MIN(sf.file_id, tf.file_id) as file_a,
+      MAX(sf.file_id, tf.file_id) as file_b,
+      COUNT(*) as import_count
+    FROM edges e
+    JOIN symbols sf ON sf.id = e.source_symbol_id
+    JOIN symbols tf ON tf.id = e.target_symbol_id
+    WHERE sf.file_id != tf.file_id
+      AND e.kind = 'import'
+    GROUP BY file_a, file_b
+    HAVING import_count >= ${MIN_CROSS_FILE_EDGES}
+  `).all() as FileEdgeRow[];
+
+  for (const edge of crossFileEdges) {
+    const i = indexMap.get(edge.file_a);
+    const j = indexMap.get(edge.file_b);
+    if (i !== undefined && j !== undefined) {
+      union(parent, rank, i, j);
+    }
+  }
+
+  const clusterGroups = new Map<number, number[]>();
+  for (let i = 0; i < fileIds.length; i++) {
+    const root = find(parent, i);
+    const group = clusterGroups.get(root) ?? [];
+    group.push(fileIds[i]!);
+    clusterGroups.set(root, group);
+  }
+
+  const insert = db.prepare("INSERT INTO file_clusters (file_id, cluster_id) VALUES (?, ?)");
+  let clusterId = 1;
+
+  const insertAll = db.transaction(() => {
+    for (const group of clusterGroups.values()) {
+      if (group.length <= MAX_CLUSTER_SIZE) {
+        for (const fileId of group) {
+          insert.run(fileId, clusterId);
+        }
+        clusterId++;
+      } else {
+        const byDir = new Map<string, number[]>();
+        for (const fileId of group) {
+          const path = (db.prepare("SELECT path FROM files WHERE id = ?").get(fileId) as { path: string } | undefined)?.path ?? "";
+          const dir = path.split("/").slice(0, 2).join("/");
+          const dirGroup = byDir.get(dir) ?? [];
+          dirGroup.push(fileId);
+          byDir.set(dir, dirGroup);
+        }
+        for (const dirGroup of byDir.values()) {
+          for (const fileId of dirGroup) {
+            insert.run(fileId, clusterId);
+          }
+          clusterId++;
+        }
+      }
+    }
+  });
+
+  insertAll();
+}
+
+export function getClusterFileIds(db: Database.Database, clusterId: number): number[] {
+  const rows = db.prepare("SELECT file_id FROM file_clusters WHERE cluster_id = ?").all(clusterId) as Array<{ file_id: number }>;
+  return rows.map((r) => r.file_id);
+}
+
+export function getFileClusterId(db: Database.Database, fileId: number): number | null {
+  const row = db.prepare("SELECT cluster_id FROM file_clusters WHERE file_id = ?").get(fileId) as { cluster_id: number } | undefined;
+  return row?.cluster_id ?? null;
+}

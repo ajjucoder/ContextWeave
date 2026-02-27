@@ -126,6 +126,11 @@ CREATE TABLE IF NOT EXISTS session_context (
   relevance   REAL    NOT NULL DEFAULT 1.0,
   returned_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS file_clusters (
+  file_id    INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+  cluster_id INTEGER NOT NULL
+);
 `;
 
 const INDEXES = `
@@ -146,6 +151,7 @@ CREATE INDEX IF NOT EXISTS idx_edges_tgt_cov ON edges(target_symbol_id, source_s
 CREATE INDEX IF NOT EXISTS idx_files_path_cov ON files(path, id, hash, mtime, symbol_count, last_indexed);
 CREATE INDEX IF NOT EXISTS idx_session_ctx_session ON session_context(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_ctx_symbol ON session_context(symbol_id);
+CREATE INDEX IF NOT EXISTS idx_file_clusters_cluster ON file_clusters(cluster_id);
 `;
 
 const FTS_SYNC = `
