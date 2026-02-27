@@ -2,6 +2,58 @@
 
 ## Session
 - date: 2026-02-27
+- branch: `feat/wave4-explorer-killer`
+- execution mode: `superpowers:using-superpowers + executing-plans + subagent-driven-development (agent-team parallel lanes)`
+- source plan: `docs/plans/2026-02-27-wave4-explorer-killer.md`
+- tracker plan: `audits/IMPLEMENTATION_PLAN_END_TO_END.md` (Wave 4 section)
+
+## Ticket Status
+
+| Ticket | Tier | Status | Owner | Scope/Files | Evidence |
+|---|---|---|---|---|---|
+| CWW4-P0-001 | P0 | in_progress | codex | `tests/integration/task-query-quality.test.ts` | pending |
+| CWW4-P0-002 | P0 | in_progress | codex | `src/capsule/diagnostics.ts`, `tests/capsule/diagnostics.test.ts` | pending |
+| CWW4-P0-003 | P0 | todo | codex | `src/capsule/generator.ts`, `src/core/types.ts`, `src/capsule/formatter.ts` | pending |
+| CWW4-P0-004 | P0 | todo | codex | ratchet test + baseline update tooling | pending |
+| CWW4-P0-005 | P0 | todo | codex | `src/capsule/intent-classifier.ts`, tests | pending |
+| CWW4-P0-006 | P0 | todo | codex | generator intent strategy routing | pending |
+| CWW4-P1-001 | P1 | todo | codex | story-complete packing | pending |
+| CWW4-P1-002 | P1 | todo | codex | adaptive confidence formula | pending |
+| CWW4-P1-003 | P1 | todo | codex | phase-2 threshold ratchet raise | pending |
+| CWW4-P0-007 | P0 | todo | codex | smart decomposition | pending |
+| CWW4-P0-008 | P0 | todo | codex | multi-pass generator orchestrator | pending |
+| CWW4-P0-009 | P0 | todo | codex | sub-capsule merger | pending |
+| CWW4-P1-004 | P1 | todo | codex | multi-pass formatter grouping | pending |
+| CWW4-P1-005 | P1 | todo | codex | phase-3 threshold ratchet raise | pending |
+| CWW4-P0-010 | P0 | todo | codex | non-blocking session lock | pending |
+| CWW4-P0-011 | P0 | todo | codex | concurrent-safe non-critical writes | pending |
+| CWW4-P0-012 | P0 | todo | codex | concurrent agents stress test + bench | pending |
+| CWW4-P2-001 | P2 | todo | codex | connection pool decision gate | pending |
+| CWW4-P0-013 | P0 | todo | codex | final validation gate and thresholds | pending |
+
+## Completion Summary
+- p0_completion: 0/13 done (0.0%)
+- p1_completion: 0/5 done (0.0%)
+- p2_completion: 0/1 done (0.0%)
+- overall_completion: 0/19 done (0.0%)
+
+## Test Evidence and Gate State
+- evidence legend:
+  - pending: implementation in progress, no completed verification bundle yet
+- gate status:
+  - pending full verification after Wave 4 implementation
+
+## Blockers and Next Actions
+- blockers: none currently; active implementation underway with parallel agent lanes
+- next actions:
+  1. merge Phase 1 + Phase 4 agent outputs, resolve conflicts, and run targeted tests
+  2. implement remaining Phase 2/3 generator/packer/merger work with red-green tests
+  3. execute full gate (`npx vitest run`, `npm run lint`, `npm run build`) and update statuses to `done` with evidence
+
+---
+
+## Session
+- date: 2026-02-27
 - branch: `feat/prod-hardening-2026-02-27`
 - execution mode: `superpowers:using-git-worktrees + writing-plans + executing-plans + systematic-debugging + test-driven-development + verification-before-completion`
 - source plan: `audits/IMPLEMENTATION_PLAN_END_TO_END.md` (Production Hardening Plan)

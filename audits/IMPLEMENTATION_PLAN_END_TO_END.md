@@ -2,6 +2,229 @@
 
 Source reminder: root [`IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md)
 
+## Wave 4 Explorer-Killer Plan (2026-02-27 Session)
+
+Source reminder: [`docs/plans/2026-02-27-wave4-explorer-killer.md`](../docs/plans/2026-02-27-wave4-explorer-killer.md)
+
+## Scope
+Execute the full Wave 4 explorer-killer plan end-to-end with no regressions:
+- Phase 1 self-improving QA harness and ratchet baseline
+- Phase 2 query intent classification + strategy routing + story-complete packing + adaptive confidence
+- Phase 3 multi-pass capsule decomposition, merge, and clustered output
+- Phase 4 concurrent-agent-safe MCP behavior and stress validation
+
+Session execution context:
+- branch: `feat/wave4-explorer-killer`
+- mode: `agent-team (native sub-agents) with parallel Phase 2/3 and Phase 4 after Phase 1`
+
+## Ticket Backlog (Wave 4)
+
+### CWW4-P0-001
+- owner: codex
+- scope/files: `tests/integration/task-query-quality.test.ts`
+- acceptance criteria:
+  - class-based suites exist for narrow/broad/task queries.
+  - thresholds are enforced per class plus overall average.
+- linked tests:
+  - `npx vitest run tests/integration/task-query-quality.test.ts`
+- status: todo
+
+### CWW4-P0-002
+- owner: codex
+- scope/files: `src/capsule/diagnostics.ts`, `tests/capsule/diagnostics.test.ts`
+- acceptance criteria:
+  - query class detection exists (`narrow|broad|task`).
+  - diagnostics output includes bottleneck classification + suggestion.
+- linked tests:
+  - `npx vitest run tests/capsule/diagnostics.test.ts`
+- status: todo
+
+### CWW4-P0-003
+- owner: codex
+- scope/files: `src/capsule/generator.ts`, `src/core/types.ts`, `src/capsule/formatter.ts`
+- acceptance criteria:
+  - metadata carries diagnostics payload.
+  - low-confidence capsules render diagnostics section.
+- linked tests:
+  - `npx vitest run tests/integration/task-query-quality.test.ts tests/integration/capsule.test.ts`
+- status: todo
+
+### CWW4-P0-004
+- owner: codex
+- scope/files: `tests/integration/threshold-ratchet.test.ts`, `tests/integration/update-baseline.ts`, `tests/integration/quality-baseline.json`
+- acceptance criteria:
+  - ratchet test blocks confidence regressions per class.
+  - baseline update script writes fresh measured baseline.
+- linked tests:
+  - `npx vitest run tests/integration/threshold-ratchet.test.ts`
+  - `npx tsx tests/integration/update-baseline.ts`
+- status: todo
+
+### CWW4-P0-005
+- owner: codex
+- scope/files: `src/capsule/intent-classifier.ts`, `tests/capsule/intent-classifier.test.ts`
+- acceptance criteria:
+  - classifier returns intent + normalized/focus/action/module fields.
+  - required canonical queries classify correctly.
+- linked tests:
+  - `npx vitest run tests/capsule/intent-classifier.test.ts`
+- status: todo
+
+### CWW4-P0-006
+- owner: codex
+- scope/files: `src/capsule/generator.ts`
+- acceptance criteria:
+  - generator routes strategy by intent for pivot/BFS/selection behavior.
+  - task-query focus terms reduce pivot flood.
+- linked tests:
+  - `npx vitest run tests/capsule/intent-routing.test.ts`
+- status: todo
+
+### CWW4-P1-001
+- owner: codex
+- scope/files: `src/capsule/packer.ts`, `tests/capsule/story-packing.test.ts`
+- acceptance criteria:
+  - story packing mode groups by cluster/file and improves local completeness.
+  - narrow intent keeps standard packing path.
+- linked tests:
+  - `npx vitest run tests/capsule/story-packing.test.ts`
+- status: todo
+
+### CWW4-P1-002
+- owner: codex
+- scope/files: `src/capsule/generator.ts`, `tests/capsule/confidence-formula.test.ts`
+- acceptance criteria:
+  - confidence formula adapts by intent and module/story metrics.
+  - narrow query scoring remains stable.
+- linked tests:
+  - `npx vitest run tests/capsule/confidence-formula.test.ts`
+- status: todo
+
+### CWW4-P1-003
+- owner: codex
+- scope/files: `tests/integration/task-query-quality.test.ts`, `tests/integration/quality-baseline.json`
+- acceptance criteria:
+  - phase-2 thresholds are raised and passing.
+  - baseline ratchet is updated upward.
+- linked tests:
+  - `npx vitest run tests/integration/task-query-quality.test.ts tests/integration/threshold-ratchet.test.ts`
+- status: todo
+
+### CWW4-P0-007
+- owner: codex
+- scope/files: `src/capsule/query-decomposer.ts`, `tests/capsule/smart-decomposer.test.ts`
+- acceptance criteria:
+  - broad/task decomposition emits focused sub-queries with cluster targeting.
+  - verb-driven task decomposition maps to meaningful code-area clusters.
+- linked tests:
+  - `npx vitest run tests/capsule/smart-decomposer.test.ts`
+- status: todo
+
+### CWW4-P0-008
+- owner: codex
+- scope/files: `src/capsule/generator.ts`
+- acceptance criteria:
+  - broad/task intents run multi-pass orchestration with budgeted sub-passes.
+  - fallback to single-pass remains safe when decomposition yields no candidates.
+- linked tests:
+  - `npx vitest run tests/capsule/multi-pass-generator.test.ts`
+- status: todo
+
+### CWW4-P0-009
+- owner: codex
+- scope/files: `src/capsule/merger.ts`, `tests/capsule/merger.test.ts`
+- acceptance criteria:
+  - merged output deduplicates symbols and respects budget.
+  - merged result preserves story completeness ordering.
+- linked tests:
+  - `npx vitest run tests/capsule/merger.test.ts`
+- status: todo
+
+### CWW4-P1-004
+- owner: codex
+- scope/files: `src/capsule/formatter.ts`
+- acceptance criteria:
+  - multi-pass capsule header and cluster-group sections render clearly.
+  - single-pass capsule formatting remains unchanged.
+- linked tests:
+  - `npx vitest run tests/capsule/formatter-multi-pass.test.ts`
+- status: todo
+
+### CWW4-P1-005
+- owner: codex
+- scope/files: `tests/integration/task-query-quality.test.ts`, `tests/integration/quality-baseline.json`
+- acceptance criteria:
+  - phase-3 thresholds are raised and passing.
+  - ratchet baseline is updated with improved broad/task scores.
+- linked tests:
+  - `npx vitest run tests/integration/task-query-quality.test.ts tests/integration/threshold-ratchet.test.ts`
+- status: todo
+
+### CWW4-P0-010
+- owner: codex
+- scope/files: `src/mcp/session-lock.ts`, `src/mcp/server.ts`, `tests/core/session-lock.test.ts`
+- acceptance criteria:
+  - lock acquisition supports `primary|secondary` modes.
+  - secondary server start is non-blocking.
+- linked tests:
+  - `npx vitest run tests/core/session-lock.test.ts`
+- status: todo
+
+### CWW4-P0-011
+- owner: codex
+- scope/files: `src/capsule/generator.ts`, `src/capsule/session-context.ts`
+- acceptance criteria:
+  - non-critical capsule writes degrade gracefully on `SQLITE_BUSY`.
+  - capsule generation still returns successfully under contention.
+- linked tests:
+  - `npx vitest run tests/integration/concurrent-agents.test.ts`
+- status: todo
+
+### CWW4-P0-012
+- owner: codex
+- scope/files: `tests/integration/concurrent-agents.test.ts`, `bench/concurrent-stress.ts`
+- acceptance criteria:
+  - concurrent capsule generation at 10 workers has 0 user-visible errors.
+  - stress report includes p50/p95/p99 and error-rate summary.
+- linked tests:
+  - `npx vitest run tests/integration/concurrent-agents.test.ts`
+  - `npx tsx bench/concurrent-stress.ts`
+- status: todo
+
+### CWW4-P2-001
+- owner: codex
+- scope/files: `src/db/connection.ts` (conditional)
+- acceptance criteria:
+  - connection pool added only if stress evidence requires it.
+  - if skipped, rationale is documented in code comments and sprint tracker.
+- linked tests:
+  - `npx vitest run tests/integration/concurrent-agents.test.ts`
+  - `npx tsx bench/concurrent-stress.ts`
+- status: todo
+
+### CWW4-P0-013
+- owner: codex
+- scope/files: `tests/integration/task-query-quality.test.ts`, `tests/integration/quality-baseline.json`, `bench/cross-project-qa.ts`
+- acceptance criteria:
+  - final thresholds met (narrow 75%, broad 75%, task 70%, overall 73%).
+  - concurrency targets met (10 agents, 0 errors, p95 < 50ms).
+  - cross-project QA remains green with broad/task coverage.
+- linked tests:
+  - `npx vitest run tests/integration/task-query-quality.test.ts tests/integration/threshold-ratchet.test.ts tests/integration/concurrent-agents.test.ts`
+  - `npx tsx bench/concurrent-stress.ts`
+  - `npx tsx bench/cross-project-qa.ts`
+  - `npx vitest run`
+  - `npm run lint`
+  - `npm run build`
+- status: todo
+
+## Execution Order (Wave 4)
+1. CWW4-P0-001, CWW4-P0-002, CWW4-P0-003, CWW4-P0-004
+2. Parallel lanes after phase-1 harness:
+   - intelligence lane: CWW4-P0-005, CWW4-P0-006, CWW4-P1-001, CWW4-P1-002, CWW4-P1-003, CWW4-P0-007, CWW4-P0-008, CWW4-P0-009, CWW4-P1-004, CWW4-P1-005
+   - concurrency lane: CWW4-P0-010, CWW4-P0-011, CWW4-P0-012, CWW4-P2-001
+3. Final integration gate: CWW4-P0-013
+
 ## Production Readiness Follow-up (2026-02-26, `main`)
 
 ## Scope
