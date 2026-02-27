@@ -2,7 +2,7 @@ import type { ScoredNode, CompressionLevel } from "../core/types.js";
 import { renderSymbol, renderFileSummary } from "./compressor.js";
 import { countTokens } from "../utils/tokens.js";
 
-interface PackResult {
+export interface PackResult {
   packed: ScoredNode[];
   observationBudget: number;
   tokensUsed: number;
@@ -10,6 +10,37 @@ interface PackResult {
 }
 
 const COMPRESSION_LEVELS: CompressionLevel[] = [0, 1, 2, 3];
+const FILE_SUMMARY_MIN_SYMBOLS = 3;
+
+function summarizeUnpacked(
+  scoredNodes: ScoredNode[],
+  packed: ScoredNode[],
+  codeBudget: number,
+  initialTokensUsed: number
+): { fileSummaries: string[]; tokensUsed: number } {
+  let tokensUsed = initialTokensUsed;
+  const packedIds = new Set(packed.map((n) => n.symbol.id));
+  const unpackedByFile = new Map<string, { path: string; symbols: { name: string; kind: string }[] }>();
+
+  for (const node of scoredNodes) {
+    if (packedIds.has(node.symbol.id)) continue;
+    const entry = unpackedByFile.get(node.file.path) ?? { path: node.file.path, symbols: [] };
+    entry.symbols.push({ name: node.symbol.name, kind: node.symbol.kind });
+    unpackedByFile.set(node.file.path, entry);
+  }
+
+  const fileSummaries: string[] = [];
+  for (const { path, symbols } of unpackedByFile.values()) {
+    if (symbols.length < FILE_SUMMARY_MIN_SYMBOLS) continue;
+    const summary = renderFileSummary(path, symbols);
+    const summaryTokens = countTokens(summary);
+    if (tokensUsed + summaryTokens > codeBudget) continue;
+    fileSummaries.push(summary);
+    tokensUsed += summaryTokens;
+  }
+
+  return { fileSummaries, tokensUsed };
+}
 
 export function packNodes(
   scoredNodes: ScoredNode[],
@@ -76,28 +107,124 @@ export function packNodes(
     }
   }
 
-  const packedIds = new Set(packed.map((n) => n.symbol.id));
-  const unpackedByFile = new Map<string, { path: string; symbols: { name: string; kind: string }[] }>();
+  const summaryResult = summarizeUnpacked(scoredNodes, packed, codeBudget, tokensUsed);
 
-  for (const node of scoredNodes) {
-    if (packedIds.has(node.symbol.id)) continue;
-    const entry = unpackedByFile.get(node.file.path) ?? { path: node.file.path, symbols: [] };
-    entry.symbols.push({ name: node.symbol.name, kind: node.symbol.kind });
-    unpackedByFile.set(node.file.path, entry);
+  return {
+    packed,
+    observationBudget,
+    tokensUsed: summaryResult.tokensUsed,
+    fileSummaries: summaryResult.fileSummaries,
+  };
+}
+
+export function packNodesStoryMode(
+  scoredNodes: ScoredNode[],
+  tokenBudget: number,
+  codeRatio = 0.8,
+  clusterBySymbolId: ReadonlyMap<number, number> = new Map()
+): PackResult {
+  const codeBudget = Math.floor(tokenBudget * codeRatio);
+  const observationBudget = tokenBudget - codeBudget;
+
+  if (scoredNodes.length === 0 || codeBudget <= 0) {
+    return { packed: [], observationBudget, tokensUsed: 0, fileSummaries: [] };
   }
 
-  const fileSummaries: string[] = [];
-  const FILE_SUMMARY_MIN_SYMBOLS = 3;
+  const groups = new Map<number, ScoredNode[]>();
+  for (const node of scoredNodes) {
+    const clusterId = clusterBySymbolId.get(node.symbol.id) ?? -node.file.id;
+    const bucket = groups.get(clusterId) ?? [];
+    bucket.push(node);
+    groups.set(clusterId, bucket);
+  }
 
-  for (const { path, symbols } of unpackedByFile.values()) {
-    if (symbols.length < FILE_SUMMARY_MIN_SYMBOLS) continue;
-    const summary = renderFileSummary(path, symbols);
-    const summaryTokens = countTokens(summary);
-    if (tokensUsed + summaryTokens <= codeBudget) {
-      fileSummaries.push(summary);
-      tokensUsed += summaryTokens;
+  const rankedGroups = [...groups.entries()]
+    .map(([id, nodes]) => ({
+      id,
+      nodes,
+      score: nodes.reduce((max, node) => Math.max(max, node.score), Number.NEGATIVE_INFINITY) +
+        nodes.filter((node) => node.distance === 0).length * 2,
+    }))
+    .sort((a, b) => b.score - a.score);
+
+  const maxPrimaryGroups = Math.max(1, Math.min(rankedGroups.length, Math.max(2, Math.floor(tokenBudget / 1000))));
+  const primaryGroups = rankedGroups.slice(0, maxPrimaryGroups);
+
+  const packed: ScoredNode[] = [];
+  const packedIds = new Set<number>();
+  let tokensUsed = 0;
+
+  for (let index = 0; index < primaryGroups.length; index++) {
+    if (tokensUsed >= Math.floor(codeBudget * 0.9)) break;
+    const group = primaryGroups[index];
+    if (!group) continue;
+
+    const remainingGroups = Math.max(1, primaryGroups.length - index);
+    const groupBudget = Math.floor((codeBudget - tokensUsed) / remainingGroups);
+    let groupTokens = 0;
+
+    const sortedNodes = [...group.nodes].sort((a, b) => {
+      if (a.distance === 0 && b.distance !== 0) return -1;
+      if (b.distance === 0 && a.distance !== 0) return 1;
+      return b.score - a.score;
+    });
+
+    const topScore = sortedNodes[0]?.score ?? 0;
+
+    for (const node of sortedNodes) {
+      if (packedIds.has(node.symbol.id)) continue;
+
+      let targetLevel: CompressionLevel;
+      if (node.distance === 0) {
+        targetLevel = 0;
+      } else if (node.score >= topScore * 0.65) {
+        targetLevel = 1;
+      } else {
+        targetLevel = 2;
+      }
+
+      const rendered = renderSymbol(node.symbol, node.file, targetLevel);
+      const tokens = countTokens(rendered);
+
+      if (tokensUsed + tokens > codeBudget || groupTokens + tokens > groupBudget) continue;
+
+      packed.push({
+        ...node,
+        compressionLevel: targetLevel,
+        rendered,
+        tokenCount: tokens,
+      });
+      packedIds.add(node.symbol.id);
+      groupTokens += tokens;
+      tokensUsed += tokens;
     }
   }
 
-  return { packed, observationBudget, tokensUsed, fileSummaries };
+  const tailNodes = [...scoredNodes]
+    .filter((node) => !packedIds.has(node.symbol.id))
+    .sort((a, b) => b.score - a.score);
+
+  for (const node of tailNodes) {
+    const rendered = renderSymbol(node.symbol, node.file, 3);
+    const tokens = countTokens(rendered);
+    if (tokensUsed + tokens > codeBudget) continue;
+
+    packed.push({
+      ...node,
+      compressionLevel: 3,
+      rendered,
+      tokenCount: tokens,
+    });
+    packedIds.add(node.symbol.id);
+    tokensUsed += tokens;
+  }
+
+  const summaryResult = summarizeUnpacked(scoredNodes, packed, codeBudget, tokensUsed);
+
+  return {
+    packed,
+    observationBudget,
+    tokensUsed: summaryResult.tokensUsed,
+    fileSummaries: summaryResult.fileSummaries,
+  };
 }

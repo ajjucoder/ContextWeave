@@ -1,7 +1,100 @@
+import type { ClassifiedQuery } from "./intent-classifier.js";
+
 const STOP_WORDS = new Set(["a", "an", "the", "in", "on", "at", "for", "of", "with", "and", "or", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "must", "can", "from", "to", "by", "as", "into", "about", "between", "through"]);
 
 const MAX_TERMS_PER_GROUP = 3;
 const MIN_TERMS_TO_SPLIT = 4;
+const MAX_SMART_SUB_QUERIES = 4;
+
+const TASK_PATTERN_BUNDLES: Record<string, string[][]> = {
+  find: [["error", "handling", "validation"], ["edge", "cases", "guards"], ["pipeline", "flow", "output"]],
+  check: [["error", "handling", "validation"], ["edge", "cases", "guards"], ["pipeline", "flow", "output"]],
+  debug: [["error", "handling", "validation"], ["edge", "cases", "guards"], ["pipeline", "flow", "output"]],
+  investigate: [["error", "handling", "validation"], ["edge", "cases", "guards"], ["pipeline", "flow", "output"]],
+  audit: [["error", "handling", "validation"], ["edge", "cases", "guards"], ["pipeline", "flow", "output"]],
+  implement: [["registration", "server", "tool"], ["schema", "validation", "types"], ["integration", "handler", "tests"]],
+  add: [["registration", "server", "tool"], ["schema", "validation", "types"], ["integration", "handler", "tests"]],
+  create: [["registration", "server", "tool"], ["schema", "validation", "types"], ["integration", "handler", "tests"]],
+  update: [["registration", "server", "tool"], ["schema", "validation", "types"], ["integration", "handler", "tests"]],
+  migrate: [["registration", "server", "tool"], ["schema", "validation", "types"], ["integration", "handler", "tests"]],
+  optimize: [["performance", "queries", "hotpaths"], ["cache", "latency", "loops"], ["index", "batch", "throughput"]],
+  improve: [["performance", "queries", "hotpaths"], ["cache", "latency", "loops"], ["index", "batch", "throughput"]],
+  refactor: [["interfaces", "types", "contracts"], ["modules", "boundaries", "dependencies"], ["tests", "coverage", "safety"]],
+  review: [["tests", "coverage", "assertions"], ["interfaces", "types", "contracts"], ["error", "handling", "validation"]],
+  test: [["tests", "coverage", "assertions"], ["fixtures", "mocks", "setup"], ["edge", "cases", "regression"]],
+};
+
+export interface SubQuery {
+  terms: string[];
+  targetClusterIds: number[];
+  budgetFraction: number;
+  priority: number;
+}
+
+export interface ClusterHint {
+  id: number;
+  terms: string[];
+  relevance?: number;
+}
+
+function uniq(values: string[]): string[] {
+  return [...new Set(values)];
+}
+
+function sanitizeTerms(terms: string[]): string[] {
+  return uniq(
+    terms
+      .map((term) => term.toLowerCase().trim())
+      .filter((term) => term.length > 1 && !STOP_WORDS.has(term))
+  );
+}
+
+function normalizeFractions(subQueries: Array<Omit<SubQuery, "budgetFraction"> & { weight: number }>): SubQuery[] {
+  if (subQueries.length === 0) return [];
+  const weightSum = subQueries.reduce((sum, q) => sum + Math.max(0.0001, q.weight), 0);
+
+  return subQueries.map((q) => ({
+    terms: q.terms,
+    targetClusterIds: q.targetClusterIds,
+    priority: q.priority,
+    budgetFraction: Math.max(0, q.weight / weightSum),
+  }));
+}
+
+function deriveTaskBundles(actionVerbs: string[]): string[][] {
+  const bundles: string[][] = [];
+
+  for (const verb of actionVerbs) {
+    const fromVerb = TASK_PATTERN_BUNDLES[verb];
+    if (!fromVerb) continue;
+    for (const bundle of fromVerb) {
+      const key = bundle.join("|");
+      if (bundles.some((existing) => existing.join("|") === key)) continue;
+      bundles.push(bundle);
+      if (bundles.length >= MAX_SMART_SUB_QUERIES) return bundles;
+    }
+  }
+
+  if (bundles.length > 0) return bundles;
+
+  return [
+    ["architecture", "flow", "dependencies"],
+    ["interfaces", "types", "validation"],
+    ["tests", "coverage", "safety"],
+  ];
+}
+
+function rankClusters(clusterHints: ClusterHint[]): ClusterHint[] {
+  return [...clusterHints]
+    .sort((a, b) => (b.relevance ?? 1) - (a.relevance ?? 1))
+    .slice(0, MAX_SMART_SUB_QUERIES);
+}
+
+function buildBaseTerms(classified: ClassifiedQuery, fallbackQuery: string): string[] {
+  const candidates = sanitizeTerms([...classified.focusTerms, ...classified.normalizedTerms]);
+  if (candidates.length > 0) return candidates;
+  return mergeSubQueryTerms(decomposeQuery(fallbackQuery));
+}
 
 export function decomposeQuery(query: string): string[][] {
   const terms = query
@@ -34,4 +127,70 @@ export function mergeSubQueryTerms(groups: string[][]): string[] {
     }
   }
   return result;
+}
+
+export function decomposeForBroad(
+  query: string,
+  classified: ClassifiedQuery,
+  clusterHints: ClusterHint[] = []
+): SubQuery[] {
+  const baseTerms = buildBaseTerms(classified, query);
+  const rankedClusters = rankClusters(clusterHints);
+
+  if (rankedClusters.length > 0) {
+    const weightedSubQueries = rankedClusters.map((cluster, index) => ({
+      terms: sanitizeTerms([...baseTerms, ...cluster.terms]).slice(0, 8),
+      targetClusterIds: [cluster.id],
+      priority: index + 1,
+      weight: cluster.relevance ?? 1,
+    }));
+    return normalizeFractions(weightedSubQueries);
+  }
+
+  const grouped = decomposeQuery(baseTerms.join(" "));
+  const selected = grouped.slice(0, MAX_SMART_SUB_QUERIES);
+  if (selected.length === 0) return [];
+
+  return normalizeFractions(
+    selected.map((terms, index) => ({
+      terms,
+      targetClusterIds: [],
+      priority: index + 1,
+      weight: 1,
+    }))
+  );
+}
+
+export function decomposeForTask(
+  query: string,
+  classified: ClassifiedQuery,
+  clusterHints: ClusterHint[] = []
+): SubQuery[] {
+  const baseTerms = buildBaseTerms(classified, query);
+  const bundles = deriveTaskBundles(classified.actionVerbs).slice(0, MAX_SMART_SUB_QUERIES);
+  const rankedClusters = rankClusters(clusterHints);
+  const subQueryCount = Math.max(2, Math.min(MAX_SMART_SUB_QUERIES, Math.max(bundles.length, rankedClusters.length || 0)));
+
+  const weightedSubQueries: Array<Omit<SubQuery, "budgetFraction"> & { weight: number }> = [];
+
+  for (let i = 0; i < subQueryCount; i++) {
+    const bundle = bundles[i] ?? bundles[bundles.length - 1] ?? [];
+    const cluster = rankedClusters[i];
+    const terms = sanitizeTerms([
+      ...baseTerms,
+      ...bundle,
+      ...(cluster ? cluster.terms : []),
+    ]).slice(0, 10);
+
+    const clusterWeight = cluster?.relevance ?? 1;
+    const priorityWeight = i === 0 ? 1.25 : i === 1 ? 1.1 : 1;
+    weightedSubQueries.push({
+      terms,
+      targetClusterIds: cluster ? [cluster.id] : [],
+      priority: i + 1,
+      weight: clusterWeight * priorityWeight,
+    });
+  }
+
+  return normalizeFractions(weightedSubQueries);
 }
