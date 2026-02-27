@@ -38,7 +38,7 @@ export class SessionContext {
   getRecentFileIds(limit = 50): number[] {
     const rows = this.db.prepare(`
       SELECT DISTINCT file_id FROM session_context
-      WHERE session_id = ? ORDER BY returned_at DESC LIMIT ?
+      WHERE session_id = ? AND file_id IS NOT NULL ORDER BY returned_at DESC LIMIT ?
     `).all(this.sessionId, limit) as Array<{ file_id: number }>;
     return rows.map((r) => r.file_id);
   }
