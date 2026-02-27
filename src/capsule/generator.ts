@@ -320,10 +320,11 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         ? decomposeForTask(query, classified, clusterHints)
         : [];
   const useMultiPass = intent !== "narrow" && subQueries.length > 1;
-  const exactQueryTerms = useMultiPass
+  const allQueryTerms = useMultiPass
     ? mergeSubQueryTerms(subQueries.map((subQuery) => subQuery.terms))
     : baseQueryTerms;
-  const expandedQueryTerms = expandQueryWithSynonyms(exactQueryTerms);
+  const exactQueryTerms = baseQueryTerms;
+  const expandedQueryTerms = expandQueryWithSynonyms(allQueryTerms);
   const exactQueryTermSet = new Set(exactQueryTerms);
 
   if (candidateFileIds && candidateFileIds.size > 0) {
@@ -428,8 +429,17 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   }
 
   const pivotSymbolIds = new Set(rankedPivots.keys());
+  const pivotScoreValues = [...rankedPivots.values()].sort((a, b) => a - b);
+  const medianPivotScore = pivotScoreValues.length > 0
+    ? pivotScoreValues[Math.floor(pivotScoreValues.length / 2)] ?? 0
+    : 0;
+  const relevantPivotIds = new Set(
+    [...rankedPivots.entries()]
+      .filter(([, score]) => score >= medianPivotScore)
+      .map(([id]) => id)
+  );
 
-  logger.debug("pivot symbols after ranking", { raw: rawPivotIds.size, ranked: pivotSymbolIds.size });
+  logger.debug("pivot symbols after ranking", { raw: rawPivotIds.size, ranked: pivotSymbolIds.size, relevant: relevantPivotIds.size });
 
   const memorySearch = new MemorySearch(db);
   const observationBudget = Math.floor(tokenBudget * 0.2);
@@ -693,6 +703,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   if (
     intent === "narrow" &&
     !skipPromotion &&
+    tokenBudget >= 1000 &&
     tokensUsed < tokenBudget * MIN_UTILIZATION &&
     candidates.length > selected.length
   ) {
@@ -763,7 +774,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     return (selectedCandidate?.lexicalScore ?? 0) < relevanceLexicalThreshold;
   }).length;
   const noiseRatio = packed.length === 0 ? 0 : lowRelevancePacked / packed.length;
-  const relevantPivotsIncluded = packed.filter((node) => rankedPivots.has(node.symbol.id)).length;
+  const relevantPivotsIncluded = packed.filter((node) => relevantPivotIds.has(node.symbol.id)).length;
   const relevantClusters = new Set<number>();
   for (const candidate of selected) {
     const clusterId = clusterBySymbolId.get(candidate.symbol.id);
@@ -798,7 +809,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     pivotCount,
     pivotsIncluded,
     relevantPivotsIncluded,
-    totalRelevantPivots: rankedPivots.size,
+    totalRelevantPivots: relevantPivotIds.size,
     dependencyCoverage,
     noiseRatio,
     fileSummaryCount: fileSummaries.length,

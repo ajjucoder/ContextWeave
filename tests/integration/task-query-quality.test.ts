@@ -74,12 +74,21 @@ describe("query quality by class", () => {
     }
   });
 
-  it("overall average confidence > 60%", () => {
-    const allQueries = [...NARROW_QUERIES, ...BROAD_QUERIES, ...TASK_QUERIES];
-    const total = allQueries.reduce(
-      (sum, query) => sum + evaluateQuery(query, 5000),
-      0
-    );
-    expect(total / allQueries.length).toBeGreaterThan(OVERALL_THRESHOLD);
+  it("overall average confidence > threshold (per-class budgets)", () => {
+    let total = 0;
+    let count = 0;
+    for (const query of NARROW_QUERIES) {
+      total += evaluateQuery(query, NARROW_TOKEN_BUDGET);
+      count++;
+    }
+    for (const query of BROAD_QUERIES) {
+      total += evaluateQuery(query, BROAD_TOKEN_BUDGET);
+      count++;
+    }
+    for (const query of TASK_QUERIES) {
+      total += evaluateQuery(query, TASK_TOKEN_BUDGET);
+      count++;
+    }
+    expect(total / count).toBeGreaterThan(OVERALL_THRESHOLD);
   });
 });

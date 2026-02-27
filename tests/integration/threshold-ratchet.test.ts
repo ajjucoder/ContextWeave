@@ -72,7 +72,19 @@ function measureClass(queries: readonly string[], tokenBudget: number): QueryCla
 }
 
 describe("quality ratchet - no regression allowed", () => {
+  const baselineExistedBefore = existsSync(BASELINE_PATH);
   const baseline = loadBaseline();
+
+  it("baseline file is not using initial defaults (would mask regressions)", () => {
+    if (!baselineExistedBefore) {
+      expect.fail(
+        "quality-baseline.json was missing and had to be recreated with low defaults. " +
+        "Run the full test suite once to establish a real baseline, then commit the file."
+      );
+    }
+    const defaultDate = new Date(0).toISOString();
+    expect(baseline.updatedAt).not.toBe(defaultDate);
+  });
 
   it("narrow queries don't regress below baseline", () => {
     const current = measureClass(NARROW_QUERIES, NARROW_TOKEN_BUDGET);

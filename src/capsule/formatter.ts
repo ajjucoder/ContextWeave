@@ -42,10 +42,11 @@ export function formatCapsule(
   const clusterFromPath = (filePath: string): string => {
     const normalized = filePath.replaceAll("\\", "/");
     const parts = normalized.split("/").filter(Boolean);
-    if (parts.length >= 2) {
-      return `${parts[0]}/${parts[1]}`;
+    const dirParts = parts.length > 1 ? parts.slice(0, -1) : parts;
+    if (dirParts.length >= 2) {
+      return `${dirParts[0]}/${dirParts[1]}`;
     }
-    return parts[0] ?? "root";
+    return dirParts[0] ?? "root";
   };
 
   for (const node of packedNodes) {

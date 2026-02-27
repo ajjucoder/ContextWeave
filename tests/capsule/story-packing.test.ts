@@ -15,6 +15,23 @@ function makeFile(id: number, path: string): FileRecord {
   };
 }
 
+function makePaddedSource(name: string): string {
+  return [
+    `export function ${name}(input: string, options: Record<string, unknown> = {}): string {`,
+    `  const normalized = input.trim().toLowerCase();`,
+    `  if (!normalized || normalized.length === 0) {`,
+    `    throw new Error("${name}: input must not be empty");`,
+    `  }`,
+    `  const config = { ...options, timestamp: Date.now() };`,
+    `  const result = processInternal(normalized, config);`,
+    `  if (result.errors && result.errors.length > 0) {`,
+    `    console.warn("${name}: partial result with errors", result.errors);`,
+    `  }`,
+    `  return result.value;`,
+    `}`,
+  ].join("\n");
+}
+
 function makeSymbol(id: number, fileId: number, name: string): SymbolRecord {
   return {
     id,
@@ -22,10 +39,10 @@ function makeSymbol(id: number, fileId: number, name: string): SymbolRecord {
     name,
     kind: "function",
     startLine: 1,
-    endLine: 8,
-    signature: `function ${name}()` ,
+    endLine: 12,
+    signature: `function ${name}(input: string, options?: Record<string, unknown>): string`,
     bodyHash: `b-${id}`,
-    fullSource: `export function ${name}() {\n  return \"${name}\";\n}`,
+    fullSource: makePaddedSource(name),
     isExported: true,
     docComment: null,
     centrality: 0.02,
@@ -41,8 +58,8 @@ function makeNode(id: number, file: FileRecord, score: number, distance: number)
     score,
     distance,
     compressionLevel: 2,
-    rendered: "",
-    tokenCount: 0,
+    rendered: symbol.fullSource,
+    tokenCount: Math.ceil(symbol.fullSource.length / 4),
   };
 }
 
@@ -77,7 +94,30 @@ describe("packNodesStoryMode", () => {
 
     expect(byFile.get("src/capsule/generator.ts") ?? 0).toBeGreaterThanOrEqual(2);
     expect(byFile.get("src/capsule/packer.ts") ?? 0).toBeGreaterThanOrEqual(2);
+    expect(result.tokensUsed).toBeGreaterThan(0);
     expect(result.tokensUsed).toBeLessThanOrEqual(Math.floor(2000 * 0.85));
+  });
+
+  it("respects budget constraint with realistic token sizes", () => {
+    const fileA = makeFile(10, "src/core/processor.ts");
+    const fileB = makeFile(11, "src/core/validator.ts");
+
+    const nodes: ScoredNode[] = [
+      makeNode(1001, fileA, 9, 0),
+      makeNode(1002, fileA, 8, 1),
+      makeNode(1003, fileA, 7, 1),
+      makeNode(1004, fileA, 6, 2),
+      makeNode(1005, fileB, 8.5, 0),
+      makeNode(1006, fileB, 7.5, 1),
+      makeNode(1007, fileB, 6.5, 2),
+    ];
+
+    const tightBudget = 400;
+    const result = packNodesStoryMode(nodes, tightBudget, 0.9);
+
+    expect(result.packed.length).toBeLessThan(nodes.length);
+    expect(result.tokensUsed).toBeGreaterThan(0);
+    expect(result.tokensUsed).toBeLessThanOrEqual(Math.floor(tightBudget * 0.9));
   });
 
   it("includes L0 detail for pivots when budget allows", () => {
@@ -93,5 +133,6 @@ describe("packNodesStoryMode", () => {
 
     expect(pivot).toBeDefined();
     expect(pivot?.compressionLevel).toBe(0);
+    expect(pivot?.tokenCount).toBeGreaterThan(0);
   });
 });

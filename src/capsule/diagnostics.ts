@@ -44,21 +44,7 @@ export interface CapsuleDiagnostic {
   suggestion: string;
 }
 
-const TASK_VERBS = new Set([
-  "find",
-  "check",
-  "implement",
-  "add",
-  "fix",
-  "optimize",
-  "refactor",
-  "debug",
-  "review",
-  "test",
-  "how",
-  "what",
-  "why",
-]);
+import { TASK_VERBS } from "./intent-classifier.js";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -148,7 +134,7 @@ export function diagnose(
     },
     coverageStats: {
       filesRetrieved: metadata.fileCount,
-      filesRelevant: metadata.fileCount,
+      filesRelevant: metadata.quality.pivotsIncluded > 0 ? metadata.fileCount : 0,
       symbolsRetrieved: metadata.quality.retrieval.stageBSelectedCount,
       symbolsPacked: metadata.symbolCount,
       tokenBudgetUsed,

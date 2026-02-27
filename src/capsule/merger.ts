@@ -15,7 +15,7 @@ function choosePreferredNode(existing: ScoredNode, incoming: ScoredNode): Scored
   if (incoming.score > existing.score) return incoming;
   if (incoming.score < existing.score) return existing;
 
-  if (incoming.tokenCount > existing.tokenCount) return incoming;
+  if (incoming.tokenCount < existing.tokenCount) return incoming;
   return existing;
 }
 

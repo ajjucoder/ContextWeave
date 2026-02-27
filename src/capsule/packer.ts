@@ -160,7 +160,8 @@ export function packNodesStoryMode(
     if (!group) continue;
 
     const remainingGroups = Math.max(1, primaryGroups.length - index);
-    const groupBudget = Math.floor((codeBudget - tokensUsed) / remainingGroups);
+    const fairShare = Math.floor((codeBudget - tokensUsed) / remainingGroups);
+    const groupBudget = Math.min(codeBudget - tokensUsed, Math.floor(fairShare * 1.5));
     let groupTokens = 0;
 
     const sortedNodes = [...group.nodes].sort((a, b) => {

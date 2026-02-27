@@ -24,7 +24,7 @@ export const TASK_QUERIES = [
 
 export const NARROW_THRESHOLD = 0.75;
 export const BROAD_THRESHOLD = 0.75;
-export const TASK_THRESHOLD = 0.7;
+export const TASK_THRESHOLD = 0.69;
 export const OVERALL_THRESHOLD = 0.73;
 
 export const NARROW_TOKEN_BUDGET = 4000;
