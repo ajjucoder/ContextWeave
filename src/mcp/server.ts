@@ -30,6 +30,7 @@ export function getServerDb(projectRoot: string): Database.Database {
 
 export async function startMcpServer(projectRoot: string, config?: ProjectConfig): Promise<void> {
   const serverLock = acquireServerSessionLock(projectRoot);
+  const isPrimary = serverLock.mode === "primary";
   const serverSessionId = randomUUID();
 
   const server = new McpServer({
@@ -39,13 +40,20 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
 
   const db = getServerDb(projectRoot);
 
+  log.info("acquired server lock", { mode: serverLock.mode, projectRoot });
+
   registerCapsuleTool(server, db, projectRoot, config, serverSessionId);
   registerImpactTool(server, db);
   registerFlowTool(server, db);
-  registerRememberTool(server, db, serverSessionId, projectRoot);
   registerRecallTool(server, db);
   registerStatusTool(server, db, projectRoot);
-  registerReindexTool(server, db, projectRoot, config);
+
+  if (isPrimary) {
+    registerRememberTool(server, db, serverSessionId, projectRoot);
+    registerReindexTool(server, db, projectRoot, config);
+  } else {
+    log.info("secondary mode: skipping write-heavy tools", { projectRoot });
+  }
 
   const transport = new StdioServerTransport();
   let watcherStarted = false;
@@ -107,9 +115,13 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
   });
 
   try {
-    await startWatcher({ projectRoot, db, ignore: config?.ignore, sessionId: serverSessionId });
-    watcherStarted = true;
-    log.info("file watcher started", { projectRoot });
+    if (isPrimary) {
+      await startWatcher({ projectRoot, db, ignore: config?.ignore, sessionId: serverSessionId });
+      watcherStarted = true;
+      log.info("file watcher started", { projectRoot });
+    } else {
+      log.info("secondary mode: watcher disabled", { projectRoot });
+    }
 
     log.info("starting MCP server", { projectRoot });
     await server.connect(transport);

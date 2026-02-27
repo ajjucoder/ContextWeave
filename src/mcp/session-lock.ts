@@ -1,9 +1,12 @@
 import { closeSync, openSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+export type LockMode = "primary" | "secondary";
+
 export interface ServerSessionLock {
-  fd: number;
+  fd: number | null;
   lockPath: string;
+  mode: LockMode;
 }
 
 function isProcessAlive(pid: number): boolean {
@@ -29,38 +32,53 @@ function readLockPid(lockPath: string): number | null {
 
 export function acquireServerSessionLock(projectRoot: string): ServerSessionLock {
   const lockPath = resolve(projectRoot, ".contextweave", "mcp-server.lock");
-  const payload = `${JSON.stringify({ pid: process.pid, createdAt: Date.now() })}\n`;
+  const payload = `${JSON.stringify({ pid: process.pid, mode: "primary", createdAt: Date.now() })}\n`;
 
   const tryAcquire = (): ServerSessionLock => {
     const fd = openSync(lockPath, "wx");
     writeFileSync(fd, payload, "utf-8");
-    return { fd, lockPath };
+    return { fd, lockPath, mode: "primary" };
   };
 
   try {
     return tryAcquire();
-  } catch {
+  } catch (error) {
+    const err = error as NodeJS.ErrnoException;
+    if (err.code !== "EEXIST") throw error;
+
     const existingPid = readLockPid(lockPath);
     if (existingPid !== null && !isProcessAlive(existingPid)) {
       try {
         unlinkSync(lockPath);
       } catch {
       }
-      return tryAcquire();
+
+      try {
+        return tryAcquire();
+      } catch (retryError) {
+        const retryErr = retryError as NodeJS.ErrnoException;
+        if (retryErr.code !== "EEXIST") throw retryError;
+      }
     }
 
-    const pidDetail = existingPid !== null ? ` (pid ${existingPid})` : "";
-    throw new Error(
-      `ContextWeave server lock already held${pidDetail}. Stop the other session or remove stale lock "${lockPath}".`
-    );
+    return { fd: null, lockPath, mode: "secondary" };
   }
 }
 
 export function releaseServerSessionLock(lock: ServerSessionLock | null): void {
   if (!lock) return;
+  if (lock.mode !== "primary") return;
+
   try {
-    closeSync(lock.fd);
+    if (lock.fd !== null) {
+      closeSync(lock.fd);
+    }
   } catch {
+  }
+
+  const lockPid = readLockPid(lock.lockPath);
+  if (lockPid !== null && lockPid !== process.pid) {
+    return;
   }
 
   try {

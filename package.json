@@ -13,6 +13,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "bench": "tsx bench/harness.ts",
+    "bench:concurrent": "tsx bench/concurrent-stress.ts",
     "lint": "tsc --noEmit"
   },
   "engines": {
