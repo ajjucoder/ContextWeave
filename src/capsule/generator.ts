@@ -122,6 +122,48 @@ function getLexicalScore(
   return score;
 }
 
+export interface ConfidenceParams {
+  pivotCount: number;
+  pivotsIncluded: number;
+  relevantPivotsIncluded: number;
+  totalRelevantPivots: number;
+  dependencyCoverage: number;
+  noiseRatio: number;
+  fileSummaryCount: number;
+}
+
+export function computeCoverageConfidence(params: ConfidenceParams): number {
+  const {
+    pivotsIncluded,
+    relevantPivotsIncluded,
+    totalRelevantPivots,
+    dependencyCoverage,
+    noiseRatio,
+    fileSummaryCount,
+  } = params;
+
+  const relevantCoverage =
+    totalRelevantPivots === 0
+      ? pivotsIncluded > 0
+        ? 0.5
+        : 0
+      : relevantPivotsIncluded / totalRelevantPivots;
+
+  const summaryBoost = Math.min(0.15, fileSummaryCount * 0.03);
+
+  return Math.max(
+    0,
+    Math.min(
+      1,
+      relevantCoverage * 0.5 +
+        dependencyCoverage * 0.2 +
+        (1 - noiseRatio) * 0.15 +
+        summaryBoost +
+        0.15
+    )
+  );
+}
+
 function buildUncertainty(
   lowConfidence: boolean,
   reasonCount: number,
@@ -414,6 +456,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     return (selectedCandidate?.lexicalScore ?? 0) < relevanceLexicalThreshold;
   }).length;
   const noiseRatio = packed.length === 0 ? 0 : lowRelevancePacked / packed.length;
+  const relevantPivotsIncluded = packed.filter((node) => rankedPivots.has(node.symbol.id)).length;
 
   const reasons: string[] = [];
   if (pivotCount === 0) reasons.push("no pivot symbol match");
@@ -423,10 +466,15 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   }
   if (noiseRatio > 0.55) reasons.push("low-relevance content exceeds 55%");
 
-  const coverageConfidence = Math.max(
-    0,
-    Math.min(1, pivotCoverage * 0.5 + dependencyCoverage * 0.3 + (1 - noiseRatio) * 0.2)
-  );
+  const coverageConfidence = computeCoverageConfidence({
+    pivotCount,
+    pivotsIncluded,
+    relevantPivotsIncluded,
+    totalRelevantPivots: rankedPivots.size,
+    dependencyCoverage,
+    noiseRatio,
+    fileSummaryCount: fileSummaries.length,
+  });
   const uncertaintyFlag = reasons.length > 0 || coverageConfidence < 0.65;
   if (coverageConfidence < 0.65) {
     reasons.push("overall coverage confidence below 65%");
