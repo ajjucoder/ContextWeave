@@ -74,6 +74,30 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 3,
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS session_context (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id  TEXT    NOT NULL,
+          symbol_id   INTEGER REFERENCES symbols(id) ON DELETE CASCADE,
+          file_id     INTEGER REFERENCES files(id) ON DELETE CASCADE,
+          query       TEXT    NOT NULL,
+          relevance   REAL    NOT NULL DEFAULT 1.0,
+          returned_at INTEGER NOT NULL
+        )
+      `);
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_session_ctx_session
+        ON session_context(session_id)
+      `);
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_session_ctx_symbol
+        ON session_context(symbol_id)
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

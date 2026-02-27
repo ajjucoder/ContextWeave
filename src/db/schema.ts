@@ -100,6 +100,16 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
   version    INTEGER PRIMARY KEY,
   applied_at INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS session_context (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  session_id  TEXT    NOT NULL,
+  symbol_id   INTEGER REFERENCES symbols(id) ON DELETE CASCADE,
+  file_id     INTEGER REFERENCES files(id) ON DELETE CASCADE,
+  query       TEXT    NOT NULL,
+  relevance   REAL    NOT NULL DEFAULT 1.0,
+  returned_at INTEGER NOT NULL
+);
 `;
 
 const INDEXES = `
@@ -118,6 +128,8 @@ CREATE INDEX IF NOT EXISTS idx_symbols_name_cov ON symbols(name, id, file_id, ki
 CREATE INDEX IF NOT EXISTS idx_edges_src_cov ON edges(source_symbol_id, target_symbol_id, kind);
 CREATE INDEX IF NOT EXISTS idx_edges_tgt_cov ON edges(target_symbol_id, source_symbol_id, kind);
 CREATE INDEX IF NOT EXISTS idx_files_path_cov ON files(path, id, hash, mtime, symbol_count, last_indexed);
+CREATE INDEX IF NOT EXISTS idx_session_ctx_session ON session_context(session_id);
+CREATE INDEX IF NOT EXISTS idx_session_ctx_symbol ON session_context(symbol_id);
 `;
 
 const FTS_SYNC = `
