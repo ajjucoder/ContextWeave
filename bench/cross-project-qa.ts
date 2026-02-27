@@ -21,17 +21,17 @@ const PROJECTS: QaProject[] = [
   {
     name: "codex-team-orchestrator",
     repo: "https://github.com/ajjucoder/codex-team-orchestrator.git",
-    queries: ["orchestrateTask", "dispatchAgent", "taskQueue"],
+    queries: ["registerTaskBoardTools", "buildRebalancePlan", "HookEngine"],
   },
   {
     name: "polymarket-arbitrage-sim",
     repo: "https://github.com/ajjucoder/polymarket-arbitrage-sim.git",
-    queries: ["arbitrage strategy", "market data", "portfolio"],
+    queries: ["simulateExecution", "evaluateRisk", "rankOpportunities"],
   },
   {
     name: "research-agent",
     repo: "https://github.com/ajjucoder/research-agent.git",
-    queries: ["search query", "result ranking", "source extraction"],
+    queries: ["parse_query", "build_reddit_query_variants", "mention_scores"],
   },
 ];
 
