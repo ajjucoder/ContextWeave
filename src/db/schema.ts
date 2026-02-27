@@ -96,6 +96,22 @@ CREATE VIRTUAL TABLE IF NOT EXISTS symbols_fts USING fts5(
   tokenize='trigram'
 );
 
+CREATE TABLE IF NOT EXISTS file_summaries (
+  file_id        INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
+  export_names   TEXT    NOT NULL DEFAULT '',
+  symbol_count   INTEGER NOT NULL DEFAULT 0,
+  edge_count     INTEGER NOT NULL DEFAULT 0,
+  avg_centrality REAL    NOT NULL DEFAULT 0.0,
+  summary_text   TEXT    NOT NULL DEFAULT '',
+  computed_at    INTEGER NOT NULL DEFAULT 0
+);
+CREATE VIRTUAL TABLE IF NOT EXISTS file_summaries_fts USING fts5(
+  summary_text,
+  content='file_summaries',
+  content_rowid='file_id',
+  tokenize='trigram'
+);
+
 CREATE TABLE IF NOT EXISTS schema_migrations (
   version    INTEGER PRIMARY KEY,
   applied_at INTEGER NOT NULL

@@ -12,6 +12,7 @@ import { fileQueries } from "../db/queries/files.js";
 import { symbolQueries } from "../db/queries/symbols.js";
 import { edgeQueries } from "../db/queries/edges.js";
 import { createLogger } from "../utils/logger.js";
+import { upsertFileSummary } from "./file-summaries.js";
 
 const log = createLogger("indexer");
 
@@ -810,6 +811,17 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
   });
 
   resolveAllEdges();
+
+  const upsertSummaries = db.transaction(() => {
+    const filesDb = fileQueries(db);
+    for (const pending of pendingEdgeResolutions) {
+      const fileRecord = filesDb.getByPath(pending.filePath);
+      if (!fileRecord) continue;
+      upsertFileSummary(db, fileRecord.id);
+    }
+  });
+
+  upsertSummaries();
 
   log.info(`indexed ${toProcess.length} files, ${totalSymbols} symbols`);
   return { filesIndexed: filePaths.length, symbolsFound: totalSymbols, errors: allErrors };
