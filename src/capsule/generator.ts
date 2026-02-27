@@ -29,6 +29,7 @@ import { capsuleLogQueries } from "../db/queries/capsule-log.js";
 import { sessionQueries } from "../db/queries/sessions.js";
 import { captureQueryObservation } from "../memory/passive.js";
 import { SessionContext } from "./session-context.js";
+import { decomposeQuery, mergeSubQueryTerms } from "./query-decomposer.js";
 
 const logger = createLogger("generator");
 
@@ -196,11 +197,10 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     return candidates.map((file) => file.path);
   };
 
-  const exactQueryTerms = query
-    .trim()
-    .split(/\s+/)
-    .map((term) => term.toLowerCase())
-    .filter(Boolean);
+  const queryGroups = decomposeQuery(query);
+  const exactQueryTerms = queryGroups.length > 0
+    ? mergeSubQueryTerms(queryGroups)
+    : query.toLowerCase().split(/\s+/).filter((t) => t.length > 1);
   const expandedQueryTerms = expandQueryWithSynonyms(exactQueryTerms);
   const exactQueryTermSet = new Set(exactQueryTerms);
   const rawPivotIds = new Set<number>();
