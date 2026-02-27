@@ -1,4 +1,4 @@
-interface PivotCandidate {
+export interface PivotCandidate {
   name: string;
   signature: string;
   kind: string;
@@ -21,7 +21,6 @@ export function scorePivotRelevance(candidate: PivotCandidate, queryTerms: strin
   const pathLower = candidate.filePath.toLowerCase();
   const kindLower = candidate.kind.toLowerCase();
 
-  // Split camelCase BEFORE lowercasing to preserve case boundaries
   const nameTokens = candidate.name
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .toLowerCase()
@@ -34,23 +33,20 @@ export function scorePivotRelevance(candidate: PivotCandidate, queryTerms: strin
     .split(/\s+/)
     .filter(Boolean);
 
-  let nameTermHits = 0;
-  let sigTermHits = 0;
-  let pathTermHits = 0;
-
-  for (const term of queryTerms) {
-    if (nameTokens.some((t) => stemMatch(t, term))) nameTermHits++;
-    if (sigLower.includes(term)) sigTermHits++;
-    if (pathTokens.some((t) => stemMatch(t, term))) pathTermHits++;
-  }
+  const nameTermHits = queryTerms.filter((term) =>
+    nameTokens.some((t) => stemMatch(t, term))
+  ).length;
+  const sigTermHits = queryTerms.filter((term) => sigLower.includes(term)).length;
+  const pathTermHits = queryTerms.filter((term) =>
+    pathTokens.some((t) => stemMatch(t, term))
+  ).length;
 
   if (nameTermHits === 0 && sigTermHits === 0 && pathTermHits === 0) return 0;
 
   const totalTerms = queryTerms.length;
 
-  // Multi-term coverage bonus: matching N/N terms = exponential boost
   const nameCoverage = nameTermHits / totalTerms;
-  const nameScore = nameTermHits * (1 + nameCoverage * 3); // 1-term=2, 2/3=4.67*hits, 3/3=8*hits
+  const nameScore = nameTermHits * (1 + nameCoverage * 3);
 
   const sigCoverage = sigTermHits / totalTerms;
   const sigScore = sigTermHits * (1 + sigCoverage) * 0.5;
@@ -58,7 +54,6 @@ export function scorePivotRelevance(candidate: PivotCandidate, queryTerms: strin
   const pathCoverage = pathTermHits / totalTerms;
   const pathScore = pathTermHits * (1 + pathCoverage) * 0.3;
 
-  // Kind-based weight: functions/classes are more likely real pivots
   const kindWeight =
     kindLower === "function" || kindLower === "class" || kindLower === "method" ? 1.2 : 1.0;
 
