@@ -1,0 +1,15 @@
+{
+  "narrow": {
+    "avgConfidence": 0.8598830581183522,
+    "minConfidence": 0.8163461538461538
+  },
+  "broad": {
+    "avgConfidence": 0.919878787878788,
+    "minConfidence": 0.8566666666666667
+  },
+  "task": {
+    "avgConfidence": 0.803584177381758,
+    "minConfidence": 0.7098484848484848
+  },
+  "updatedAt": "2026-02-27T12:00:26.694Z"
+}

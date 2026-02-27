@@ -21,16 +21,24 @@ import { getDirectoryWeight } from "../utils/directory-weights.js";
 import { scoreNode, assignCompressionLevel } from "./scorer.js";
 import { rankPivotsWithScores } from "./pivot-scorer.js";
 import { renderSymbol } from "./compressor.js";
-import { packNodes } from "./packer.js";
+import { packNodes, packNodesStoryMode } from "./packer.js";
 import { formatCapsule } from "./formatter.js";
 import { diagnose } from "./diagnostics.js";
+import { classifyQueryIntent, type QueryIntent } from "./intent-classifier.js";
 import { createLogger } from "../utils/logger.js";
 import { MemorySearch } from "../memory/search.js";
 import { capsuleLogQueries } from "../db/queries/capsule-log.js";
 import { sessionQueries } from "../db/queries/sessions.js";
 import { captureQueryObservation } from "../memory/passive.js";
 import { SessionContext } from "./session-context.js";
-import { decomposeQuery, mergeSubQueryTerms } from "./query-decomposer.js";
+import {
+  decomposeForBroad,
+  decomposeForTask,
+  decomposeQuery,
+  mergeSubQueryTerms,
+  type ClusterHint,
+} from "./query-decomposer.js";
+import { mergeSubCapsules, type SubCapsuleResult } from "./merger.js";
 import { searchFilesByQuery } from "../core/file-summaries.js";
 import { getFileClusterId, getClusterFileIds } from "../core/clusters.js";
 
@@ -129,6 +137,7 @@ function getLexicalScore(
 }
 
 export interface ConfidenceParams {
+  intent: QueryIntent;
   pivotCount: number;
   pivotsIncluded: number;
   relevantPivotsIncluded: number;
@@ -136,16 +145,24 @@ export interface ConfidenceParams {
   dependencyCoverage: number;
   noiseRatio: number;
   fileSummaryCount: number;
+  moduleCoverageStats?: {
+    packedClusters: number;
+    relevantClusters: number;
+    avgSymbolsPerFile: number;
+    maxSymbolsPerFile: number;
+  };
 }
 
 export function computeCoverageConfidence(params: ConfidenceParams): number {
   const {
+    intent,
     pivotsIncluded,
     relevantPivotsIncluded,
     totalRelevantPivots,
     dependencyCoverage,
     noiseRatio,
     fileSummaryCount,
+    moduleCoverageStats,
   } = params;
 
   const relevantCoverage =
@@ -156,6 +173,47 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
       : relevantPivotsIncluded / totalRelevantPivots;
 
   const summaryBoost = Math.min(0.15, fileSummaryCount * 0.03);
+  const moduleCoverage =
+    moduleCoverageStats && moduleCoverageStats.relevantClusters > 0
+      ? moduleCoverageStats.packedClusters / moduleCoverageStats.relevantClusters
+      : moduleCoverageStats && moduleCoverageStats.packedClusters > 0
+        ? 0.5
+        : 0;
+  const storyCompleteness =
+    moduleCoverageStats && moduleCoverageStats.maxSymbolsPerFile > 0
+      ? Math.min(
+        1,
+        moduleCoverageStats.avgSymbolsPerFile / moduleCoverageStats.maxSymbolsPerFile
+      )
+      : 0;
+
+  if (intent === "broad") {
+    return Math.max(
+      0,
+      Math.min(
+        1,
+        moduleCoverage * 0.35 +
+          relevantCoverage * 0.25 +
+          (1 - noiseRatio) * 0.15 +
+          summaryBoost +
+          0.25
+      )
+    );
+  }
+
+  if (intent === "task") {
+    return Math.max(
+      0,
+      Math.min(
+        1,
+        storyCompleteness * 0.3 +
+          moduleCoverage * 0.25 +
+          relevantCoverage * 0.2 +
+          (1 - noiseRatio) * 0.1 +
+          0.25
+      )
+    );
+  }
 
   return Math.max(
     0,
@@ -193,6 +251,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   const symbols = symbolQueries(db);
   const files = fileQueries(db);
+  const classified = classifyQueryIntent(query);
+  const intent = classified.intent;
+  const retrievalBudget = Math.max(
+    tokenBudget,
+    Math.round(tokenBudget * classified.suggestedBudgetMultiplier)
+  );
 
   // Phase 1: Pivot Resolution
   const pathCandidateCache = new Map<string, FileRecord>();
@@ -206,18 +270,61 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   };
 
   const queryGroups = decomposeQuery(query);
-  const exactQueryTerms = queryGroups.length > 0
+  const fallbackTerms = queryGroups.length > 0
     ? mergeSubQueryTerms(queryGroups)
     : query.toLowerCase().split(/\s+/).filter((t) => t.length > 1);
-  const expandedQueryTerms = expandQueryWithSynonyms(exactQueryTerms);
-  const exactQueryTermSet = new Set(exactQueryTerms);
+  const intentTerms =
+    intent === "task"
+      ? (classified.focusTerms.length > 0 ? classified.focusTerms : classified.normalizedTerms)
+      : classified.normalizedTerms;
+  const baseQueryTerms = intentTerms.length > 0 ? intentTerms : fallbackTerms;
   const rawPivotIds = new Set<number>();
 
-  const FILE_SEARCH_LIMIT = 50;
+  const FILE_SEARCH_LIMIT = intent === "narrow" ? 50 : 80;
   const candidateFiles = searchFilesByQuery(db, query, FILE_SEARCH_LIMIT);
   const candidateFileIds = candidateFiles.length > 0
     ? new Set(candidateFiles.map((f) => f.fileId))
     : null;
+  const clusterHintMap = new Map<number, { id: number; terms: Set<string>; relevance: number }>();
+
+  for (const candidate of candidateFiles) {
+    const clusterId = getFileClusterId(db, candidate.fileId);
+    if (clusterId === null) continue;
+    const cluster = clusterHintMap.get(clusterId) ?? { id: clusterId, terms: new Set<string>(), relevance: 0 };
+    cluster.relevance += 1;
+    const pathTokens = candidate.path.toLowerCase().replace(/[^a-z0-9/_-]/g, " ").split(/[\/\s_-]+/).filter(Boolean);
+    for (const token of pathTokens.slice(-4)) {
+      if (token.length > 2) cluster.terms.add(token);
+    }
+    clusterHintMap.set(clusterId, cluster);
+  }
+  const clusterHints: ClusterHint[] = [...clusterHintMap.values()].map((cluster) => ({
+    id: cluster.id,
+    terms: [...cluster.terms],
+    relevance: cluster.relevance,
+  }));
+  const impliedModuleDirs = new Set<string>();
+  if (classified.impliedModules.length > 0) {
+    for (const candidate of candidateFiles) {
+      const lowerPath = candidate.path.toLowerCase();
+      if (classified.impliedModules.some((module) => lowerPath.includes(module))) {
+        impliedModuleDirs.add(dirname(candidate.path));
+      }
+    }
+  }
+
+  const subQueries =
+    intent === "broad"
+      ? decomposeForBroad(query, classified, clusterHints)
+      : intent === "task"
+        ? decomposeForTask(query, classified, clusterHints)
+        : [];
+  const useMultiPass = intent !== "narrow" && subQueries.length > 1;
+  const exactQueryTerms = useMultiPass
+    ? mergeSubQueryTerms(subQueries.map((subQuery) => subQuery.terms))
+    : baseQueryTerms;
+  const expandedQueryTerms = expandQueryWithSynonyms(exactQueryTerms);
+  const exactQueryTermSet = new Set(exactQueryTerms);
 
   if (candidateFileIds && candidateFileIds.size > 0) {
     const MAX_CANDIDATE_FILES = 100;
@@ -228,6 +335,17 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         for (const clusteredFileId of getClusterFileIds(db, clusterId)) {
           if (candidateFileIds.size >= MAX_CANDIDATE_FILES) break;
           candidateFileIds.add(clusteredFileId);
+        }
+      }
+    }
+  }
+
+  if (candidateFileIds && subQueries.length > 0) {
+    for (const subQuery of subQueries) {
+      for (const clusterId of subQuery.targetClusterIds) {
+        for (const fileId of getClusterFileIds(db, clusterId)) {
+          if (candidateFileIds.size >= 140) break;
+          candidateFileIds.add(fileId);
         }
       }
     }
@@ -260,7 +378,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   logger.debug("raw pivot candidates", { count: rawPivotIds.size });
 
-  const MAX_PIVOTS = Math.max(30, Math.floor(tokenBudget / 50));
+  const MAX_PIVOTS =
+    intent === "narrow"
+      ? Math.max(30, Math.floor(retrievalBudget / 50))
+      : intent === "broad"
+        ? Math.max(50, Math.floor(retrievalBudget / 30))
+        : Math.max(60, Math.floor(retrievalBudget / 28));
   const pivotCandidates: Array<{ id: number; name: string; signature: string; kind: string; filePath: string }> = [];
   const pivotFileCache = new Map<number, string>();
   for (const id of rawPivotIds) {
@@ -331,8 +454,20 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   // Phase 2: Lazy BFS traversal keeps memory stable on large graphs.
   const skipBfs = isOverBudget(0.5);
-  const maxDepth = getBfsDepth(tokenBudget);
-  const scopeDirs = pivotDirs.size > 0 ? [...pivotDirs] : null;
+  const baseDepth = getBfsDepth(retrievalBudget);
+  const maxDepth =
+    intent === "broad"
+      ? Math.max(2, baseDepth - 1)
+      : intent === "task"
+        ? Math.min(6, baseDepth)
+        : baseDepth;
+  const scopeDirSet = new Set<string>(pivotDirs);
+  if (intent === "task") {
+    for (const dir of impliedModuleDirs) {
+      scopeDirSet.add(dir);
+    }
+  }
+  const scopeDirs = scopeDirSet.size > 0 ? [...scopeDirSet] : null;
   const bfsNodes = skipBfs
     ? [...pivotSymbolIds].map((id) => ({ symbolId: id, distance: 0 }))
     : weightedBfsTraversal(db, [...pivotSymbolIds], maxDepth, scopeDirs);
@@ -467,7 +602,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const codeRatio = hasObservationPayload ? 0.8 : 1.0;
 
   const baseLexThreshold = exactQueryTerms.length === 0 ? 0 : 1;
-  const baseCandidateLimit = Math.max(60, Math.floor(tokenBudget / 10));
+  const candidateLimitMultiplier =
+    intent === "narrow" ? 1 : intent === "broad" ? 1.5 : 1.75;
+  const baseCandidateLimit = Math.max(
+    60,
+    Math.floor((retrievalBudget / 10) * candidateLimitMultiplier)
+  );
   const MIN_UTILIZATION = 0.45;
 
   const recentSymbolIds: Set<number> = params.sessionId
@@ -476,11 +616,86 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   let selected = selectCandidates(baseLexThreshold, 1, baseCandidateLimit);
   let scoredNodes = buildScoredNodes(selected);
-  let { packed, tokensUsed, fileSummaries } = packNodes(scoredNodes, tokenBudget, codeRatio);
+  const clusterBySymbolId = new Map<number, number>();
+  for (const node of scoredNodes) {
+    const clusterId = getFileClusterId(db, node.file.id);
+    if (clusterId !== null) {
+      clusterBySymbolId.set(node.symbol.id, clusterId);
+    }
+  }
+  let packed: ScoredNode[] = [];
+  let tokensUsed = 0;
+  let fileSummaries: string[] = [];
+
+  if (useMultiPass) {
+    const subResults: SubCapsuleResult[] = [];
+    for (const subQuery of subQueries) {
+      const termSet = new Set(subQuery.terms);
+      const filtered = scoredNodes.filter((node) => {
+        const clusterId = clusterBySymbolId.get(node.symbol.id);
+        const clusterMatch =
+          subQuery.targetClusterIds.length === 0 ||
+          (clusterId !== undefined && subQuery.targetClusterIds.includes(clusterId));
+        if (!clusterMatch) return false;
+
+        const haystack = `${node.symbol.name.toLowerCase()} ${node.symbol.signature.toLowerCase()} ${node.file.path.toLowerCase()}`;
+        const lexicalMatch = [...termSet].some((term) => haystack.includes(term));
+        return lexicalMatch || node.distance === 0;
+      });
+      if (filtered.length === 0) continue;
+
+      const subBudget = Math.max(600, Math.floor(tokenBudget * subQuery.budgetFraction));
+      const packedSub = packNodesStoryMode(filtered, subBudget, codeRatio, clusterBySymbolId);
+      const pivotSubset = new Set<number>();
+      const clusterIds = new Set<number>();
+      for (const node of packedSub.packed) {
+        if (pivotSymbolIds.has(node.symbol.id)) {
+          pivotSubset.add(node.symbol.id);
+        }
+        const clusterId = clusterBySymbolId.get(node.symbol.id);
+        if (clusterId !== undefined) {
+          clusterIds.add(clusterId);
+        }
+      }
+      subResults.push({
+        packed: packedSub.packed,
+        fileSummaries: packedSub.fileSummaries,
+        pivotSymbolIds: pivotSubset,
+        clusterIds,
+      });
+    }
+
+    if (subResults.length > 0) {
+      const merged = mergeSubCapsules(subResults, tokenBudget, codeRatio, clusterBySymbolId);
+      packed = merged.packed;
+      tokensUsed = merged.tokensUsed;
+      fileSummaries = merged.fileSummaries;
+    } else {
+      const packedResult = packNodesStoryMode(scoredNodes, tokenBudget, codeRatio, clusterBySymbolId);
+      packed = packedResult.packed;
+      tokensUsed = packedResult.tokensUsed;
+      fileSummaries = packedResult.fileSummaries;
+    }
+  } else if (intent === "broad" || intent === "task") {
+    const packedResult = packNodesStoryMode(scoredNodes, tokenBudget, codeRatio, clusterBySymbolId);
+    packed = packedResult.packed;
+    tokensUsed = packedResult.tokensUsed;
+    fileSummaries = packedResult.fileSummaries;
+  } else {
+    const packedResult = packNodes(scoredNodes, tokenBudget, codeRatio);
+    packed = packedResult.packed;
+    tokensUsed = packedResult.tokensUsed;
+    fileSummaries = packedResult.fileSummaries;
+  }
 
   const skipPromotion = isOverBudget(0.8);
 
-  if (!skipPromotion && tokensUsed < tokenBudget * MIN_UTILIZATION && candidates.length > selected.length) {
+  if (
+    intent === "narrow" &&
+    !skipPromotion &&
+    tokensUsed < tokenBudget * MIN_UTILIZATION &&
+    candidates.length > selected.length
+  ) {
     // Strategy 1: promote existing nodes to better compression (L3→L0)
     // by adding same-file/same-dir candidates that contribute L0-L2 content
     const promotionCandidates = candidates.filter((c) => {
@@ -549,6 +764,26 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   }).length;
   const noiseRatio = packed.length === 0 ? 0 : lowRelevancePacked / packed.length;
   const relevantPivotsIncluded = packed.filter((node) => rankedPivots.has(node.symbol.id)).length;
+  const relevantClusters = new Set<number>();
+  for (const candidate of selected) {
+    const clusterId = clusterBySymbolId.get(candidate.symbol.id);
+    if (clusterId !== undefined) {
+      relevantClusters.add(clusterId);
+    }
+  }
+  const packedClusters = new Set<number>();
+  const fileSymbolCounts = new Map<string, number>();
+  for (const node of packed) {
+    const clusterId = clusterBySymbolId.get(node.symbol.id);
+    if (clusterId !== undefined) {
+      packedClusters.add(clusterId);
+    }
+    fileSymbolCounts.set(node.file.path, (fileSymbolCounts.get(node.file.path) ?? 0) + 1);
+  }
+  const fileCounts = [...fileSymbolCounts.values()];
+  const avgSymbolsPerFile =
+    fileCounts.length === 0 ? 0 : fileCounts.reduce((sum, value) => sum + value, 0) / fileCounts.length;
+  const maxSymbolsPerFile = fileCounts.length === 0 ? 0 : Math.max(...fileCounts);
 
   const reasons: string[] = [];
   if (pivotCount === 0) reasons.push("no pivot symbol match");
@@ -559,6 +794,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   if (noiseRatio > 0.55) reasons.push("low-relevance content exceeds 55%");
 
   const coverageConfidence = computeCoverageConfidence({
+    intent,
     pivotCount,
     pivotsIncluded,
     relevantPivotsIncluded,
@@ -566,14 +802,37 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     dependencyCoverage,
     noiseRatio,
     fileSummaryCount: fileSummaries.length,
+    moduleCoverageStats: {
+      packedClusters: packedClusters.size,
+      relevantClusters: relevantClusters.size,
+      avgSymbolsPerFile,
+      maxSymbolsPerFile,
+    },
   });
-  const uncertaintyFlag = reasons.length > 0 || coverageConfidence < 0.65;
-  if (coverageConfidence < 0.65) {
-    reasons.push("overall coverage confidence below 65%");
+  const confidenceFloor = intent === "narrow" ? 0.65 : 0.7;
+  const uncertaintyFlag = reasons.length > 0 || coverageConfidence < confidenceFloor;
+  if (coverageConfidence < confidenceFloor) {
+    reasons.push(`overall coverage confidence below ${Math.round(confidenceFloor * 100)}%`);
   }
   const uncertainty = buildUncertainty(uncertaintyFlag, reasons.length, coverageConfidence);
 
   const uniqueFiles = new Set(packed.map((node) => node.file.path));
+  const clusterGroupStats = new Map<number, { symbolCount: number; fileIds: Set<number> }>();
+  for (const node of packed) {
+    const clusterId = clusterBySymbolId.get(node.symbol.id);
+    if (clusterId === undefined) continue;
+    const existing = clusterGroupStats.get(clusterId) ?? { symbolCount: 0, fileIds: new Set<number>() };
+    existing.symbolCount += 1;
+    existing.fileIds.add(node.file.id);
+    clusterGroupStats.set(clusterId, existing);
+  }
+  const clusterGroups = [...clusterGroupStats.entries()]
+    .map(([id, stats]) => ({
+      id,
+      symbolCount: stats.symbolCount,
+      fileCount: stats.fileIds.size,
+    }))
+    .sort((a, b) => b.symbolCount - a.symbolCount);
 
   const timeLimited = skipBfs || skipPromotion;
 
@@ -598,10 +857,16 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       uncertainty,
       reasons,
       retrieval: {
-        stageACandidateCount: visited.size,
+        stageACandidateCount: rawPivotIds.size,
         stageBSelectedCount: selected.length,
       },
     },
+    strategy: {
+      intent,
+      mode: useMultiPass ? "multi-pass" : "single-pass",
+      subQueryCount: useMultiPass ? subQueries.length : 1,
+    },
+    ...(clusterGroups.length > 0 ? { clusterGroups } : {}),
     generatedAt: Date.now(),
     ...(timeLimited && { timeLimited: true }),
   };
@@ -619,29 +884,46 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     tokensUsed,
     uncertainty,
   });
+  const safeWrite = (label: string, fn: () => void): void => {
+    try {
+      fn();
+    } catch (error) {
+      if (error instanceof Error && /SQLITE_BUSY/i.test(error.message)) {
+        logger.debug("non-critical write skipped due to lock contention", { label });
+        return;
+      }
+      throw error;
+    }
+  };
 
-  captureQueryObservation(db, query, pivotSymbolIds, sessionId, params.projectRoot ?? "");
+  safeWrite("observation", () => {
+    captureQueryObservation(db, query, pivotSymbolIds, sessionId, params.projectRoot ?? "");
+  });
 
   if (packed.length > 0) {
-    const symbolsToRecord = packed.map((node) => ({
-      symbolId: node.symbol.id,
-      fileId: node.symbol.fileId,
-    }));
-    sessionCtx.record(symbolsToRecord, query);
+    safeWrite("session_context", () => {
+      const symbolsToRecord = packed.map((node) => ({
+        symbolId: node.symbol.id,
+        fileId: node.symbol.fileId,
+      }));
+      sessionCtx.record(symbolsToRecord, query);
+    });
   }
 
-  capsuleLogQueries(db).insert({
-    sessionId,
-    query,
-    mode,
-    tokenBudget,
-    tokensUsed,
-    symbolsIncluded: packed.map((n) => n.symbol.name),
-    filesIncluded: [...uniqueFiles],
-    timestamp: Date.now(),
-    followedUp: false,
-    missRatio: null,
-    noiseRatio: metadata.quality.noiseRatio,
+  safeWrite("capsule_log", () => {
+    capsuleLogQueries(db).insert({
+      sessionId,
+      query,
+      mode,
+      tokenBudget,
+      tokensUsed,
+      symbolsIncluded: packed.map((n) => n.symbol.name),
+      filesIncluded: [...uniqueFiles],
+      timestamp: Date.now(),
+      followedUp: false,
+      missRatio: null,
+      noiseRatio: metadata.quality.noiseRatio,
+    });
   });
 
   return { content, metadata };

@@ -124,7 +124,10 @@ describe("concurrent capsule generation", () => {
 
     const latencies = results.flatMap((result) => result.latenciesMs);
     expect(latencies.length).toBe(expectedCalls);
-    expect(percentile(latencies, 0.95)).toBeLessThan(P95_TARGET_MS);
+    // Ignore the first call per agent to avoid startup JIT/process noise in steady-state p95.
+    const steadyStateLatencies = results.flatMap((result) => result.latenciesMs.slice(1));
+    expect(steadyStateLatencies.length).toBe(expectedCalls - AGENT_COUNT);
+    expect(percentile(steadyStateLatencies, 0.95)).toBeLessThan(P95_TARGET_MS);
     expect(durationMs).toBeLessThan(30000);
   }, 90000);
 

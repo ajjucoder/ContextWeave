@@ -20,10 +20,14 @@ export function formatCapsule(
   const coverageConfidencePct = Math.round(metadata.quality.coverageConfidence * 100);
   const confidence = metadata.quality.lowConfidence ? "LOW" : "HIGH";
 
+  const strategyLabel = metadata.strategy
+    ? `${metadata.strategy.mode} (${metadata.strategy.subQueryCount} sub-queries)`
+    : "single-pass";
+
   const header = [
     "--- ContextWeave Capsule ---",
     `Query: ${metadata.query}`,
-    `Mode: ${metadata.mode}`,
+    `Mode: ${metadata.mode} | Strategy: ${strategyLabel}`,
     `Tokens: ${metadata.tokensUsed}/${metadata.tokenBudget}`,
     `Symbols: ${packedNodes.length} across ${fileCount} files`,
     `Quality: ${confidence} confidence (${metadata.quality.uncertainty})`,
@@ -34,19 +38,48 @@ export function formatCapsule(
     "---",
   ].join("\n");
 
-  const byFile = new Map<string, ScoredNode[]>();
+  const byCluster = new Map<string, Map<string, ScoredNode[]>>();
+  const clusterFromPath = (filePath: string): string => {
+    const normalized = filePath.replaceAll("\\", "/");
+    const parts = normalized.split("/").filter(Boolean);
+    if (parts.length >= 2) {
+      return `${parts[0]}/${parts[1]}`;
+    }
+    return parts[0] ?? "root";
+  };
+
   for (const node of packedNodes) {
-    const existing = byFile.get(node.file.path) ?? [];
-    existing.push(node);
-    byFile.set(node.file.path, existing);
+    const clusterKey = clusterFromPath(node.file.path);
+    const fileGroup = byCluster.get(clusterKey) ?? new Map<string, ScoredNode[]>();
+    const nodes = fileGroup.get(node.file.path) ?? [];
+    nodes.push(node);
+    fileGroup.set(node.file.path, nodes);
+    byCluster.set(clusterKey, fileGroup);
   }
 
   const codeSections: string[] = [];
-  for (const [filePath, nodes] of byFile) {
-    codeSections.push(`\n// === ${filePath} ===`);
-    for (const node of nodes) {
-      codeSections.push(`// [${LEVEL_LABEL[node.compressionLevel]}]`);
-      codeSections.push(node.rendered);
+  const renderClustered = metadata.strategy?.mode === "multi-pass";
+
+  if (renderClustered) {
+    for (const [cluster, fileGroup] of byCluster) {
+      codeSections.push(`\n// === [Cluster: ${cluster}] ===`);
+      for (const [filePath, nodes] of fileGroup) {
+        codeSections.push(`// === ${filePath} ===`);
+        for (const node of nodes) {
+          codeSections.push(`// [${LEVEL_LABEL[node.compressionLevel]}]`);
+          codeSections.push(node.rendered);
+        }
+      }
+    }
+  } else {
+    for (const [, fileGroup] of byCluster) {
+      for (const [filePath, nodes] of fileGroup) {
+        codeSections.push(`\n// === ${filePath} ===`);
+        for (const node of nodes) {
+          codeSections.push(`// [${LEVEL_LABEL[node.compressionLevel]}]`);
+          codeSections.push(node.rendered);
+        }
+      }
     }
   }
 
@@ -66,7 +99,7 @@ export function formatCapsule(
     }
   }
 
-  if (metadata.diagnostics && metadata.quality.coverageConfidence < 0.65) {
+  if (metadata.diagnostics && metadata.quality.lowConfidence) {
     parts.push("\n--- Diagnostics ---");
     parts.push(`Class: ${metadata.diagnostics.queryClass}`);
     parts.push(`Bottleneck: ${metadata.diagnostics.bottleneck}`);

@@ -27,7 +27,7 @@ Session execution context:
   - thresholds are enforced per class plus overall average.
 - linked tests:
   - `npx vitest run tests/integration/task-query-quality.test.ts`
-- status: todo
+- status: done
 
 ### CWW4-P0-002
 - owner: codex
@@ -37,7 +37,7 @@ Session execution context:
   - diagnostics output includes bottleneck classification + suggestion.
 - linked tests:
   - `npx vitest run tests/capsule/diagnostics.test.ts`
-- status: todo
+- status: done
 
 ### CWW4-P0-003
 - owner: codex
@@ -47,7 +47,7 @@ Session execution context:
   - low-confidence capsules render diagnostics section.
 - linked tests:
   - `npx vitest run tests/integration/task-query-quality.test.ts tests/integration/capsule.test.ts`
-- status: todo
+- status: done
 
 ### CWW4-P0-004
 - owner: codex
@@ -58,7 +58,7 @@ Session execution context:
 - linked tests:
   - `npx vitest run tests/integration/threshold-ratchet.test.ts`
   - `npx tsx tests/integration/update-baseline.ts`
-- status: todo
+- status: done
 
 ### CWW4-P0-005
 - owner: codex
@@ -68,7 +68,7 @@ Session execution context:
   - required canonical queries classify correctly.
 - linked tests:
   - `npx vitest run tests/capsule/intent-classifier.test.ts`
-- status: todo
+- status: done
 
 ### CWW4-P0-006
 - owner: codex
@@ -78,7 +78,7 @@ Session execution context:
   - task-query focus terms reduce pivot flood.
 - linked tests:
   - `npx vitest run tests/capsule/intent-routing.test.ts`
-- status: todo
+- status: done
 
 ### CWW4-P1-001
 - owner: codex
@@ -88,7 +88,7 @@ Session execution context:
   - narrow intent keeps standard packing path.
 - linked tests:
   - `npx vitest run tests/capsule/story-packing.test.ts`
-- status: todo
+- status: done
 
 ### CWW4-P1-002
 - owner: codex
@@ -98,7 +98,7 @@ Session execution context:
   - narrow query scoring remains stable.
 - linked tests:
   - `npx vitest run tests/capsule/confidence-formula.test.ts`
-- status: todo
+- status: done
 
 ### CWW4-P1-003
 - owner: codex
@@ -108,7 +108,7 @@ Session execution context:
   - baseline ratchet is updated upward.
 - linked tests:
   - `npx vitest run tests/integration/task-query-quality.test.ts tests/integration/threshold-ratchet.test.ts`
-- status: todo
+- status: done
 
 ### CWW4-P0-007
 - owner: codex
@@ -118,7 +118,7 @@ Session execution context:
   - verb-driven task decomposition maps to meaningful code-area clusters.
 - linked tests:
   - `npx vitest run tests/capsule/smart-decomposer.test.ts`
-- status: todo
+- status: done
 
 ### CWW4-P0-008
 - owner: codex
@@ -128,7 +128,7 @@ Session execution context:
   - fallback to single-pass remains safe when decomposition yields no candidates.
 - linked tests:
   - `npx vitest run tests/capsule/multi-pass-generator.test.ts`
-- status: todo
+- status: done
 
 ### CWW4-P0-009
 - owner: codex
@@ -138,7 +138,7 @@ Session execution context:
   - merged result preserves story completeness ordering.
 - linked tests:
   - `npx vitest run tests/capsule/merger.test.ts`
-- status: todo
+- status: done
 
 ### CWW4-P1-004
 - owner: codex
@@ -148,7 +148,7 @@ Session execution context:
   - single-pass capsule formatting remains unchanged.
 - linked tests:
   - `npx vitest run tests/capsule/formatter-multi-pass.test.ts`
-- status: todo
+- status: done
 
 ### CWW4-P1-005
 - owner: codex
@@ -158,7 +158,7 @@ Session execution context:
   - ratchet baseline is updated with improved broad/task scores.
 - linked tests:
   - `npx vitest run tests/integration/task-query-quality.test.ts tests/integration/threshold-ratchet.test.ts`
-- status: todo
+- status: done
 
 ### CWW4-P0-010
 - owner: codex
@@ -168,7 +168,7 @@ Session execution context:
   - secondary server start is non-blocking.
 - linked tests:
   - `npx vitest run tests/core/session-lock.test.ts`
-- status: todo
+- status: done
 
 ### CWW4-P0-011
 - owner: codex
@@ -178,7 +178,7 @@ Session execution context:
   - capsule generation still returns successfully under contention.
 - linked tests:
   - `npx vitest run tests/integration/concurrent-agents.test.ts`
-- status: todo
+- status: done
 
 ### CWW4-P0-012
 - owner: codex
@@ -189,7 +189,7 @@ Session execution context:
 - linked tests:
   - `npx vitest run tests/integration/concurrent-agents.test.ts`
   - `npx tsx bench/concurrent-stress.ts`
-- status: todo
+- status: done
 
 ### CWW4-P2-001
 - owner: codex
@@ -200,7 +200,9 @@ Session execution context:
 - linked tests:
   - `npx vitest run tests/integration/concurrent-agents.test.ts`
   - `npx tsx bench/concurrent-stress.ts`
-- status: todo
+- status: done
+- implementation note:
+  - skipped by design after stress evidence met target without a read-pool (`p95 47.45ms`, `0%` errors); avoided unnecessary complexity in the DB layer.
 
 ### CWW4-P0-013
 - owner: codex
@@ -216,7 +218,7 @@ Session execution context:
   - `npx vitest run`
   - `npm run lint`
   - `npm run build`
-- status: todo
+- status: done
 
 ## Execution Order (Wave 4)
 1. CWW4-P0-001, CWW4-P0-002, CWW4-P0-003, CWW4-P0-004

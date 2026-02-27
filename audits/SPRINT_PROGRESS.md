@@ -11,44 +11,51 @@
 
 | Ticket | Tier | Status | Owner | Scope/Files | Evidence |
 |---|---|---|---|---|---|
-| CWW4-P0-001 | P0 | in_progress | codex | `tests/integration/task-query-quality.test.ts` | pending |
-| CWW4-P0-002 | P0 | in_progress | codex | `src/capsule/diagnostics.ts`, `tests/capsule/diagnostics.test.ts` | pending |
-| CWW4-P0-003 | P0 | todo | codex | `src/capsule/generator.ts`, `src/core/types.ts`, `src/capsule/formatter.ts` | pending |
-| CWW4-P0-004 | P0 | todo | codex | ratchet test + baseline update tooling | pending |
-| CWW4-P0-005 | P0 | todo | codex | `src/capsule/intent-classifier.ts`, tests | pending |
-| CWW4-P0-006 | P0 | todo | codex | generator intent strategy routing | pending |
-| CWW4-P1-001 | P1 | todo | codex | story-complete packing | pending |
-| CWW4-P1-002 | P1 | todo | codex | adaptive confidence formula | pending |
-| CWW4-P1-003 | P1 | todo | codex | phase-2 threshold ratchet raise | pending |
-| CWW4-P0-007 | P0 | todo | codex | smart decomposition | pending |
-| CWW4-P0-008 | P0 | todo | codex | multi-pass generator orchestrator | pending |
-| CWW4-P0-009 | P0 | todo | codex | sub-capsule merger | pending |
-| CWW4-P1-004 | P1 | todo | codex | multi-pass formatter grouping | pending |
-| CWW4-P1-005 | P1 | todo | codex | phase-3 threshold ratchet raise | pending |
-| CWW4-P0-010 | P0 | todo | codex | non-blocking session lock | pending |
-| CWW4-P0-011 | P0 | todo | codex | concurrent-safe non-critical writes | pending |
-| CWW4-P0-012 | P0 | todo | codex | concurrent agents stress test + bench | pending |
-| CWW4-P2-001 | P2 | todo | codex | connection pool decision gate | pending |
-| CWW4-P0-013 | P0 | todo | codex | final validation gate and thresholds | pending |
+| CWW4-P0-001 | P0 | done | codex | task query quality harness (`tests/integration/task-query-quality.test.ts`) | E1 |
+| CWW4-P0-002 | P0 | done | codex | diagnostics module + tests (`src/capsule/diagnostics.ts`) | E1 |
+| CWW4-P0-003 | P0 | done | codex | diagnostics integration in generator/types/formatter | E4, E6 |
+| CWW4-P0-004 | P0 | done | codex | ratchet tests + baseline updater + tracked baseline JSON | E1, E5 |
+| CWW4-P0-005 | P0 | done | codex | intent classifier module + tests | E3, E6 |
+| CWW4-P0-006 | P0 | done | codex | intent routing in generator strategy path | E4, E6 |
+| CWW4-P1-001 | P1 | done | codex | story-complete packing mode | E3, E6 |
+| CWW4-P1-002 | P1 | done | codex | adaptive intent-aware confidence formula | E4, E6 |
+| CWW4-P1-003 | P1 | done | codex | raised phase-2 thresholds + ratchet update | E1, E5 |
+| CWW4-P0-007 | P0 | done | codex | smart broad/task decomposer | E3, E6 |
+| CWW4-P0-008 | P0 | done | codex | multi-pass generator orchestration and strategy metadata | E4, E6 |
+| CWW4-P0-009 | P0 | done | codex | sub-capsule merger with dedup and budget compliance | E3, E6 |
+| CWW4-P1-004 | P1 | done | codex | formatter multi-pass cluster grouping + strategy header | E4, E6 |
+| CWW4-P1-005 | P1 | done | codex | raised phase-3/final thresholds + ratchet update | E1, E5 |
+| CWW4-P0-010 | P0 | done | codex | non-blocking primary/secondary session lock | E2, E6 |
+| CWW4-P0-011 | P0 | done | codex | SQLITE_BUSY-safe non-critical writes in capsule path | E2, E6 |
+| CWW4-P0-012 | P0 | done | codex | concurrent stress tests + benchmark instrumentation | E2, E7 |
+| CWW4-P2-001 | P2 | done | codex | connection-pool gate: intentionally skipped after stress evidence | E7 |
+| CWW4-P0-013 | P0 | done | codex | final quality/concurrency/cross-project validation gate | E1, E6, E7, E8 |
 
 ## Completion Summary
-- p0_completion: 0/13 done (0.0%)
-- p1_completion: 0/5 done (0.0%)
-- p2_completion: 0/1 done (0.0%)
-- overall_completion: 0/19 done (0.0%)
+- p0_completion: 13/13 done (100.0%)
+- p1_completion: 5/5 done (100.0%)
+- p2_completion: 1/1 done (100.0%)
+- overall_completion: 19/19 done (100.0%)
 
 ## Test Evidence and Gate State
 - evidence legend:
-  - pending: implementation in progress, no completed verification bundle yet
+  - E1: `npx vitest run tests/capsule/diagnostics.test.ts tests/integration/task-query-quality.test.ts tests/integration/threshold-ratchet.test.ts` -> pass
+  - E2: `npx vitest run tests/core/session-lock.test.ts tests/mcp/concurrent-lock.test.ts tests/integration/concurrent-agents.test.ts` -> pass
+  - E3: `npx vitest run tests/capsule/query-decomposer.test.ts tests/capsule/intent-classifier.test.ts tests/capsule/smart-decomposer.test.ts tests/capsule/story-packing.test.ts tests/capsule/merger.test.ts` -> pass
+  - E4: `npx vitest run tests/capsule/intent-routing.test.ts tests/capsule/multi-pass-generator.test.ts tests/capsule/formatter-multi-pass.test.ts tests/capsule/confidence-formula.test.ts` -> pass
+  - E5: `npx tsx tests/integration/update-baseline.ts` -> pass; baseline ratcheted in `tests/integration/quality-baseline.json` (narrow avg `0.8599`, broad avg `0.9199`, task avg `0.8036`)
+  - E6: full gate: `npm run lint` -> pass, `npm test` -> pass (`71` files, `272` tests), `npm run build` -> pass
+  - E7: `npm run bench:concurrent` -> pass (`p95 47.45ms`, `0.00%` errors, `169.95/s` throughput)
+  - E8: `npx tsx bench/cross-project-qa.ts` -> pass (overall status pass, avg confidence `85.1%`)
 - gate status:
-  - pending full verification after Wave 4 implementation
+  - final gate complete: PASS
 
 ## Blockers and Next Actions
-- blockers: none currently; active implementation underway with parallel agent lanes
+- blockers: none
 - next actions:
-  1. merge Phase 1 + Phase 4 agent outputs, resolve conflicts, and run targeted tests
-  2. implement remaining Phase 2/3 generator/packer/merger work with red-green tests
-  3. execute full gate (`npx vitest run`, `npm run lint`, `npm run build`) and update statuses to `done` with evidence
+  1. open PR for `feat/wave4-explorer-killer` and request review
+  2. merge after review and run one post-merge smoke bench in CI
+  3. keep `tests/integration/task-query-quality.test.ts` and `tests/integration/threshold-ratchet.test.ts` required in CI
 
 ---
 

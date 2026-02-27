@@ -1,4 +1,5 @@
 import type { CapsuleDiagnostic } from "../capsule/diagnostics.js";
+import type { QueryIntent } from "../capsule/intent-classifier.js";
 
 export type SymbolKind =
   | "function"
@@ -187,6 +188,16 @@ export interface CapsuleMetadata {
   observationCount: number;
   quality: CapsuleQuality;
   diagnostics?: CapsuleDiagnostic;
+  strategy?: {
+    intent: QueryIntent;
+    mode: "single-pass" | "multi-pass";
+    subQueryCount: number;
+  };
+  clusterGroups?: Array<{
+    id: number;
+    symbolCount: number;
+    fileCount: number;
+  }>;
   generatedAt: number;
   timeLimited?: boolean;
 }

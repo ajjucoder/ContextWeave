@@ -22,10 +22,10 @@ export const TASK_QUERIES = [
   "check for error handling issues in database queries",
 ] as const;
 
-export const NARROW_THRESHOLD = 0.7;
-export const BROAD_THRESHOLD = 0.55;
-export const TASK_THRESHOLD = 0.5;
-export const OVERALL_THRESHOLD = 0.6;
+export const NARROW_THRESHOLD = 0.75;
+export const BROAD_THRESHOLD = 0.75;
+export const TASK_THRESHOLD = 0.7;
+export const OVERALL_THRESHOLD = 0.73;
 
 export const NARROW_TOKEN_BUDGET = 4000;
 export const BROAD_TOKEN_BUDGET = 10000;

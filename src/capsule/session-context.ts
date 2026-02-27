@@ -17,6 +17,11 @@ export class SessionContext {
     this.sessionId = sessionId;
   }
 
+  private isBusyError(error: unknown): boolean {
+    if (!(error instanceof Error)) return false;
+    return /SQLITE_BUSY/i.test(error.message);
+  }
+
   record(symbols: Array<{ symbolId: number; fileId: number }>, query: string): void {
     const insert = this.db.prepare(`
       INSERT INTO session_context (session_id, symbol_id, file_id, query, relevance, returned_at)
@@ -32,7 +37,14 @@ export class SessionContext {
         insert.run(this.sessionId, s.symbolId, s.fileId, query, now);
       }
     });
-    insertAll();
+    try {
+      insertAll();
+    } catch (error) {
+      if (this.isBusyError(error)) {
+        return;
+      }
+      throw error;
+    }
   }
 
   getRecentFileIds(limit = 50): number[] {

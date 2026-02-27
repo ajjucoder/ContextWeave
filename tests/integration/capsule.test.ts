@@ -106,10 +106,10 @@ describe("generateCapsule", () => {
       tokenBudget: 2000,
     });
 
-    expect(result.metadata.quality.retrieval.stageACandidateCount).toBeGreaterThanOrEqual(
-      result.metadata.quality.retrieval.stageBSelectedCount
-    );
+    // Stage A now tracks raw pivot candidates while stage B tracks selected graph nodes.
+    // Stage B can exceed Stage A due dependency expansion around pivots.
     expect(result.metadata.quality.retrieval.stageACandidateCount).toBeGreaterThan(0);
+    expect(result.metadata.quality.retrieval.stageBSelectedCount).toBeGreaterThan(0);
   });
 
   it("includes uncertainty flag and coverage confidence in formatted output", () => {

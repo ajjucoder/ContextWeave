@@ -17,7 +17,7 @@ import {
 } from "./task-query-fixtures.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const BASELINE_PATH = resolve(__dirname, "../../.contextweave/quality-baseline.json");
+const BASELINE_PATH = resolve(__dirname, "./quality-baseline.json");
 
 interface QueryClassBaseline {
   avgConfidence: number;
