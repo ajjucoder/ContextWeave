@@ -12,7 +12,8 @@ import type {
 } from "../core/types.js";
 import { symbolQueries } from "../db/queries/symbols.js";
 import { fileQueries } from "../db/queries/files.js";
-import { getBatchSymbolDegrees, scopedLazyBfsTraversal } from "../core/graph.js";
+import { getBatchSymbolDegrees } from "../core/graph.js";
+import { weightedBfsTraversal } from "../core/weighted-bfs.js";
 import { fuzzyMatch } from "../utils/fuzzy.js";
 import { countTokens } from "../utils/tokens.js";
 import { expandQueryWithSynonyms } from "../utils/synonyms.js";
@@ -226,7 +227,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   // Phase 2: Lazy BFS traversal keeps memory stable on large graphs.
   const maxDepth = getBfsDepth(tokenBudget);
   const scopeDirs = pivotDirs.size > 0 ? [...pivotDirs] : null;
-  const bfsNodes = scopedLazyBfsTraversal(db, [...pivotSymbolIds], maxDepth, scopeDirs);
+  const bfsNodes = weightedBfsTraversal(db, [...pivotSymbolIds], maxDepth, scopeDirs);
   const visited = new Map<number, number>(bfsNodes.map((n) => [n.symbolId, n.distance]));
 
   logger.debug("bfs traversal complete", { nodesVisited: visited.size });
