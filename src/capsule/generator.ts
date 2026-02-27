@@ -18,6 +18,7 @@ import { countTokens } from "../utils/tokens.js";
 import { expandQueryWithSynonyms } from "../utils/synonyms.js";
 import { getDirectoryWeight } from "../utils/directory-weights.js";
 import { scoreNode, assignCompressionLevel } from "./scorer.js";
+import { rankPivots } from "./pivot-scorer.js";
 import { renderSymbol } from "./compressor.js";
 import { packNodes } from "./packer.js";
 import { formatCapsule } from "./formatter.js";
@@ -158,16 +159,15 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     .filter(Boolean);
   const expandedQueryTerms = expandQueryWithSynonyms(exactQueryTerms);
   const exactQueryTermSet = new Set(exactQueryTerms);
-  const pivotSymbolIds = new Set<number>();
+  const rawPivotIds = new Set<number>();
 
   for (const term of expandedQueryTerms) {
     if (term.length >= 3) {
       const ftsMatches = symbols.searchFTS(term, 15);
-      for (const symbol of ftsMatches) pivotSymbolIds.add(symbol.id);
+      for (const symbol of ftsMatches) rawPivotIds.add(symbol.id);
     } else {
-      // Trigram tokenizer is ineffective for very short terms.
       const matched = symbols.getByName(term);
-      for (const symbol of matched) pivotSymbolIds.add(symbol.id);
+      for (const symbol of matched) rawPivotIds.add(symbol.id);
     }
 
     const pathCandidates = getPathCandidates(term);
@@ -176,11 +176,31 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       const file = pathCandidateCache.get(match.name);
       if (!file) continue;
       const fileSymbols = symbols.getByFileId(file.id);
-      for (const symbol of fileSymbols) pivotSymbolIds.add(symbol.id);
+      for (const symbol of fileSymbols) rawPivotIds.add(symbol.id);
     }
   }
 
-  logger.debug("pivot symbols found", { count: pivotSymbolIds.size });
+  logger.debug("raw pivot candidates", { count: rawPivotIds.size });
+
+  const MAX_PIVOTS = Math.max(30, Math.floor(tokenBudget / 50));
+  const pivotCandidates: Array<{ id: number; name: string; signature: string; kind: string; filePath: string }> = [];
+  const pivotFileCache = new Map<number, string>();
+  for (const id of rawPivotIds) {
+    const sym = symbols.getByIdLight(id);
+    if (!sym) continue;
+    let filePath = pivotFileCache.get(sym.fileId);
+    if (filePath === undefined) {
+      const file = files.getById(sym.fileId);
+      filePath = file?.path ?? "";
+      pivotFileCache.set(sym.fileId, filePath);
+    }
+    pivotCandidates.push({ id, name: sym.name, signature: sym.signature ?? "", kind: sym.kind, filePath });
+  }
+
+  const rankedPivots = rankPivots(pivotCandidates, exactQueryTerms, MAX_PIVOTS);
+  const pivotSymbolIds = new Set(rankedPivots.keys());
+
+  logger.debug("pivot symbols after ranking", { raw: rawPivotIds.size, ranked: pivotSymbolIds.size });
 
   const memorySearch = new MemorySearch(db);
   const observationBudget = Math.floor(tokenBudget * 0.2);
