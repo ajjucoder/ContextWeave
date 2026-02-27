@@ -1,3 +1,5 @@
+import type { CapsuleDiagnostic } from "../capsule/diagnostics.js";
+
 export type SymbolKind =
   | "function"
   | "class"
@@ -184,6 +186,7 @@ export interface CapsuleMetadata {
   compressionBreakdown: Record<CompressionLevel, number>;
   observationCount: number;
   quality: CapsuleQuality;
+  diagnostics?: CapsuleDiagnostic;
   generatedAt: number;
   timeLimited?: boolean;
 }

@@ -96,6 +96,7 @@ describe("generateCapsule", () => {
     expect(result.metadata.quality.retrieval.stageACandidateCount).toBeGreaterThanOrEqual(0);
     expect(result.metadata.quality.retrieval.stageBSelectedCount).toBeGreaterThanOrEqual(0);
     expect(Array.isArray(result.metadata.quality.reasons)).toBe(true);
+    expect(result.metadata.diagnostics).toBeDefined();
     expect(result.metadata.generatedAt).toBeGreaterThan(0);
   });
 
@@ -145,5 +146,6 @@ describe("generateCapsule", () => {
 
     expect(result.content.length).toBeGreaterThan(0);
     expect(result.metadata.symbolCount).toBe(0);
+    expect(result.content).toContain("--- Diagnostics ---");
   });
 });

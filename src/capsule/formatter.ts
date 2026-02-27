@@ -66,6 +66,14 @@ export function formatCapsule(
     }
   }
 
+  if (metadata.diagnostics && metadata.quality.coverageConfidence < 0.65) {
+    parts.push("\n--- Diagnostics ---");
+    parts.push(`Class: ${metadata.diagnostics.queryClass}`);
+    parts.push(`Bottleneck: ${metadata.diagnostics.bottleneck}`);
+    parts.push(metadata.diagnostics.bottleneckDetail);
+    parts.push(`Suggestion: ${metadata.diagnostics.suggestion}`);
+  }
+
   if (observations.length > 0) {
     parts.push("\n--- Observations ---");
     for (const obs of observations) {

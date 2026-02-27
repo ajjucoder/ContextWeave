@@ -19,10 +19,11 @@ import { countTokens } from "../utils/tokens.js";
 import { expandQueryWithSynonyms } from "../utils/synonyms.js";
 import { getDirectoryWeight } from "../utils/directory-weights.js";
 import { scoreNode, assignCompressionLevel } from "./scorer.js";
-import { rankPivots } from "./pivot-scorer.js";
+import { rankPivotsWithScores } from "./pivot-scorer.js";
 import { renderSymbol } from "./compressor.js";
 import { packNodes } from "./packer.js";
 import { formatCapsule } from "./formatter.js";
+import { diagnose } from "./diagnostics.js";
 import { createLogger } from "../utils/logger.js";
 import { MemorySearch } from "../memory/search.js";
 import { capsuleLogQueries } from "../db/queries/capsule-log.js";
@@ -274,7 +275,11 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     pivotCandidates.push({ id, name: sym.name, signature: sym.signature ?? "", kind: sym.kind, filePath });
   }
 
-  const rankedPivots = rankPivots(pivotCandidates, exactQueryTerms, MAX_PIVOTS);
+  const { ranked: rankedPivots, scores: pivotScores } = rankPivotsWithScores(
+    pivotCandidates,
+    exactQueryTerms,
+    MAX_PIVOTS
+  );
 
   const sessionId = params.sessionId ?? "default";
   sessionQueries(db).ensureSession(sessionId, params.projectRoot ?? "");
@@ -572,7 +577,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   const timeLimited = skipBfs || skipPromotion;
 
-  const metadata: CapsuleMetadata = {
+  const baseMetadata: CapsuleMetadata = {
     query,
     mode,
     tokenBudget,
@@ -599,6 +604,11 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     },
     generatedAt: Date.now(),
     ...(timeLimited && { timeLimited: true }),
+  };
+
+  const metadata: CapsuleMetadata = {
+    ...baseMetadata,
+    diagnostics: diagnose(baseMetadata, pivotScores),
   };
 
   const content = formatCapsule(packed, observations, metadata, fileSummaries);

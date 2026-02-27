@@ -5,6 +5,11 @@ export interface PivotCandidate {
   filePath: string;
 }
 
+export interface RankedPivots {
+  ranked: Map<number, number>;
+  scores: number[];
+}
+
 function stemMatch(token: string, term: string): boolean {
   if (token.includes(term) || term.includes(token)) return true;
   const prefixLen = Math.min(token.length, term.length);
@@ -65,6 +70,14 @@ export function rankPivots(
   queryTerms: string[],
   maxPivots: number
 ): Map<number, number> {
+  return rankPivotsWithScores(candidates, queryTerms, maxPivots).ranked;
+}
+
+export function rankPivotsWithScores(
+  candidates: Array<{ id: number } & PivotCandidate>,
+  queryTerms: string[],
+  maxPivots: number
+): RankedPivots {
   const scored = candidates.map((c) => ({
     id: c.id,
     score: scorePivotRelevance(c, queryTerms),
@@ -72,9 +85,13 @@ export function rankPivots(
 
   scored.sort((a, b) => b.score - a.score);
 
-  const result = new Map<number, number>();
+  const ranked = new Map<number, number>();
+  const scores: number[] = [];
   for (const { id, score } of scored.slice(0, maxPivots)) {
-    if (score > 0) result.set(id, score);
+    if (score > 0) {
+      ranked.set(id, score);
+      scores.push(score);
+    }
   }
-  return result;
+  return { ranked, scores };
 }
