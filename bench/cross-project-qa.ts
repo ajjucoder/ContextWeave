@@ -45,6 +45,15 @@ const PROJECTS: QaProject[] = [
       "mention_scores",
     ],
   },
+  {
+    name: "express",
+    repo: "https://github.com/expressjs/express.git",
+    sessionQueries: [
+      "createApplication",
+      "Router",
+      "View",
+    ],
+  },
 ];
 
 interface QueryResult {
