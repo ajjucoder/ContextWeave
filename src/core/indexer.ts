@@ -12,8 +12,8 @@ import { fileQueries } from "../db/queries/files.js";
 import { symbolQueries } from "../db/queries/symbols.js";
 import { edgeQueries } from "../db/queries/edges.js";
 import { createLogger } from "../utils/logger.js";
-import { upsertFileSummary } from "./file-summaries.js";
-import { computeClusters } from "./clusters.js";
+import { upsertFileSummary, backfillSummariesIfNeeded } from "./file-summaries.js";
+import { computeClusters, backfillClustersIfNeeded } from "./clusters.js";
 
 const log = createLogger("indexer");
 
@@ -742,6 +742,11 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
   log.info(`skipped ${skippedCount} unchanged files, processing ${toProcess.length}`);
 
   if (toProcess.length === 0) {
+    const backfilledSummaries = backfillSummariesIfNeeded(db);
+    const backfilledClusters = backfillClustersIfNeeded(db);
+    if (backfilledSummaries || backfilledClusters) {
+      log.info("backfilled derived data for existing files", { summaries: backfilledSummaries, clusters: backfilledClusters });
+    }
     return { filesIndexed: filePaths.length, symbolsFound: 0, errors: allErrors };
   }
 

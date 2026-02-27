@@ -107,6 +107,17 @@ export function computeClusters(db: Database.Database): void {
   insertAll();
 }
 
+export function backfillClustersIfNeeded(db: Database.Database): boolean {
+  const fileCount = (db.prepare("SELECT COUNT(*) as c FROM files").get() as { c: number }).c;
+  if (fileCount === 0) return false;
+
+  const clusterCount = (db.prepare("SELECT COUNT(*) as c FROM file_clusters").get() as { c: number }).c;
+  if (clusterCount > 0) return false;
+
+  computeClusters(db);
+  return true;
+}
+
 export function getClusterFileIds(db: Database.Database, clusterId: number): number[] {
   const rows = db.prepare("SELECT file_id FROM file_clusters WHERE cluster_id = ?").all(clusterId) as Array<{ file_id: number }>;
   return rows.map((r) => r.file_id);

@@ -89,6 +89,25 @@ export function upsertFileSummary(db: Database.Database, fileId: number): void {
   ).run(fileId, summaryText);
 }
 
+export function backfillSummariesIfNeeded(db: Database.Database): boolean {
+  const fileCount = (db.prepare("SELECT COUNT(*) as c FROM files").get() as { c: number }).c;
+  if (fileCount === 0) return false;
+
+  const summaryCount = (db.prepare("SELECT COUNT(*) as c FROM file_summaries").get() as { c: number }).c;
+  if (summaryCount >= fileCount) return false;
+
+  const fileIds = db.prepare("SELECT id FROM files WHERE id NOT IN (SELECT file_id FROM file_summaries)").all() as Array<{ id: number }>;
+  if (fileIds.length === 0) return false;
+
+  const backfill = db.transaction(() => {
+    for (const row of fileIds) {
+      upsertFileSummary(db, row.id);
+    }
+  });
+  backfill();
+  return true;
+}
+
 export function searchFilesByQuery(
   db: Database.Database,
   query: string,
@@ -97,18 +116,48 @@ export function searchFilesByQuery(
   const terms = query.toLowerCase().replace(/[^a-z0-9\s]/g, " ").trim();
   if (!terms) return [];
 
-  try {
-    const rows = db.prepare(`
-      SELECT fs.file_id, f.path
-      FROM file_summaries_fts fts
-      JOIN file_summaries fs ON fs.file_id = fts.rowid
-      JOIN files f ON f.id = fs.file_id
-      WHERE file_summaries_fts MATCH ?
-      ORDER BY rank
-      LIMIT ?
-    `).all(terms, limit) as Array<{ file_id: number; path: string }>;
-    return rows.map((r) => ({ fileId: r.file_id, path: r.path }));
-  } catch {
-    return [];
+  const doSearch = (pattern: string): Array<{ fileId: number; path: string }> => {
+    try {
+      const rows = db.prepare(`
+        SELECT fs.file_id, f.path
+        FROM file_summaries_fts fts
+        JOIN file_summaries fs ON fs.file_id = fts.rowid
+        JOIN files f ON f.id = fs.file_id
+        WHERE file_summaries_fts MATCH ?
+        ORDER BY rank
+        LIMIT ?
+      `).all(pattern, limit) as Array<{ file_id: number; path: string }>;
+      return rows.map((r) => ({ fileId: r.file_id, path: r.path }));
+    } catch {
+      return [];
+    }
+  };
+
+  const andResults = doSearch(terms);
+  if (andResults.length > 0) return andResults;
+
+  const words = terms.split(/\s+/).filter((w) => w.length >= 2);
+  if (words.length <= 1) return andResults;
+
+  const orPattern = words.map((w) => `"${w}"`).join(" OR ");
+  const orResults = doSearch(orPattern);
+  if (orResults.length > 0) return orResults;
+
+  const scored = new Map<number, { fileId: number; path: string; hits: number }>();
+  for (const word of words) {
+    const wordResults = doSearch(`"${word}"`);
+    for (const result of wordResults) {
+      const existing = scored.get(result.fileId);
+      if (existing) {
+        existing.hits++;
+      } else {
+        scored.set(result.fileId, { ...result, hits: 1 });
+      }
+    }
   }
+
+  return [...scored.values()]
+    .sort((a, b) => b.hits - a.hits)
+    .slice(0, limit)
+    .map(({ fileId, path }) => ({ fileId, path }));
 }
