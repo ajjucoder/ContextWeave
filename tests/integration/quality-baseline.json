@@ -1,15 +1,15 @@
 {
   "narrow": {
-    "avgConfidence": 0.8659841628959276,
-    "minConfidence": 0.8458974358974359
+    "avgConfidence": 0.8625139533692094,
+    "minConfidence": 0.8459603658536586
   },
   "broad": {
-    "avgConfidence": 0.9685659777424483,
-    "minConfidence": 0.8445945945945946
+    "avgConfidence": 0.9673869594719635,
+    "minConfidence": 0.9423076923076923
   },
   "task": {
-    "avgConfidence": 0.7113896800109314,
-    "minConfidence": 0.5350446428571429
+    "avgConfidence": 0.7665662018316255,
+    "minConfidence": 0.7118864468864468
   },
-  "updatedAt": "2026-02-27T14:26:23.868Z"
+  "updatedAt": "2026-02-27T14:56:01.546Z"
 }

@@ -1,0 +1,104 @@
+import type { CapsuleUncertainty } from "../core/types.js";
+import type { QueryIntent } from "./intent-classifier.js";
+
+export interface ConfidenceParams {
+  intent: QueryIntent;
+  pivotCount: number;
+  pivotsIncluded: number;
+  relevantPivotsIncluded: number;
+  totalRelevantPivots: number;
+  dependencyCoverage: number;
+  noiseRatio: number;
+  fileSummaryCount: number;
+  moduleCoverageStats?: {
+    packedClusters: number;
+    relevantClusters: number;
+    avgSymbolsPerFile: number;
+    maxSymbolsPerFile: number;
+  };
+}
+
+export function computeCoverageConfidence(params: ConfidenceParams): number {
+  const {
+    intent,
+    pivotsIncluded,
+    relevantPivotsIncluded,
+    totalRelevantPivots,
+    dependencyCoverage,
+    noiseRatio,
+    fileSummaryCount,
+    moduleCoverageStats,
+  } = params;
+
+  const relevantCoverage =
+    totalRelevantPivots === 0
+      ? pivotsIncluded > 0
+        ? 0.5
+        : 0
+      : relevantPivotsIncluded / totalRelevantPivots;
+
+  const summaryBoost = Math.min(0.15, fileSummaryCount * 0.03);
+  const moduleCoverage =
+    moduleCoverageStats && moduleCoverageStats.relevantClusters > 0
+      ? moduleCoverageStats.packedClusters / moduleCoverageStats.relevantClusters
+      : moduleCoverageStats && moduleCoverageStats.packedClusters > 0
+        ? 0.5
+        : 0;
+  const storyCompleteness =
+    moduleCoverageStats && moduleCoverageStats.maxSymbolsPerFile > 0
+      ? Math.min(
+        1,
+        moduleCoverageStats.avgSymbolsPerFile / moduleCoverageStats.maxSymbolsPerFile
+      )
+      : 0;
+
+  if (intent === "broad") {
+    return Math.max(
+      0,
+      Math.min(
+        1,
+        moduleCoverage * 0.35 +
+          relevantCoverage * 0.25 +
+          (1 - noiseRatio) * 0.15 +
+          summaryBoost +
+          0.25
+      )
+    );
+  }
+
+  if (intent === "task") {
+    return Math.max(
+      0,
+      Math.min(
+        1,
+        storyCompleteness * 0.3 +
+          moduleCoverage * 0.25 +
+          relevantCoverage * 0.2 +
+          (1 - noiseRatio) * 0.1 +
+          0.29
+      )
+    );
+  }
+
+  return Math.max(
+    0,
+    Math.min(
+      1,
+      relevantCoverage * 0.5 +
+        dependencyCoverage * 0.2 +
+        (1 - noiseRatio) * 0.15 +
+        summaryBoost +
+        0.15
+    )
+  );
+}
+
+export function buildUncertainty(
+  lowConfidence: boolean,
+  reasonCount: number,
+  coverageConfidence: number
+): CapsuleUncertainty {
+  if (!lowConfidence) return "low";
+  if (reasonCount >= 2 || coverageConfidence < 0.45) return "high";
+  return "medium";
+}

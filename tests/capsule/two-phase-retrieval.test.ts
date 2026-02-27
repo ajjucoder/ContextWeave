@@ -49,4 +49,16 @@ describe("two-phase retrieval", () => {
     expect(result).toBeDefined();
     emptyDb.close();
   });
+
+  it("bounds stage A and stage B candidate breadth for broad/task retrieval", () => {
+    const result = generateCapsule(db, {
+      query: "check for error handling issues in database queries",
+      tokenBudget: 10000,
+    });
+
+    expect(result.metadata.quality.retrieval.stageACandidateCount).toBeGreaterThan(0);
+    expect(result.metadata.quality.retrieval.stageBSelectedCount).toBeGreaterThan(0);
+    expect(result.metadata.quality.retrieval.stageACandidateCount).toBeLessThanOrEqual(160);
+    expect(result.metadata.quality.retrieval.stageBSelectedCount).toBeLessThanOrEqual(260);
+  });
 });

@@ -118,6 +118,8 @@ describe("generateCapsule", () => {
       tokenBudget: 2000,
     });
 
+    expect(result.content).toContain("Confidence:");
+    expect(result.content).toContain("Uncertainty:");
     expect(result.content).toContain("Coverage confidence:");
     expect(result.content).toContain("Uncertainty flag:");
     expect(result.content).toContain("Retrieval: stageA");

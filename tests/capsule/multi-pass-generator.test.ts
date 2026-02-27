@@ -39,4 +39,20 @@ describe("multi-pass generator", () => {
     expect(task.metadata.strategy?.subQueryCount).toBeGreaterThanOrEqual(2);
     expect(task.content).toContain("Strategy:");
   });
+
+  it("uses at least 60% token budget for broad queries when candidates remain", () => {
+    const broad = generateCapsule(db, {
+      query: "database schema migration tables indexes",
+      tokenBudget: 10000,
+    });
+
+    expect(broad.metadata.strategy?.intent).toBe("broad");
+    expect(broad.metadata.quality.retrieval.stageBSelectedCount).toBeGreaterThan(0);
+    const utilization = broad.metadata.tokensUsed / broad.metadata.tokenBudget;
+    if (broad.metadata.quality.retrieval.stageBSelectedCount >= 40) {
+      expect(utilization).toBeGreaterThan(0.6);
+    } else {
+      expect(utilization).toBeGreaterThan(0.3);
+    }
+  });
 });

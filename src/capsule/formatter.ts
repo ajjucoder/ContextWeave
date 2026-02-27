@@ -19,6 +19,7 @@ export function formatCapsule(
   const noisePct = Math.round(metadata.quality.noiseRatio * 100);
   const coverageConfidencePct = Math.round(metadata.quality.coverageConfidence * 100);
   const confidence = metadata.quality.lowConfidence ? "LOW" : "HIGH";
+  const uncertainty = metadata.quality.uncertainty.toUpperCase();
 
   const strategyLabel = metadata.strategy
     ? `${metadata.strategy.mode} (${metadata.strategy.subQueryCount} sub-queries)`
@@ -30,7 +31,7 @@ export function formatCapsule(
     `Mode: ${metadata.mode} | Strategy: ${strategyLabel}`,
     `Tokens: ${metadata.tokensUsed}/${metadata.tokenBudget}`,
     `Symbols: ${packedNodes.length} across ${fileCount} files`,
-    `Quality: ${confidence} confidence (${metadata.quality.uncertainty})`,
+    `Confidence: ${confidence} | Uncertainty: ${uncertainty}`,
     `Coverage confidence: ${coverageConfidencePct}%`,
     `Uncertainty flag: ${metadata.quality.uncertaintyFlag ? "true" : "false"}`,
     `Retrieval: stageA ${metadata.quality.retrieval.stageACandidateCount} -> stageB ${metadata.quality.retrieval.stageBSelectedCount}`,

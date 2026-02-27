@@ -104,5 +104,7 @@ describe("formatCapsule multi-pass rendering", () => {
     const output = formatCapsule(nodes, observations, metadata, []);
     expect(output).toContain("Strategy: multi-pass (3 sub-queries)");
     expect(output).toContain("[Cluster:");
+    expect(output).toContain("Confidence:");
+    expect(output).toContain("Uncertainty:");
   });
 });
