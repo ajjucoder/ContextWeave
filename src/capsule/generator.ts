@@ -429,6 +429,10 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const baseCandidateLimit = Math.max(60, Math.floor(tokenBudget / 10));
   const MIN_UTILIZATION = 0.45;
 
+  const recentSymbolIds: Set<number> = params.sessionId
+    ? new Set(sessionCtx.getRecentSymbolIds().filter((id): id is number => id !== null))
+    : new Set();
+
   let selected = selectCandidates(baseLexThreshold, 1, baseCandidateLimit);
   let scoredNodes = buildScoredNodes(selected);
   let { packed, tokensUsed, fileSummaries } = packNodes(scoredNodes, tokenBudget, codeRatio);
@@ -457,6 +461,26 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   }
 
   const relevanceLexicalThreshold = baseLexThreshold;
+
+  if (recentSymbolIds.size > 0) {
+    let tokensDelta = 0;
+    for (let i = 0; i < packed.length; i++) {
+      const node = packed[i]!;
+      if (node.compressionLevel === 0 && recentSymbolIds.has(node.symbol.id)) {
+        const dedupRendered = `[previously shown] ${node.symbol.signature}`;
+        const dedupTokens = countTokens(dedupRendered);
+        tokensDelta += dedupTokens - node.tokenCount;
+        packed[i] = {
+          ...node,
+          compressionLevel: 2,
+          rendered: dedupRendered,
+          tokenCount: dedupTokens,
+        };
+      }
+    }
+    tokensUsed += tokensDelta;
+    logger.debug("dedup pass complete", { recentCount: recentSymbolIds.size, tokensDelta });
+  }
 
   // Phase 7: Quality gate + format + return
   const compressionBreakdown: Record<CompressionLevel, number> = { 0: 0, 1: 0, 2: 0, 3: 0 };
