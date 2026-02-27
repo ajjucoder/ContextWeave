@@ -3,12 +3,13 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { closeDb, getDb } from "../../src/db/connection.js";
 import { runMigrations } from "../../src/db/migrations.js";
 import { indexProject } from "../../src/core/indexer.js";
 import { updateCentralityScores } from "../../src/core/graph.js";
+import { generateCapsule } from "../../src/capsule/generator.js";
 
 const execFileAsync = promisify(execFile);
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -18,7 +19,29 @@ const FIXTURE_DIR = resolve(__dirname, "../fixtures");
 
 const AGENT_COUNT = 10;
 const ITERATIONS_PER_AGENT = 4;
+const P95_TARGET_MS = 50;
 const QUERIES = ["UserService", "validateEmail", "loadUser", "getDefaultRole"];
+
+interface CapsuleWorkerPayload {
+  mode?: "capsule";
+  agentId: string;
+  dbPath: string;
+  queries: string[];
+  iterations: number;
+  tokenBudget: number;
+  sessionPrefix: string;
+}
+
+interface ReindexWorkerPayload {
+  mode: "reindex";
+  agentId: string;
+  dbPath: string;
+  iterations: number;
+  projectRoot: string;
+  filePath: string;
+}
+
+type WorkerPayload = CapsuleWorkerPayload | ReindexWorkerPayload;
 
 interface WorkerResult {
   agentId: string;
@@ -29,6 +52,8 @@ interface WorkerResult {
 
 let tempRoot = "";
 let dbPath = "";
+let fixtureRoot = "";
+let writerFilePath = "";
 
 function percentile(values: number[], p: number): number {
   if (values.length === 0) return 0;
@@ -37,15 +62,33 @@ function percentile(values: number[], p: number): number {
   return sorted[index] ?? 0;
 }
 
+async function runWorker(payload: WorkerPayload): Promise<WorkerResult> {
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["--import", "tsx", WORKER_SCRIPT, JSON.stringify(payload)],
+    {
+      cwd: PROJECT_ROOT,
+      maxBuffer: 4 * 1024 * 1024,
+    }
+  );
+
+  return JSON.parse(stdout.trim()) as WorkerResult;
+}
+
 beforeAll(async () => {
   tempRoot = mkdtempSync(join(tmpdir(), "cw-concurrency-"));
+  fixtureRoot = join(tempRoot, "fixture-copy");
+  cpSync(FIXTURE_DIR, fixtureRoot, { recursive: true });
+  writerFilePath = join(fixtureRoot, "concurrency-churn.ts");
+  writeFileSync(writerFilePath, "export function churn_0() { return 0; }\n", "utf-8");
+
   const cwDir = join(tempRoot, ".contextweave");
   mkdirSync(cwDir, { recursive: true });
   dbPath = join(cwDir, "contextweave.db");
 
   const db = getDb(dbPath);
   runMigrations(db);
-  await indexProject(db, FIXTURE_DIR);
+  await indexProject(db, fixtureRoot);
   updateCentralityScores(db);
   closeDb(dbPath);
 }, 60000);
@@ -69,18 +112,7 @@ describe("concurrent capsule generation", () => {
     }));
 
     const startedAt = Date.now();
-    const executions = payloads.map(async (payload) => {
-      const { stdout } = await execFileAsync(
-        process.execPath,
-        ["--import", "tsx", WORKER_SCRIPT, JSON.stringify(payload)],
-        {
-          cwd: PROJECT_ROOT,
-          maxBuffer: 4 * 1024 * 1024,
-        }
-      );
-      return JSON.parse(stdout.trim()) as WorkerResult;
-    });
-    const results = await Promise.all(executions);
+    const results = await Promise.all(payloads.map((payload) => runWorker(payload)));
     const durationMs = Date.now() - startedAt;
 
     const allErrors = results.flatMap((result) => result.errors);
@@ -92,7 +124,50 @@ describe("concurrent capsule generation", () => {
 
     const latencies = results.flatMap((result) => result.latenciesMs);
     expect(latencies.length).toBe(expectedCalls);
-    expect(percentile(latencies, 0.95)).toBeLessThan(1500);
+    expect(percentile(latencies, 0.95)).toBeLessThan(P95_TARGET_MS);
     expect(durationMs).toBeLessThan(30000);
+  }, 90000);
+
+  it("maintains consistency under concurrent reads plus reindex writes", async () => {
+    const readers: CapsuleWorkerPayload[] = Array.from({ length: 6 }, (_, index) => ({
+      mode: "capsule",
+      agentId: `reader-${index + 1}`,
+      dbPath,
+      queries: QUERIES,
+      iterations: 4,
+      tokenBudget: 3000,
+      sessionPrefix: `reader-${index + 1}`,
+    }));
+
+    const writer: ReindexWorkerPayload = {
+      mode: "reindex",
+      agentId: "writer-1",
+      dbPath,
+      iterations: 8,
+      projectRoot: fixtureRoot,
+      filePath: writerFilePath,
+    };
+
+    const results = await Promise.all([...readers.map((payload) => runWorker(payload)), runWorker(writer)]);
+    const allErrors = results.flatMap((result) => result.errors);
+
+    expect(allErrors).toEqual([]);
+    expect(allErrors.filter((error) => /SQLITE_BUSY/i.test(error))).toEqual([]);
+
+    const expectedSuccesses = readers.reduce((sum, reader) => sum + reader.iterations, 0) + writer.iterations;
+    const successes = results.reduce((sum, result) => sum + result.successCount, 0);
+    expect(successes).toBe(expectedSuccesses);
+
+    const db = getDb(dbPath);
+    const check = generateCapsule(db, {
+      query: "concurrency churn",
+      tokenBudget: 2500,
+      sessionId: "post-concurrency-check",
+      projectRoot: fixtureRoot,
+    });
+    closeDb(dbPath);
+
+    expect(check.content.length).toBeGreaterThan(0);
+    expect(check.metadata.tokensUsed).toBeGreaterThan(0);
   }, 90000);
 });
