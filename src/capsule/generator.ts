@@ -30,6 +30,7 @@ import { sessionQueries } from "../db/queries/sessions.js";
 import { captureQueryObservation } from "../memory/passive.js";
 import { SessionContext } from "./session-context.js";
 import { decomposeQuery, mergeSubQueryTerms } from "./query-decomposer.js";
+import { searchFilesByQuery } from "../core/file-summaries.js";
 
 const logger = createLogger("generator");
 
@@ -205,13 +206,25 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const exactQueryTermSet = new Set(exactQueryTerms);
   const rawPivotIds = new Set<number>();
 
+  const FILE_SEARCH_LIMIT = 50;
+  const candidateFiles = searchFilesByQuery(db, query, FILE_SEARCH_LIMIT);
+  const candidateFileIds = candidateFiles.length > 0
+    ? new Set(candidateFiles.map((f) => f.fileId))
+    : null;
+
   for (const term of expandedQueryTerms) {
     if (term.length >= 3) {
       const ftsMatches = symbols.searchFTS(term, 15);
-      for (const symbol of ftsMatches) rawPivotIds.add(symbol.id);
+      const filtered = candidateFileIds
+        ? ftsMatches.filter((s) => candidateFileIds.has(s.fileId))
+        : ftsMatches;
+      for (const symbol of filtered) rawPivotIds.add(symbol.id);
     } else {
       const matched = symbols.getByName(term);
-      for (const symbol of matched) rawPivotIds.add(symbol.id);
+      const filtered = candidateFileIds
+        ? matched.filter((s) => candidateFileIds.has(s.fileId))
+        : matched;
+      for (const symbol of filtered) rawPivotIds.add(symbol.id);
     }
 
     const pathCandidates = getPathCandidates(term);
