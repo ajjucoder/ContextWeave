@@ -41,6 +41,7 @@ interface CapsuleParams {
   mode?: CapsuleMode;
   sessionId?: string;
   projectRoot?: string;
+  maxQueryTimeMs?: number;
 }
 
 interface RankedCandidate {
@@ -182,6 +183,10 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const tokenBudget = params.tokenBudget ?? 4000;
   const mode = params.mode ?? "feature";
   const { query } = params;
+  const maxQueryTimeMs = params.maxQueryTimeMs ?? 500;
+  const startTime = Date.now();
+  const elapsed = () => Date.now() - startTime;
+  const isOverBudget = (fraction: number) => elapsed() > maxQueryTimeMs * fraction;
 
   logger.info("generating capsule", { query, tokenBudget, mode });
 
@@ -320,9 +325,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   }
 
   // Phase 2: Lazy BFS traversal keeps memory stable on large graphs.
+  const skipBfs = isOverBudget(0.5);
   const maxDepth = getBfsDepth(tokenBudget);
   const scopeDirs = pivotDirs.size > 0 ? [...pivotDirs] : null;
-  const bfsNodes = weightedBfsTraversal(db, [...pivotSymbolIds], maxDepth, scopeDirs);
+  const bfsNodes = skipBfs
+    ? [...pivotSymbolIds].map((id) => ({ symbolId: id, distance: 0 }))
+    : weightedBfsTraversal(db, [...pivotSymbolIds], maxDepth, scopeDirs);
   const visited = new Map<number, number>(bfsNodes.map((n) => [n.symbolId, n.distance]));
 
   logger.debug("bfs traversal complete", { nodesVisited: visited.size });
@@ -465,7 +473,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   let scoredNodes = buildScoredNodes(selected);
   let { packed, tokensUsed, fileSummaries } = packNodes(scoredNodes, tokenBudget, codeRatio);
 
-  if (tokensUsed < tokenBudget * MIN_UTILIZATION && candidates.length > selected.length) {
+  const skipPromotion = isOverBudget(0.8);
+
+  if (!skipPromotion && tokensUsed < tokenBudget * MIN_UTILIZATION && candidates.length > selected.length) {
     // Strategy 1: promote existing nodes to better compression (L3→L0)
     // by adding same-file/same-dir candidates that contribute L0-L2 content
     const promotionCandidates = candidates.filter((c) => {
@@ -560,6 +570,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   const uniqueFiles = new Set(packed.map((node) => node.file.path));
 
+  const timeLimited = skipBfs || skipPromotion;
+
   const metadata: CapsuleMetadata = {
     query,
     mode,
@@ -586,6 +598,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       },
     },
     generatedAt: Date.now(),
+    ...(timeLimited && { timeLimited: true }),
   };
 
   const content = formatCapsule(packed, observations, metadata, fileSummaries);

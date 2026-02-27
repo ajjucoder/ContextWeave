@@ -185,6 +185,7 @@ export interface CapsuleMetadata {
   observationCount: number;
   quality: CapsuleQuality;
   generatedAt: number;
+  timeLimited?: boolean;
 }
 
 export interface ModeWeights {
