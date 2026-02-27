@@ -28,6 +28,7 @@ import { MemorySearch } from "../memory/search.js";
 import { capsuleLogQueries } from "../db/queries/capsule-log.js";
 import { sessionQueries } from "../db/queries/sessions.js";
 import { captureQueryObservation } from "../memory/passive.js";
+import { SessionContext } from "./session-context.js";
 
 const logger = createLogger("generator");
 
@@ -241,6 +242,30 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   }
 
   const rankedPivots = rankPivots(pivotCandidates, exactQueryTerms, MAX_PIVOTS);
+
+  const sessionId = params.sessionId ?? "default";
+  sessionQueries(db).ensureSession(sessionId, params.projectRoot ?? "");
+  const sessionCtx = new SessionContext(db, sessionId);
+
+  const recentFileIds = new Set(sessionCtx.getRecentFileIds());
+  if (recentFileIds.size > 0) {
+    const filePathToFileId = new Map<string, number>();
+    for (const [fileId, filePath] of pivotFileCache) {
+      filePathToFileId.set(filePath, fileId);
+    }
+    for (const candidate of pivotCandidates) {
+      const fileId = filePathToFileId.get(candidate.filePath);
+      if (fileId !== undefined && recentFileIds.has(fileId)) {
+        const existing = rankedPivots.get(candidate.id) ?? 0;
+        if (existing > 0) {
+          rankedPivots.set(candidate.id, existing * 1.5);
+        } else {
+          rankedPivots.set(candidate.id, 0.5);
+        }
+      }
+    }
+  }
+
   const pivotSymbolIds = new Set(rankedPivots.keys());
 
   logger.debug("pivot symbols after ranking", { raw: rawPivotIds.size, ranked: pivotSymbolIds.size });
@@ -520,9 +545,16 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     uncertainty,
   });
 
-  const sessionId = params.sessionId ?? "default";
-  sessionQueries(db).ensureSession(sessionId, params.projectRoot ?? "");
   captureQueryObservation(db, query, pivotSymbolIds, sessionId, params.projectRoot ?? "");
+
+  if (packed.length > 0) {
+    const symbolsToRecord = packed.map((node) => ({
+      symbolId: node.symbol.id,
+      fileId: node.symbol.fileId,
+    }));
+    sessionCtx.record(symbolsToRecord, query);
+  }
+
   capsuleLogQueries(db).insert({
     sessionId,
     query,
