@@ -7,6 +7,10 @@ import { registerImpactTool } from "../../src/mcp/tools/impact.js";
 import { registerRecallTool } from "../../src/mcp/tools/recall.js";
 import { registerRememberTool } from "../../src/mcp/tools/remember.js";
 import { registerReindexTool } from "../../src/mcp/tools/reindex.js";
+import { registerOverviewTool } from "../../src/mcp/tools/overview.js";
+import { registerFilesTool } from "../../src/mcp/tools/files.js";
+import { registerSearchTool } from "../../src/mcp/tools/search.js";
+import { registerReadTool } from "../../src/mcp/tools/read.js";
 
 type RegisteredTool = {
   inputSchema?: {
@@ -100,6 +104,59 @@ describe("MCP tool schema compatibility", () => {
 
     const parseResult = await getRegisteredTool(server, "cw_reindex").inputSchema?.safeParseAsync({
       path: "/tmp/project/src/index.ts",
+    });
+    expect(parseResult?.success).toBe(true);
+  });
+
+  it("cw_overview input schema parses valid args", async () => {
+    const server = new McpServer({ name: "contextweave-test", version: "0.0.0" });
+    registerOverviewTool(server, null as never, "/tmp/project");
+
+    const parseResult = await getRegisteredTool(server, "cw_overview").inputSchema?.safeParseAsync({
+      path: "src/capsule",
+      depth: 2,
+      max_tokens: 1200,
+      query: "generator",
+    });
+    expect(parseResult?.success).toBe(true);
+  });
+
+  it("cw_files input schema parses valid args", async () => {
+    const server = new McpServer({ name: "contextweave-test", version: "0.0.0" });
+    registerFilesTool(server, null as never, "/tmp/project");
+
+    const parseResult = await getRegisteredTool(server, "cw_files").inputSchema?.safeParseAsync({
+      pattern: "src/**/*.ts",
+      path: "src",
+      max_results: 25,
+    });
+    expect(parseResult?.success).toBe(true);
+  });
+
+  it("cw_search input schema parses valid args", async () => {
+    const server = new McpServer({ name: "contextweave-test", version: "0.0.0" });
+    registerSearchTool(server, null as never, "/tmp/project");
+
+    const parseResult = await getRegisteredTool(server, "cw_search").inputSchema?.safeParseAsync({
+      query: "generateCapsule",
+      path: "src/capsule",
+      glob: "**/*.ts",
+      context_lines: 2,
+      max_results: 20,
+    });
+    expect(parseResult?.success).toBe(true);
+  });
+
+  it("cw_read input schema parses valid args", async () => {
+    const server = new McpServer({ name: "contextweave-test", version: "0.0.0" });
+    registerReadTool(server, null as never, "/tmp/project");
+
+    const parseResult = await getRegisteredTool(server, "cw_read").inputSchema?.safeParseAsync({
+      path: "src/capsule/generator.ts",
+      start_line: 10,
+      end_line: 60,
+      max_lines: 200,
+      symbol: "generateCapsule",
     });
     expect(parseResult?.success).toBe(true);
   });
