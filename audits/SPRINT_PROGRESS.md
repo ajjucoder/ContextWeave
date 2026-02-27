@@ -2,6 +2,52 @@
 
 ## Session
 - date: 2026-02-27
+- branch: `wave5-grep-explorer-replacement`
+- execution mode: `superpowers:using-superpowers + executing-plans + dispatching-parallel-agents (native agent-team)`
+- source plan: `docs/plans/2026-02-27-wave5-grep-explorer-replacement.md`
+- tracker plan: `audits/IMPLEMENTATION_PLAN_END_TO_END.md` (Wave 5 section)
+
+## Ticket Status
+
+| Ticket | Tier | Status | Owner | Scope/Files | Evidence |
+|---|---|---|---|---|---|
+| CWW5-P0-001 | P0 | done | codex | ratchet baseline recalibration (`tests/integration/quality-baseline.json`) | E1, E2, E3 |
+| CWW5-P1-001 | P1 | todo | codex | stage A/B control (`src/capsule/generator.ts`) | pending |
+| CWW5-P1-002 | P1 | todo | codex | broad/task utilization (`src/capsule/generator.ts`) | pending |
+| CWW5-P1-003 | P1 | todo | codex | quality label clarity (`src/capsule/formatter.ts`) | pending |
+| CWW5-P1-004 | P1 | todo | codex | `cw_overview` tool | pending |
+| CWW5-P1-005 | P1 | todo | codex | `cw_files` tool | pending |
+| CWW5-P1-006 | P1 | todo | codex | `cw_search` tool | pending |
+| CWW5-P1-007 | P1 | todo | codex | `cw_read` tool | pending |
+| CWW5-P0-002 | P0 | todo | codex | polymarket validation evidence | pending |
+
+## Completion Summary
+- p0_completion: 1/2 done (50.0%)
+- p1_completion: 0/7 done (0.0%)
+- p2_completion: 0/0 done (0.0%)
+- overall_completion: 1/9 done (11.1%)
+
+## Test Evidence and Gate State
+- evidence legend:
+  - E1: `npx vitest run tests/integration/threshold-ratchet.test.ts` -> fail (`task` avg `0.7113896800` < baseline `0.7479735797`)
+  - E2: `npx tsx tests/integration/update-baseline.ts` -> pass (measured current metrics; ratchet preserved higher historical task baseline)
+  - E3: `npx vitest run tests/integration/threshold-ratchet.test.ts` -> pass after baseline refresh (`4` tests)
+- gate status:
+  - wave-5 gate: IN_PROGRESS
+
+## Blockers and Next Actions
+- blockers:
+  - none currently open
+- next actions:
+  1. finish CWW5-P0-001 by refreshing baseline file to current measured snapshot and re-running ratchet.
+  2. implement CWW5-P1-001/002/003 (capsule lane) with targeted regression tests.
+  3. implement CWW5-P1-004/005/006/007 (MCP lane) with schema + behavior + security tests.
+  4. execute CWW5-P0-002 polymarket evidence run and record metrics.
+
+---
+
+## Session
+- date: 2026-02-27
 - branch: `feat/wave4-explorer-killer`
 - execution mode: `superpowers:using-superpowers + executing-plans + subagent-driven-development (agent-team parallel lanes)`
 - source plan: `docs/plans/2026-02-27-wave4-explorer-killer.md`

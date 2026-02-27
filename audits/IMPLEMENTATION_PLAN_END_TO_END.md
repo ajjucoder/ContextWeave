@@ -2,6 +2,131 @@
 
 Source reminder: root [`IMPLEMENTATION_PLAN.md`](../IMPLEMENTATION_PLAN.md)
 
+## Wave 5 Grep/Explorer Replacement Plan (2026-02-27 Session)
+
+Source reminder: [`docs/plans/2026-02-27-wave5-grep-explorer-replacement.md`](../docs/plans/2026-02-27-wave5-grep-explorer-replacement.md)
+
+## Scope
+Execute all remaining Wave 5 items end-to-end after the completed P0 foundation:
+- recalibrate ratchet baseline for current code snapshot before scoring changes
+- implement Stage A/B explosion control and broad/task budget utilization
+- clarify quality label wording in capsule output
+- add four MCP navigation tools (`cw_overview`, `cw_files`, `cw_search`, `cw_read`)
+- validate behavior on real project `/path/to/project`
+
+Session execution context:
+- branch: `wave5-grep-explorer-replacement`
+- mode: `superpowers:using-superpowers + executing-plans + dispatching-parallel-agents (native agent-team lanes)`
+
+## Ticket Backlog (Wave 5)
+
+### CWW5-P0-001
+- owner: codex
+- scope/files: `tests/integration/quality-baseline.json`, `tests/integration/threshold-ratchet.test.ts` (measurement workflow)
+- acceptance criteria:
+  - fresh baseline measurement is captured for current source snapshot before phase-3/4 scoring edits.
+  - ratchet suite runs against refreshed baseline without stale-threshold false failures.
+- linked tests:
+  - `npx vitest run tests/integration/threshold-ratchet.test.ts`
+  - `npx tsx tests/integration/update-baseline.ts`
+- status: done
+
+### CWW5-P1-001
+- owner: codex
+- scope/files: `src/capsule/generator.ts`, `tests/capsule/two-phase-retrieval.test.ts`, `tests/capsule/multi-pass-generator.test.ts`
+- acceptance criteria:
+  - stage A/B candidate explosion is bounded for broad/task queries.
+  - non-test broad/task queries downweight test/spec files.
+  - narrow confidence regression is prevented by integration gates.
+- linked tests:
+  - `npx vitest run tests/capsule/two-phase-retrieval.test.ts tests/capsule/multi-pass-generator.test.ts`
+  - `npx vitest run tests/integration/task-query-quality.test.ts tests/integration/threshold-ratchet.test.ts`
+- status: todo
+
+### CWW5-P1-002
+- owner: codex
+- scope/files: `src/capsule/generator.ts`, `tests/capsule/broad-task-utilization.test.ts`
+- acceptance criteria:
+  - broad/task packing applies adaptive refill when utilization is low and candidates remain.
+  - broad/task queries use meaningful share of budget (>60%) when content is available.
+- linked tests:
+  - `npx vitest run tests/capsule/broad-task-utilization.test.ts tests/integration/capsule.test.ts`
+  - `npx vitest run tests/integration/task-query-quality.test.ts`
+- status: todo
+
+### CWW5-P1-003
+- owner: codex
+- scope/files: `src/capsule/formatter.ts`, `tests/capsule/formatter-multi-pass.test.ts`, `tests/integration/capsule.test.ts`
+- acceptance criteria:
+  - ambiguous label wording is replaced with explicit confidence + uncertainty wording.
+  - formatter tests assert the updated label format.
+- linked tests:
+  - `npx vitest run tests/capsule/formatter-multi-pass.test.ts tests/integration/capsule.test.ts`
+- status: todo
+
+### CWW5-P1-004
+- owner: codex
+- scope/files: `src/mcp/tools/overview.ts`, `src/mcp/server.ts`, `tests/integration/mcp-tool-schema-compat.test.ts`
+- acceptance criteria:
+  - `cw_overview` tool is registered and returns compact index/module overview.
+  - schema compatibility test covers the new tool.
+- linked tests:
+  - `npx vitest run tests/integration/mcp-tool-schema-compat.test.ts`
+  - `npx vitest run tests/integration/mcp-navigation-tools.test.ts`
+- status: todo
+
+### CWW5-P1-005
+- owner: codex
+- scope/files: `src/mcp/tools/files.ts`, `src/mcp/server.ts`, `tests/integration/mcp-tool-schema-compat.test.ts`
+- acceptance criteria:
+  - `cw_files` supports path/glob style listing with metadata and bounded results.
+  - schema + behavior tests validate result shape and bounds.
+- linked tests:
+  - `npx vitest run tests/integration/mcp-tool-schema-compat.test.ts`
+  - `npx vitest run tests/integration/mcp-navigation-tools.test.ts`
+- status: todo
+
+### CWW5-P1-006
+- owner: codex
+- scope/files: `src/mcp/tools/search.ts`, `src/mcp/server.ts`, `tests/integration/mcp-tool-schema-compat.test.ts`
+- acceptance criteria:
+  - `cw_search` supports indexed content search with snippets and bounded result counts.
+  - schema + behavior tests validate search scopes and snippet output.
+- linked tests:
+  - `npx vitest run tests/integration/mcp-tool-schema-compat.test.ts`
+  - `npx vitest run tests/integration/mcp-navigation-tools.test.ts`
+- status: todo
+
+### CWW5-P1-007
+- owner: codex
+- scope/files: `src/mcp/tools/read.ts`, `src/mcp/server.ts`, `tests/integration/mcp-tool-schema-compat.test.ts`, `tests/security/mcp-read-path-guards.test.ts`
+- acceptance criteria:
+  - `cw_read` supports bounded line-range reads and path safety guards.
+  - traversal/out-of-root attempts are blocked with explicit error output.
+- linked tests:
+  - `npx vitest run tests/integration/mcp-tool-schema-compat.test.ts`
+  - `npx vitest run tests/security/mcp-read-path-guards.test.ts`
+  - `npx vitest run tests/integration/mcp-navigation-tools.test.ts`
+- status: todo
+
+### CWW5-P0-002
+- owner: codex
+- scope/files: `bench/` and integration evidence (real project validation run output)
+- acceptance criteria:
+  - required polymarket broad queries run against indexed repo and return non-empty useful outputs.
+  - evidence includes stageA/stageB counts, tokens used, and target entities found.
+- linked tests:
+  - `npx vitest run tests/integration/task-query-quality.test.ts tests/integration/threshold-ratchet.test.ts`
+  - real-run evidence commands against `/path/to/project`
+- status: todo
+
+## Execution Order (Wave 5)
+1. CWW5-P0-001
+2. Parallel implementation lanes:
+   - capsule lane: CWW5-P1-001, CWW5-P1-002, CWW5-P1-003
+   - mcp lane: CWW5-P1-004, CWW5-P1-005, CWW5-P1-006, CWW5-P1-007
+3. Final validation gate: CWW5-P0-002
+
 ## Wave 4 Explorer-Killer Plan (2026-02-27 Session)
 
 Source reminder: [`docs/plans/2026-02-27-wave4-explorer-killer.md`](../docs/plans/2026-02-27-wave4-explorer-killer.md)
