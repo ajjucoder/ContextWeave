@@ -8,7 +8,7 @@ export function observationQueries(db: Database.Database) {
   `);
 
   const update = db.prepare(`
-    UPDATE observations SET confidence = @confidence, updated_at = @updatedAt, stale = @stale, stale_reason = @staleReason, archived = @archived
+    UPDATE observations SET note = @note, confidence = @confidence, updated_at = @updatedAt, stale = @stale, stale_reason = @staleReason, archived = @archived
     WHERE id = @id
   `);
 
@@ -68,6 +68,7 @@ export function observationQueries(db: Database.Database) {
     update(obs: ObservationRecord): void {
       update.run({
         id: obs.id,
+        note: obs.note,
         confidence: obs.confidence,
         updatedAt: obs.updatedAt,
         stale: obs.stale ? 1 : 0,

@@ -116,32 +116,36 @@ export async function runInit(projectRoot: string): Promise<void> {
 
   const dbPath = resolve(cwDir, "contextweave.db");
   const db = getDb(dbPath);
-  runMigrations(db);
-  process.stdout.write(`  Created database at ${dbPath}\n`);
+  try {
+    runMigrations(db);
+    process.stdout.write(`  Created database at ${dbPath}\n`);
 
-  process.stdout.write("  Indexing project...\n");
-  const startTime = Date.now();
-  const result = await indexProject(db, projectRoot, DEFAULT_CONFIG.ignore);
-  const elapsed = Date.now() - startTime;
+    process.stdout.write("  Indexing project...\n");
+    const startTime = Date.now();
+    const result = await indexProject(db, projectRoot, DEFAULT_CONFIG.ignore);
+    const elapsed = Date.now() - startTime;
 
-  runPageRankInBackground(dbPath);
+    runPageRankInBackground(dbPath);
 
-  process.stdout.write(`  Indexed ${result.filesIndexed} files, ${result.symbolsFound} symbols (${elapsed}ms)\n`);
+    process.stdout.write(`  Indexed ${result.filesIndexed} files, ${result.symbolsFound} symbols (${elapsed}ms)\n`);
 
-  if (result.errors.length > 0) {
-    process.stdout.write(`  ${result.errors.length} files had parse errors\n`);
-  }
+    if (result.errors.length > 0) {
+      process.stdout.write(`  ${result.errors.length} files had parse errors\n`);
+    }
 
-  generateClaudeMd(projectRoot);
+    generateClaudeMd(projectRoot);
 
-  process.stdout.write("\nContextWeave initialized successfully!\n");
-  process.stdout.write("\nTo use with Claude Code, add to .mcp.json:\n");
-  process.stdout.write(JSON.stringify({
-    mcpServers: {
-      contextweave: {
-        command: "node",
-        args: [resolve(projectRoot, "node_modules/.bin/cw"), "serve"],
+    process.stdout.write("\nContextWeave initialized successfully!\n");
+    process.stdout.write("\nTo use with Claude Code, add to .mcp.json:\n");
+    process.stdout.write(JSON.stringify({
+      mcpServers: {
+        contextweave: {
+          command: "node",
+          args: [resolve(projectRoot, "node_modules/.bin/cw"), "serve"],
+        },
       },
-    },
-  }, null, 2) + "\n");
+    }, null, 2) + "\n");
+  } finally {
+    closeDb(dbPath);
+  }
 }

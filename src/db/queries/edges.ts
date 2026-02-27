@@ -1,6 +1,13 @@
 import type Database from "better-sqlite3";
 import type { EdgeRecord, EdgeKind } from "../../core/types.js";
 
+export interface EdgeRowStream {
+  sourceSymbolId: number;
+  targetSymbolId: number;
+  kind: EdgeKind;
+  createdAt: number;
+}
+
 export function edgeQueries(db: Database.Database) {
   const insert = db.prepare(`
     INSERT OR IGNORE INTO edges (source_symbol_id, target_symbol_id, kind, created_at)
@@ -14,6 +21,9 @@ export function edgeQueries(db: Database.Database) {
   );
   const deleteBySource = db.prepare("DELETE FROM edges WHERE source_symbol_id = ?");
   const getAll = db.prepare("SELECT * FROM edges");
+  const iterateAllStmt = db.prepare(
+    "SELECT source_symbol_id, target_symbol_id, kind, created_at FROM edges"
+  );
   const countAll = db.prepare("SELECT COUNT(*) as count FROM edges");
 
   function mapRow(row: unknown): EdgeRecord | undefined {
@@ -21,6 +31,17 @@ export function edgeQueries(db: Database.Database) {
     const r = row as Record<string, unknown>;
     return {
       id: r["id"] as number,
+      sourceSymbolId: r["source_symbol_id"] as number,
+      targetSymbolId: r["target_symbol_id"] as number,
+      kind: r["kind"] as EdgeKind,
+      createdAt: r["created_at"] as number,
+    };
+  }
+
+  function mapStreamRow(row: unknown): EdgeRowStream | undefined {
+    if (!row) return undefined;
+    const r = row as Record<string, unknown>;
+    return {
       sourceSymbolId: r["source_symbol_id"] as number,
       targetSymbolId: r["target_symbol_id"] as number,
       kind: r["kind"] as EdgeKind,
@@ -56,6 +77,13 @@ export function edgeQueries(db: Database.Database) {
 
     getAll(): EdgeRecord[] {
       return getAll.all().map(mapRow).filter(Boolean) as EdgeRecord[];
+    },
+
+    *iterateAll(): IterableIterator<EdgeRowStream> {
+      for (const row of iterateAllStmt.iterate()) {
+        const mapped = mapStreamRow(row);
+        if (mapped) yield mapped;
+      }
     },
 
     count(): number {

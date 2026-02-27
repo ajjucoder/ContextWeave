@@ -1,10 +1,9 @@
-import { readFileSync, statSync, lstatSync, realpathSync } from "node:fs";
-import { resolve, sep } from "node:path";
-import { glob } from "node:fs/promises";
+import { readFileSync, statSync, lstatSync, realpathSync, readdirSync } from "node:fs";
+import type { Dirent } from "node:fs";
+import { resolve, sep, dirname, join, extname } from "node:path";
 import { Worker } from "node:worker_threads";
 import { cpus } from "node:os";
 import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
 import type Database from "better-sqlite3";
 import type { ParsedSymbol, SymbolRecord, IndexDiff, ParseResult } from "./types.js";
 import { parseFile, detectLanguage } from "./parser.js";
@@ -17,8 +16,21 @@ import { createLogger } from "../utils/logger.js";
 const log = createLogger("indexer");
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
+const MAX_EDGE_TARGETS_PER_REFERENCE = 24;
+const MAX_IMPORT_EDGE_SOURCES = 8;
+const MAX_GLOBAL_FALLBACK_TARGETS = 12;
+const IMPORT_RESOLVE_EXTENSIONS = [
+  ".ts",
+  ".tsx",
+  ".mts",
+  ".cts",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+];
 
-const IGNORE_PATTERNS = [
+export const BUILTIN_IGNORE_PATTERNS = [
   "node_modules",
   "dist",
   "build",
@@ -31,7 +43,6 @@ const IGNORE_PATTERNS = [
   ".cache",
   "venv",
   ".venv",
-  "env",
   "target",
   ".tox",
   "vendor",
@@ -48,12 +59,25 @@ interface WorkerFileParseResult {
   error: string | null;
 }
 
+interface DiscoveredFile {
+  path: string;
+  mtime: number;
+  size: number;
+}
+
+interface DiscoverFilesResult {
+  files: DiscoveredFile[];
+  unsupportedByExtension: Map<string, number>;
+}
+
 const WORKER_CONCURRENCY = Math.max(2, Math.min(8, cpus().length - 1));
 const WORKER_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "parser-worker.js");
 const USE_TSX_WORKER_LOADER = WORKER_SCRIPT.includes(`${sep}src${sep}`);
 
 function shouldIgnore(filePath: string): boolean {
-  return IGNORE_PATTERNS.some((pattern) => filePath.includes(`/${pattern}/`) || filePath.includes(`\\${pattern}\\`));
+  const normalizedPath = filePath.replace(/\\/g, "/");
+  const parts = normalizedPath.split("/").filter(Boolean);
+  return BUILTIN_IGNORE_PATTERNS.some((pattern) => parts.includes(pattern));
 }
 
 function loadIgnoreFile(filePath: string): string[] {
@@ -77,24 +101,29 @@ function loadCwignorePatterns(projectRoot: string): string[] {
 }
 
 function matchesGitignorePattern(relativePath: string, pattern: string): boolean {
-  const negated = pattern.startsWith("!");
-  const clean = negated ? pattern.slice(1) : pattern;
   const normalizedPath = relativePath.replace(/\\/g, "/");
-  const normalizedPattern = clean.replace(/\\/g, "/").replace(/\/$/, "");
+  const cleanPattern = pattern.replace(/\\/g, "/").replace(/^!/, "");
+  if (!cleanPattern) return false;
+  const isDirectoryPattern = cleanPattern.endsWith("/");
+  const normalizedPattern = cleanPattern.replace(/\/$/, "");
+  if (!normalizedPattern) return false;
 
   if (normalizedPattern.includes("/")) {
     const regex = gitignorePatternToRegex(normalizedPattern);
-    return negated ? false : regex.test(normalizedPath);
+    if (regex.test(normalizedPath)) return true;
+    return isDirectoryPattern && (
+      normalizedPath === normalizedPattern ||
+      normalizedPath.startsWith(`${normalizedPattern}/`)
+    );
   }
 
-  const parts = normalizedPath.split("/");
-  for (const part of parts) {
-    if (part === normalizedPattern) return !negated;
-  }
+  const parts = normalizedPath.split("/").filter(Boolean);
+  if (parts.includes(normalizedPattern)) return true;
 
   const regex = gitignorePatternToRegex(normalizedPattern);
-  const fileName = normalizedPath.split("/").pop() ?? "";
-  return negated ? false : regex.test(fileName);
+  const fileName = parts[parts.length - 1] ?? "";
+  if (isDirectoryPattern) return false;
+  return regex.test(fileName);
 }
 
 function gitignorePatternToRegex(pattern: string): RegExp {
@@ -138,40 +167,110 @@ function isAlwaysIgnored(relativePath: string): boolean {
   return ALWAYS_IGNORE_PATTERNS.some((re) => re.test(fileName) || re.test(normalizedPath));
 }
 
-async function discoverFiles(projectRoot: string, extraIgnore?: string[]): Promise<string[]> {
-  const files: string[] = [];
-  const pattern = "**/*.{ts,tsx,js,jsx,mjs,cjs,py,go,rs,java,c,h,cpp,cc,cxx,hpp,hxx,hh,cs,rb,rake,sh,bash,php}";
+function matchesExtraIgnore(relativePath: string, pattern: string): boolean {
+  const normalizedPath = relativePath.replace(/\\/g, "/");
+  const normalizedPattern = pattern.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, "");
+  if (!normalizedPattern) return false;
+
+  if (normalizedPattern.includes("/")) {
+    return normalizedPath === normalizedPattern || normalizedPath.startsWith(`${normalizedPattern}/`);
+  }
+
+  const parts = normalizedPath.split("/").filter(Boolean);
+  return parts.includes(normalizedPattern);
+}
+
+function summarizeUnsupportedFiles(unsupportedByExtension: Map<string, number>): string | null {
+  if (unsupportedByExtension.size === 0) return null;
+
+  const ranked = [...unsupportedByExtension.entries()].sort((a, b) => b[1] - a[1]);
+  const total = ranked.reduce((acc, [, count]) => acc + count, 0);
+  const topBreakdown = ranked.slice(0, 5).map(([extension, count]) => `${extension} (${count})`).join(", ");
+  const remainder = ranked.slice(5).reduce((acc, [, count]) => acc + count, 0);
+  const remainderText = remainder > 0 ? `, other (${remainder})` : "";
+  return `Skipped ${total} unsupported files: ${topBreakdown}${remainderText}`;
+}
+
+async function discoverFiles(
+  projectRoot: string,
+  extraIgnore?: string[],
+  startDirectory?: string
+): Promise<DiscoverFilesResult> {
+  const files: DiscoveredFile[] = [];
+  const unsupportedByExtension = new Map<string, number>();
   const gitignorePatterns = loadGitignorePatterns(projectRoot);
   const cwignorePatterns = loadCwignorePatterns(projectRoot);
-  const resolvedRoot = resolve(projectRoot) + sep;
+  const resolvedRoot = resolve(projectRoot);
+  const resolvedRootWithSep = `${resolvedRoot}${sep}`;
+  const resolvedStart = resolve(startDirectory ?? projectRoot);
 
-  for await (const entry of glob(pattern, { cwd: projectRoot })) {
-    const fullPath = resolve(projectRoot, entry);
-    if (shouldIgnore(fullPath)) continue;
+  if (!isPathWithinRoot(resolvedStart, projectRoot)) {
+    return { files, unsupportedByExtension };
+  }
 
-    const relativePath = fullPath.startsWith(resolvedRoot) ? fullPath.slice(resolvedRoot.length) : entry;
-    if (isAlwaysIgnored(relativePath)) continue;
-    if (gitignorePatterns.length > 0 && isIgnoredByGitignore(relativePath, gitignorePatterns)) continue;
-    if (cwignorePatterns.length > 0 && isIgnoredByGitignore(relativePath, cwignorePatterns)) continue;
-    if (extraIgnore && extraIgnore.length > 0 && extraIgnore.some((p) => fullPath.includes(`/${p}/`) || fullPath.includes(`\\${p}\\`) || relativePath.startsWith(p))) continue;
+  const pendingDirs = [resolvedStart];
 
+  while (pendingDirs.length > 0) {
+    const currentDir = pendingDirs.pop();
+    if (!currentDir) continue;
+
+    let entries: Dirent[];
     try {
-      const stat = lstatSync(fullPath);
-      if (stat.isSymbolicLink()) {
-        const realPath = realpathSync(fullPath);
-        if (!realPath.startsWith(resolvedRoot)) {
-          log.debug("skipping symlink outside project root", { path: fullPath, target: realPath });
-          continue;
-        }
-      }
+      entries = readdirSync(currentDir, { withFileTypes: true });
     } catch {
       continue;
     }
 
-    files.push(fullPath);
+    for (const entry of entries) {
+      const fullPath = resolve(currentDir, entry.name);
+      const relativePath = fullPath.startsWith(resolvedRootWithSep)
+        ? fullPath.slice(resolvedRootWithSep.length)
+        : entry.name;
+
+      if (entry.isSymbolicLink()) {
+        try {
+          const realPath = realpathSync(fullPath);
+          if (!isPathWithinRoot(realPath, resolvedRoot)) {
+            log.debug("skipping symlink outside project root", { path: fullPath, target: realPath });
+          }
+        } catch {
+        }
+        continue;
+      }
+
+      if (entry.isDirectory()) {
+        if (shouldIgnore(fullPath)) continue;
+        if (extraIgnore && extraIgnore.length > 0 && extraIgnore.some((pattern) => matchesExtraIgnore(relativePath, pattern))) continue;
+        pendingDirs.push(fullPath);
+        continue;
+      }
+
+      if (!entry.isFile()) continue;
+      if (shouldIgnore(fullPath)) continue;
+      if (isAlwaysIgnored(relativePath)) continue;
+      if (gitignorePatterns.length > 0 && isIgnoredByGitignore(relativePath, gitignorePatterns)) continue;
+      if (cwignorePatterns.length > 0 && isIgnoredByGitignore(relativePath, cwignorePatterns)) continue;
+      if (extraIgnore && extraIgnore.length > 0 && extraIgnore.some((pattern) => matchesExtraIgnore(relativePath, pattern))) continue;
+      const language = detectLanguage(fullPath);
+      if (!language) {
+        const extension = extname(entry.name).toLowerCase() || "<no-extension>";
+        unsupportedByExtension.set(extension, (unsupportedByExtension.get(extension) ?? 0) + 1);
+        continue;
+      }
+
+      try {
+        const stat = statSync(fullPath);
+        files.push({
+          path: fullPath,
+          mtime: stat.mtimeMs,
+          size: stat.size,
+        });
+      } catch {
+      }
+    }
   }
 
-  return files;
+  return { files, unsupportedByExtension };
 }
 
 function symKey(name: string, kind: string): string {
@@ -247,24 +346,131 @@ function diffSymbols(existing: SymbolRecord[], parsed: ParsedSymbol[]): IndexDif
 function resolveEdges(
   db: Database.Database,
   fileId: number,
+  filePath: string,
   parseResult: ReturnType<typeof parseFile>,
   symbolMap: Map<string, number>
 ): void {
   const edges = edgeQueries(db);
   const symbols = symbolQueries(db);
+  const files = fileQueries(db);
   const now = Date.now();
+  const fileSymbols = symbols.getByFileId(fileId);
+  if (fileSymbols.length === 0) return;
+
+  for (const symbol of fileSymbols) {
+    edges.deleteBySource(symbol.id);
+  }
+
+  const localTargetsByName = new Map<string, number[]>();
+  for (const symbol of fileSymbols) {
+    const bucket = localTargetsByName.get(symbol.name);
+    if (bucket) bucket.push(symbol.id);
+    else localTargetsByName.set(symbol.name, [symbol.id]);
+  }
+
+  const callerIdsByCallee = new Map<string, Set<number>>();
+  for (const call of parseResult.calls) {
+    const callerId = symbolMap.get(call.callerSymbol);
+    if (!callerId) continue;
+    const existing = callerIdsByCallee.get(call.calleeName);
+    if (existing) {
+      existing.add(callerId);
+    } else {
+      callerIdsByCallee.set(call.calleeName, new Set([callerId]));
+    }
+  }
+
+  const importedTargetsByName = new Map<string, Set<number>>();
+  const relativeImportCache = new Map<string, number[]>();
+
+  const resolveImportFileIds = (importSource: string): number[] => {
+    if (!importSource.startsWith(".")) return [];
+    const cached = relativeImportCache.get(importSource);
+    if (cached) return cached;
+
+    const candidatePaths = new Set<string>();
+    const basePath = resolve(dirname(filePath), importSource);
+    candidatePaths.add(basePath);
+    for (const ext of IMPORT_RESOLVE_EXTENSIONS) {
+      candidatePaths.add(`${basePath}${ext}`);
+      candidatePaths.add(join(basePath, `index${ext}`));
+    }
+
+    const fileIds: number[] = [];
+    for (const candidatePath of candidatePaths) {
+      const candidateFile = files.getByPath(candidatePath);
+      if (!candidateFile) continue;
+      fileIds.push(candidateFile.id);
+    }
+
+    relativeImportCache.set(importSource, fileIds);
+    return fileIds;
+  };
+
+  for (const imp of parseResult.imports) {
+    const importFileIds = resolveImportFileIds(imp.source);
+    if (importFileIds.length === 0) continue;
+
+    for (const importFileId of importFileIds) {
+      const targetSymbols = symbols.getByFileId(importFileId);
+      for (const name of imp.names) {
+        const matches = targetSymbols.filter((symbol) => symbol.name === name);
+        if (matches.length === 0) continue;
+        const bucket = importedTargetsByName.get(name) ?? new Set<number>();
+        for (const match of matches) bucket.add(match.id);
+        importedTargetsByName.set(name, bucket);
+      }
+    }
+  }
+
+  const globalFallbackCache = new Map<string, number[]>();
+  const getGlobalFallbackTargets = (name: string): number[] => {
+    const cached = globalFallbackCache.get(name);
+    if (cached) return cached;
+
+    const fallbackTargets = symbols
+      .getByName(name)
+      .filter((target) => target.fileId === fileId || target.isExported)
+      .slice(0, MAX_GLOBAL_FALLBACK_TARGETS)
+      .map((target) => target.id);
+    globalFallbackCache.set(name, fallbackTargets);
+    return fallbackTargets;
+  };
+
+  const pickTargets = (name: string): number[] => {
+    const combined = new Set<number>();
+    const local = localTargetsByName.get(name);
+    if (local) {
+      for (const id of local) combined.add(id);
+    }
+    const imported = importedTargetsByName.get(name);
+    if (imported) {
+      for (const id of imported) combined.add(id);
+    }
+    if (combined.size === 0) {
+      for (const id of getGlobalFallbackTargets(name)) combined.add(id);
+    }
+    return [...combined].slice(0, MAX_EDGE_TARGETS_PER_REFERENCE);
+  };
 
   for (const imp of parseResult.imports) {
     for (const name of imp.names) {
-      const targetSymbols = symbols.getByName(name);
-      const sourceSymbols = symbols.getByFileId(fileId);
+      const targetIds = pickTargets(name);
+      if (targetIds.length === 0) continue;
 
-      for (const source of sourceSymbols) {
-        for (const target of targetSymbols) {
-          if (source.id === target.id) continue;
+      const callSourceIds = [...(callerIdsByCallee.get(name) ?? new Set<number>())];
+      const sourceIds = (
+        callSourceIds.length > 0
+          ? callSourceIds
+          : [symbolMap.get(name) ?? fileSymbols[0]?.id].filter((id): id is number => id !== undefined)
+      ).slice(0, MAX_IMPORT_EDGE_SOURCES);
+
+      for (const sourceId of sourceIds) {
+        for (const targetId of targetIds) {
+          if (sourceId === targetId) continue;
           edges.insert({
-            sourceSymbolId: source.id,
-            targetSymbolId: target.id,
+            sourceSymbolId: sourceId,
+            targetSymbolId: targetId,
             kind: "import",
             createdAt: now,
           });
@@ -277,12 +483,12 @@ function resolveEdges(
     const callerId = symbolMap.get(call.callerSymbol);
     if (!callerId) continue;
 
-    const targetSymbols = symbols.getByName(call.calleeName);
-    for (const target of targetSymbols) {
-      if (callerId === target.id) continue;
+    const targetIds = pickTargets(call.calleeName);
+    for (const targetId of targetIds) {
+      if (callerId === targetId) continue;
       edges.insert({
         sourceSymbolId: callerId,
-        targetSymbolId: target.id,
+        targetSymbolId: targetId,
         kind: "call",
         createdAt: now,
       });
@@ -303,12 +509,25 @@ function runParseWorkerBatch(filePaths: string[]): Promise<WorkerFileParseResult
             language: "unknown",
             parsedAt: Date.now(),
             parseResult: null,
-            error: null,
+            error: "Unsupported language",
           } satisfies WorkerFileParseResult;
         }
 
         try {
-          const mtime = statSync(filePath).mtimeMs;
+          const stat = statSync(filePath);
+          const mtime = stat.mtimeMs;
+          if (stat.size > MAX_FILE_SIZE) {
+            return {
+              filePath,
+              mtime,
+              hash: "",
+              language,
+              parsedAt: Date.now(),
+              parseResult: null,
+              error: `File ${filePath} exceeds ${MAX_FILE_SIZE} byte limit (${stat.size} bytes)`,
+            } satisfies WorkerFileParseResult;
+          }
+
           const content = readFileSync(filePath, "utf-8");
           const hash = hashFile(content);
           const parseResult = parseFile(filePath, content, language);
@@ -375,7 +594,8 @@ function writeParseResult(
   fileMtime: number,
   language: string,
   parsedAt: number,
-  parseResult: ParseResult
+  parseResult: ParseResult,
+  shouldResolveEdges = true
 ): { symbolCount: number; errors: string[]; diff: IndexDiff | null } {
   const files = fileQueries(db);
   const symbolsDb = symbolQueries(db);
@@ -467,7 +687,9 @@ function writeParseResult(
     }
   }
 
-  resolveEdges(db, fileId, parseResult, symbolMap);
+  if (shouldResolveEdges) {
+    resolveEdges(db, fileId, filePath, parseResult, symbolMap);
+  }
   return { symbolCount: parseResult.symbols.length, errors: parseResult.errors, diff };
 }
 
@@ -475,13 +697,21 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
   const allErrors: string[] = [];
 
   log.info("starting parallel index", { projectRoot, workers: WORKER_CONCURRENCY });
-  const filePaths = await discoverFiles(projectRoot, extraIgnore);
+  const discovery = await discoverFiles(projectRoot, extraIgnore);
+  const discoveredFiles = discovery.files;
+  const filePaths = discoveredFiles.map((entry) => entry.path);
+  const unsupportedSummary = summarizeUnsupportedFiles(discovery.unsupportedByExtension);
+  if (unsupportedSummary) {
+    allErrors.push(unsupportedSummary);
+  }
   log.info(`discovered ${filePaths.length} files`);
 
   const files = fileQueries(db);
+  const existingFileRecords = files.getAll();
+  const existingByPath = new Map(existingFileRecords.map((record) => [record.path, record]));
   const discovered = new Set(filePaths);
   let prunedCount = 0;
-  for (const existing of files.getAll()) {
+  for (const existing of existingFileRecords) {
     if (discovered.has(existing.path)) continue;
     files.deleteById(existing.id);
     prunedCount++;
@@ -493,25 +723,24 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
   const toProcess: string[] = [];
   let skippedCount = 0;
 
-  for (const filePath of filePaths) {
-    const existing = files.getByPath(filePath);
-    if (existing) {
-      try {
-        const mtime = statSync(filePath).mtimeMs;
-        if (mtime === existing.mtime) {
-          skippedCount++;
-          continue;
-        }
-      } catch {
-      }
+  for (const file of discoveredFiles) {
+    if (file.size > MAX_FILE_SIZE) {
+      allErrors.push(`File ${file.path} exceeds ${MAX_FILE_SIZE} byte limit (${file.size} bytes)`);
+      continue;
     }
-    toProcess.push(filePath);
+
+    const existing = existingByPath.get(file.path);
+    if (existing && file.mtime === existing.mtime) {
+      skippedCount++;
+      continue;
+    }
+    toProcess.push(file.path);
   }
 
   log.info(`skipped ${skippedCount} unchanged files, processing ${toProcess.length}`);
 
   if (toProcess.length === 0) {
-    return { filesIndexed: filePaths.length, symbolsFound: 0, errors: [] };
+    return { filesIndexed: filePaths.length, symbolsFound: 0, errors: allErrors };
   }
 
   const workerCount = Math.min(WORKER_CONCURRENCY, toProcess.length);
@@ -532,11 +761,12 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
   }
 
   let totalSymbols = 0;
+  const pendingEdgeResolutions: Array<{ filePath: string; parseResult: ParseResult }> = [];
   const indexAll = db.transaction(() => {
     for (const batchResult of workerResults) {
       for (const parsed of batchResult) {
         if (parsed.error || !parsed.parseResult) {
-          if (parsed.error) allErrors.push(`${parsed.filePath}: ${parsed.error}`);
+          allErrors.push(`${parsed.filePath}: ${parsed.error ?? "parser returned no result"}`);
           continue;
         }
 
@@ -547,18 +777,80 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
             parsed.mtime,
             parsed.language,
             parsed.parsedAt,
-            parsed.parseResult
+            parsed.parseResult,
+            false
           );
         totalSymbols += result.symbolCount;
         allErrors.push(...result.errors);
+        pendingEdgeResolutions.push({
+          filePath: parsed.filePath,
+          parseResult: parsed.parseResult,
+        });
       }
     }
   });
 
   indexAll();
 
+  const resolveAllEdges = db.transaction(() => {
+    const filesDb = fileQueries(db);
+    const symbolsDb = symbolQueries(db);
+
+    for (const pending of pendingEdgeResolutions) {
+      const fileRecord = filesDb.getByPath(pending.filePath);
+      if (!fileRecord) continue;
+
+      const symbolMap = new Map<string, number>();
+      for (const symbol of symbolsDb.getByFileId(fileRecord.id)) {
+        if (!symbolMap.has(symbol.name)) symbolMap.set(symbol.name, symbol.id);
+      }
+
+      resolveEdges(db, fileRecord.id, pending.filePath, pending.parseResult, symbolMap);
+    }
+  });
+
+  resolveAllEdges();
+
   log.info(`indexed ${toProcess.length} files, ${totalSymbols} symbols`);
   return { filesIndexed: filePaths.length, symbolsFound: totalSymbols, errors: allErrors };
+}
+
+export async function indexDirectory(
+  db: Database.Database,
+  directoryPath: string,
+  projectRoot: string,
+  extraIgnore?: string[]
+): Promise<{ filesIndexed: number; symbolsFound: number; errors: string[] }> {
+  const resolvedDirectory = resolve(directoryPath);
+  if (!isPathWithinRoot(resolvedDirectory, projectRoot)) {
+    return {
+      filesIndexed: 0,
+      symbolsFound: 0,
+      errors: [`Directory "${directoryPath}" is outside project root`],
+    };
+  }
+
+  const discovery = await discoverFiles(projectRoot, extraIgnore, resolvedDirectory);
+  const inDirectory = discovery.files;
+
+  let symbolsFound = 0;
+  const errors: string[] = [];
+  const unsupportedSummary = summarizeUnsupportedFiles(discovery.unsupportedByExtension);
+  if (unsupportedSummary) {
+    errors.push(unsupportedSummary);
+  }
+
+  for (const file of inDirectory) {
+    const result = indexSingleFile(db, file.path, projectRoot);
+    symbolsFound += result.symbolCount;
+    errors.push(...result.errors);
+  }
+
+  return {
+    filesIndexed: inDirectory.length,
+    symbolsFound,
+    errors,
+  };
 }
 
 export function isPathWithinRoot(filePath: string, projectRoot: string): boolean {
@@ -595,7 +887,10 @@ export function indexSingleFile(
 
   const files = fileQueries(db);
   const language = detectLanguage(resolvedPath);
-  if (!language) return { symbolCount: 0, errors: [], diff: null };
+  if (!language) {
+    const extension = extname(resolvedPath).toLowerCase() || "<no-extension>";
+    return { symbolCount: 0, errors: [`Unsupported language for "${filePath}" (extension "${extension}")`], diff: null };
+  }
 
   const existingFile = files.getByPath(resolvedPath);
 

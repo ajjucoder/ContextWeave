@@ -14,6 +14,7 @@ import { registerReindexTool } from "./tools/reindex.js";
 import { startWatcher, stopWatcher } from "../core/watcher.js";
 import { createLogger } from "../utils/logger.js";
 import type { ProjectConfig } from "../utils/config.js";
+import { acquireServerSessionLock, releaseServerSessionLock } from "./session-lock.js";
 
 const log = createLogger("mcp-server");
 
@@ -28,6 +29,7 @@ export function getServerDb(projectRoot: string): Database.Database {
 }
 
 export async function startMcpServer(projectRoot: string, config?: ProjectConfig): Promise<void> {
+  const serverLock = acquireServerSessionLock(projectRoot);
   const serverSessionId = randomUUID();
 
   const server = new McpServer({
@@ -52,7 +54,7 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
   async function cleanupResources(reason: string): Promise<void> {
     try {
       if (watcherStarted) {
-        await stopWatcher();
+        await stopWatcher(projectRoot);
       }
     } catch (error) {
       log.error("failed to stop file watcher", {
@@ -70,6 +72,8 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
         error: error instanceof Error ? error.message : String(error),
       });
     }
+
+    releaseServerSessionLock(serverLock);
   }
 
   async function shutdown(signal: string): Promise<void> {

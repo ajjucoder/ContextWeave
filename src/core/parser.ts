@@ -37,6 +37,8 @@ const languageModules: Record<string, () => TreeSitterLanguage> = {
 const extensionToLanguage: Record<string, string> = {
   ".ts": "typescript",
   ".tsx": "tsx",
+  ".mts": "typescript",
+  ".cts": "typescript",
   ".js": "javascript",
   ".jsx": "jsx",
   ".mjs": "javascript",

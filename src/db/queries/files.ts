@@ -16,6 +16,9 @@ export function fileQueries(db: Database.Database) {
   const getByPath = db.prepare("SELECT * FROM files WHERE path = ?");
   const getById = db.prepare("SELECT * FROM files WHERE id = ?");
   const getAll = db.prepare("SELECT * FROM files ORDER BY path");
+  const searchByPath = db.prepare(
+    "SELECT * FROM files WHERE path LIKE ? ESCAPE '\\' ORDER BY last_indexed DESC LIMIT ?"
+  );
   const deleteById = db.prepare("DELETE FROM files WHERE id = ?");
   const deleteByPath = db.prepare("DELETE FROM files WHERE path = ?");
   const countAll = db.prepare("SELECT COUNT(*) as count FROM files");
@@ -75,6 +78,14 @@ export function fileQueries(db: Database.Database) {
 
     getAll(): FileRecord[] {
       return getAll.all().map(mapRow).filter(Boolean) as FileRecord[];
+    },
+
+    searchByPath(term: string, limit = 100): FileRecord[] {
+      const escaped = term.replace(/[\\%_]/g, "\\$&");
+      return searchByPath
+        .all(`%${escaped}%`, limit)
+        .map(mapRow)
+        .filter(Boolean) as FileRecord[];
     },
 
     deleteById(id: number): void {

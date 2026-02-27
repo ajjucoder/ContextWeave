@@ -1,7 +1,8 @@
 import * as parcelWatcher from "@parcel/watcher";
 import type Database from "better-sqlite3";
+import { basename, resolve } from "node:path";
 import type { IndexDiff } from "./types.js";
-import { indexSingleFile, removeFile } from "./indexer.js";
+import { BUILTIN_IGNORE_PATTERNS, indexProject, indexSingleFile, removeFile } from "./indexer.js";
 import { detectLanguage } from "./parser.js";
 import { StalenessEngine } from "../memory/staleness.js";
 import { fileQueries } from "../db/queries/files.js";
@@ -21,37 +22,55 @@ export interface WatcherOptions {
   onDiff?: (filePath: string, diff: IndexDiff, fileId: number) => void;
 }
 
-let activeSubscription: parcelWatcher.AsyncSubscription | null = null;
-
-const BUILTIN_IGNORE = [
-  "node_modules",
-  "dist",
-  "build",
-  ".git",
-  ".next",
-  ".contextweave",
-  "coverage",
-  "venv",
-  ".venv",
-  "env",
-  "target",
-  ".tox",
-  "vendor",
-  ".bundle",
-  "__pycache__",
-];
+const activeSubscriptions = new Map<string, parcelWatcher.AsyncSubscription>();
+const IGNORE_CONTROL_FILES = new Set([".gitignore", ".cwignore"]);
 
 export async function startWatcher(options: WatcherOptions): Promise<void> {
-  if (activeSubscription) {
+  const existingSubscription = activeSubscriptions.get(options.projectRoot);
+  if (existingSubscription) {
     log.warn("watcher already active, closing previous");
-    await activeSubscription.unsubscribe();
-    activeSubscription = null;
+    await existingSubscription.unsubscribe();
+    activeSubscriptions.delete(options.projectRoot);
   }
 
   const { projectRoot, db, ignore, sessionId, onReindex, onRemove, onError, onDiff } = options;
   const staleness = new StalenessEngine(db);
   const files = fileQueries(db);
-  const allIgnore = [...BUILTIN_IGNORE, ...(ignore ?? [])];
+  const allIgnore = [...BUILTIN_IGNORE_PATTERNS, ...(ignore ?? [])];
+  const resolvedRoot = resolve(projectRoot).replace(/\\/g, "/");
+  const isIgnoreControlFile = (filePath: string): boolean => (
+    IGNORE_CONTROL_FILES.has(basename(filePath)) &&
+    resolve(filePath).replace(/\\/g, "/").startsWith(`${resolvedRoot}/`)
+  );
+
+  let fullReindexInFlight: Promise<void> | null = null;
+  let fullReindexQueued = false;
+
+  const scheduleFullReindex = () => {
+    if (fullReindexInFlight) {
+      fullReindexQueued = true;
+      return;
+    }
+
+    fullReindexInFlight = (async () => {
+      do {
+        fullReindexQueued = false;
+        try {
+          const result = await indexProject(db, projectRoot, ignore);
+          log.info("reindexed project due ignore-file change", {
+            filesIndexed: result.filesIndexed,
+            symbolsFound: result.symbolsFound,
+            errors: result.errors.length,
+          });
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          onError?.(error);
+          log.error("failed to reindex after ignore-file change", error);
+        }
+      } while (fullReindexQueued);
+      fullReindexInFlight = null;
+    })();
+  };
 
   const handleChange = (filePath: string) => {
     const language = detectLanguage(filePath);
@@ -93,7 +112,7 @@ export async function startWatcher(options: WatcherOptions): Promise<void> {
     }
   };
 
-  activeSubscription = await parcelWatcher.subscribe(
+  const subscription = await parcelWatcher.subscribe(
     projectRoot,
     (err, events) => {
       if (err) {
@@ -104,6 +123,11 @@ export async function startWatcher(options: WatcherOptions): Promise<void> {
       }
 
       for (const event of events) {
+        if (isIgnoreControlFile(event.path)) {
+          scheduleFullReindex();
+          continue;
+        }
+
         if (event.type === "delete") {
           handleRemove(event.path);
         } else {
@@ -115,13 +139,25 @@ export async function startWatcher(options: WatcherOptions): Promise<void> {
       ignore: allIgnore.map((p) => `**/${p}/**`),
     }
   );
+  activeSubscriptions.set(projectRoot, subscription);
 
   log.info("file watcher started", { projectRoot });
 }
 
-export async function stopWatcher(): Promise<void> {
-  if (!activeSubscription) return;
-  await activeSubscription.unsubscribe();
-  activeSubscription = null;
-  log.info("file watcher stopped");
+export async function stopWatcher(projectRoot?: string): Promise<void> {
+  if (projectRoot) {
+    const subscription = activeSubscriptions.get(projectRoot);
+    if (!subscription) return;
+    await subscription.unsubscribe();
+    activeSubscriptions.delete(projectRoot);
+    log.info("file watcher stopped", { projectRoot });
+    return;
+  }
+
+  if (activeSubscriptions.size === 0) return;
+  for (const [root, subscription] of activeSubscriptions) {
+    await subscription.unsubscribe();
+    log.info("file watcher stopped", { projectRoot: root });
+  }
+  activeSubscriptions.clear();
 }

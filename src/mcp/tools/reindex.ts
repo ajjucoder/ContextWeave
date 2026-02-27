@@ -1,8 +1,9 @@
 import { z } from "zod/v3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
+import { statSync } from "node:fs";
 import { resolve } from "node:path";
-import { indexProject, indexSingleFile, isPathWithinRoot } from "../../core/indexer.js";
+import { indexDirectory, indexProject, indexSingleFile, isPathWithinRoot } from "../../core/indexer.js";
 import { runPageRankInBackground } from "../../core/graph.js";
 import { createLogger } from "../../utils/logger.js";
 import type { ProjectConfig } from "../../utils/config.js";
@@ -30,6 +31,28 @@ export function registerReindexTool(server: McpServer, db: Database.Database, pr
             return {
               content: [{ type: "text" as const, text: `Error: path "${path}" is outside the project root` }],
               isError: true,
+            };
+          }
+
+          let isDirectory = false;
+          try {
+            isDirectory = statSync(fullPath).isDirectory();
+          } catch {
+            return {
+              content: [{ type: "text" as const, text: `Error: path "${path}" does not exist` }],
+              isError: true,
+            };
+          }
+
+          if (isDirectory) {
+            const result = await indexDirectory(db, fullPath, projectRoot, config?.ignore);
+            runPageRankInBackground(dbPath);
+            const elapsed = Date.now() - startTime;
+            return {
+              content: [{
+                type: "text" as const,
+                text: `Reindexed ${path}: ${result.filesIndexed} files, ${result.symbolsFound} symbols (${elapsed}ms)${result.errors.length > 0 ? `\nErrors: ${result.errors.join(", ")}` : ""}`,
+              }],
             };
           }
 

@@ -356,3 +356,327 @@ Compatibility note: the runtime-stable parser versions for this environment are 
 9. CW-P1-004
 10. CW-P1-005
 11. CW-P2-001
+
+## Production Hardening Plan (2026-02-27, `feat/prod-hardening-2026-02-27`)
+
+## Scope
+Resolve the reported production blockers and long-tail quality gaps across indexing, graph computation, reindex tooling, watcher behavior, parser coverage, and DB lifecycle safety.
+
+Execution rules:
+- all fixes are test-first (red/green) with linked evidence before `done`.
+- no ticket moves to `done` without command output evidence or explicit blocker note.
+- ticket mapping source: reported issues C1-C5, I1-I11, N1-N11.
+
+## Ticket Backlog
+
+### CWHARDEN-P0-001
+- owner: codex
+- scope/files: `src/core/indexer.ts`, `src/db/queries/symbols.ts`, `src/db/queries/files.ts`, `tests/core/indexer-edge-resolution.test.ts` (new)
+- acceptance criteria:
+  - `resolveEdges` no longer does unscoped global name fan-out for imports/calls.
+  - import edges are resolved using file/module-local candidates first, with bounded fallback behavior.
+  - edge count growth is near-linear on common-name imports.
+- linked tests:
+  - `npx vitest run tests/core/indexer-edge-resolution.test.ts`
+  - `npx vitest run tests/core/parallel-index.test.ts`
+- status: done
+
+### CWHARDEN-P0-002
+- owner: codex
+- scope/files: `src/core/graph.ts`, `src/db/queries/edges.ts`, `tests/core/graph-streaming.test.ts` (new)
+- acceptance criteria:
+  - PageRank and adjacency builders avoid `edgeQueries(db).getAll()` materialization on hot paths.
+  - graph operations stream/batch edges from SQLite with bounded memory.
+  - no behavior regression in ranking outputs for existing tests.
+- linked tests:
+  - `npx vitest run tests/core/graph-streaming.test.ts`
+  - `npx vitest run tests/integration/capsule.test.ts`
+- status: done
+
+### CWHARDEN-P0-003
+- owner: codex
+- scope/files: `src/capsule/generator.ts`, `src/db/queries/files.ts`, `tests/integration/capsule-pivot-filepath.test.ts` (new)
+- acceptance criteria:
+  - capsule pivot path matching no longer scans all file rows via `files.getAll()` on each query.
+  - file-path lookup uses indexed prefiltering or bounded candidates.
+  - ranking behavior for representative queries remains stable.
+- linked tests:
+  - `npx vitest run tests/integration/capsule-pivot-filepath.test.ts`
+  - `npx vitest run tests/integration/capsule.test.ts`
+- status: done
+
+### CWHARDEN-P0-004
+- owner: codex
+- scope/files: `src/core/indexer.ts`, `src/core/parser-worker.js`, `tests/core/parallel-index.test.ts`, `tests/unit/file-size-guard.test.ts`
+- acceptance criteria:
+  - worker fallback and worker-thread paths enforce `MAX_FILE_SIZE`.
+  - oversized files produce explicit indexed error entries instead of crashes/oom.
+  - normal files continue indexing unchanged.
+- linked tests:
+  - `npx vitest run tests/unit/file-size-guard.test.ts`
+  - `npx vitest run tests/core/parallel-index.test.ts`
+- status: done
+
+### CWHARDEN-P0-005
+- owner: codex
+- scope/files: `src/db/connection.ts`, `src/core/watcher.ts`, `src/mcp/server.ts`, `src/mcp/session-lock.ts`, `tests/core/session-lock.test.ts`, `tests/unit/db-connection-isolation.test.ts`
+- acceptance criteria:
+  - DB/watcher lifecycle is safely isolated per project/session (no unsafe global singleton collisions).
+  - concurrent server/session attempts do not corrupt or race symbol/edge writes.
+  - explicit lock/guard behavior is documented and tested.
+- linked tests:
+  - `npx vitest run tests/core/session-lock.test.ts tests/unit/db-connection-isolation.test.ts`
+  - `npx vitest run tests/integration/mcp-tool-schema-compat.test.ts`
+- status: done
+
+### CWHARDEN-P1-001
+- owner: codex
+- scope/files: `src/db/queries/observations.ts`, `tests/memory/observations-update.test.ts` (new)
+- acceptance criteria:
+  - observation `UPDATE` persists `note`.
+  - reloaded observations keep modified note after restart.
+- linked tests:
+  - `npx vitest run tests/memory/observations-update.test.ts`
+- status: done
+
+### CWHARDEN-P1-002
+- owner: codex
+- scope/files: `src/mcp/tools/reindex.ts`, `src/cli/commands/reindex.ts`, `src/core/indexer.ts`, `tests/integration/reindex-directory.test.ts` (new)
+- acceptance criteria:
+  - MCP and CLI reindex accept file, directory, and whole-project paths.
+  - directory inputs reindex all supported files under that directory.
+  - invalid/out-of-root paths return explicit error.
+- linked tests:
+  - `npx vitest run tests/integration/reindex-directory.test.ts`
+- status: done
+
+### CWHARDEN-P1-003
+- owner: codex
+- scope/files: `src/core/parser.ts`, `src/core/indexer.ts`, `tests/unit/parser.test.ts`
+- acceptance criteria:
+  - `.mts` and `.cts` are recognized and indexed.
+  - parser language mapping and discover glob include these extensions.
+- linked tests:
+  - `npx vitest run tests/unit/parser.test.ts`
+- status: done
+
+### CWHARDEN-P1-004
+- owner: codex
+- scope/files: `src/core/indexer.ts`, `tests/security/gitignore-filtering.test.ts`, `tests/security/cwignore-negation.test.ts` (new)
+- acceptance criteria:
+  - negated `!` entries in `.cwignore`/`.gitignore` re-include files correctly.
+  - slash-containing negated patterns behave correctly.
+- linked tests:
+  - `npx vitest run tests/security/gitignore-filtering.test.ts tests/security/cwignore-negation.test.ts`
+- status: done
+
+### CWHARDEN-P1-005
+- owner: codex
+- scope/files: `src/core/indexer.ts`, `tests/core/discover-symlink-loop.test.ts` (new)
+- acceptance criteria:
+  - file discovery cannot hang on symlink cycles.
+  - out-of-root symlinks remain excluded.
+- linked tests:
+  - `npx vitest run tests/core/discover-symlink-loop.test.ts`
+- status: done
+
+### CWHARDEN-P1-006
+- owner: codex
+- scope/files: `src/core/graph.ts`, `tests/integration/capsule.test.ts`, `tests/core/centrality-transaction.test.ts` (new)
+- acceptance criteria:
+  - centrality updates execute in a single transaction per run.
+  - write lock duration is reduced and update behavior remains consistent.
+- linked tests:
+  - `npx vitest run tests/core/centrality-transaction.test.ts`
+- status: done
+
+### CWHARDEN-P1-007
+- owner: codex
+- scope/files: `src/core/graph.ts`, `tests/unit/batch-degree.test.ts`
+- acceptance criteria:
+  - `getBatchSymbolDegrees` avoids giant JSON payload approach.
+  - large symbol-id batches are chunked/temporary-table based with stable output.
+- linked tests:
+  - `npx vitest run tests/unit/batch-degree.test.ts`
+- status: done
+
+### CWHARDEN-P1-008
+- owner: codex
+- scope/files: `src/db/connection.ts`, `src/cli/commands/status.ts`, `tests/db/connection-maintenance.test.ts` (new)
+- acceptance criteria:
+  - DB maintenance mode includes `auto_vacuum` and bounded vacuum strategy.
+  - configurable max DB size guard reports warnings/errors before uncontrolled growth.
+- linked tests:
+  - `npx vitest run tests/db/connection-maintenance.test.ts`
+- status: done
+
+### CWHARDEN-P1-009
+- owner: codex
+- scope/files: `src/capsule/compressor.ts`, `src/utils/tokens.ts`, `tests/unit/tokens.test.ts`, `tests/capsule/compressor.test.ts` (new)
+- acceptance criteria:
+  - `estimateTokens` uses tokenizer-backed counting path.
+  - token estimates better align with actual tokenization on TS/TSX snippets.
+- linked tests:
+  - `npx vitest run tests/unit/tokens.test.ts tests/capsule/compressor.test.ts`
+- status: done
+
+### CWHARDEN-P1-010
+- owner: codex
+- scope/files: `src/core/indexer.ts`, `tests/core/parallel-index.test.ts`
+- acceptance criteria:
+  - parse worker results with `parseResult=null` and no explicit error are surfaced in index errors.
+  - silent drops are eliminated.
+- linked tests:
+  - `npx vitest run tests/core/parallel-index.test.ts`
+- status: done
+
+### CWHARDEN-P1-011
+- owner: codex
+- scope/files: `src/core/indexer.ts`, `src/core/watcher.ts`, `tests/security/gitignore-filtering.test.ts`
+- acceptance criteria:
+  - broad `"env"` directory ignore is narrowed to avoid dropping legitimate `/src/env` paths.
+  - ignore behavior is deterministic across OS path separators.
+- linked tests:
+  - `npx vitest run tests/security/gitignore-filtering.test.ts`
+- status: done
+
+### CWHARDEN-P2-001
+- owner: codex
+- scope/files: `src/core/watcher.ts`, `src/core/indexer.ts`, `tests/core/watcher-behavior.test.ts`
+- acceptance criteria:
+  - watcher reacts to `.gitignore`/`.cwignore` changes by triggering a re-filter/reindex pass.
+  - files newly ignored are pruned from DB.
+- linked tests:
+  - `npx vitest run tests/core/watcher-behavior.test.ts tests/core/watcher-smoke.test.ts`
+- status: done
+
+### CWHARDEN-P2-002
+- owner: codex
+- scope/files: `src/core/watcher.ts`, `src/core/indexer.ts`, shared ignore constants export, `tests/core/watcher-behavior.test.ts`, `tests/security/gitignore-filtering.test.ts`
+- acceptance criteria:
+  - watcher/indexer built-in ignore patterns come from one shared source.
+  - `.turbo`, `.tox`, and other patterns stay in parity.
+- linked tests:
+  - `npx vitest run tests/core/watcher-behavior.test.ts`
+  - `npx vitest run tests/security/gitignore-filtering.test.ts`
+- status: done
+
+### CWHARDEN-P2-003
+- owner: codex
+- scope/files: `src/cli/commands/init.ts`, `tests/cli/init-close-db.test.ts` (new)
+- acceptance criteria:
+  - `runInit` always closes DB handle.
+  - behavior matches other CLI commands.
+- linked tests:
+  - `npx vitest run tests/cli/init-close-db.test.ts`
+- status: done
+
+### CWHARDEN-P2-004
+- owner: codex
+- scope/files: `tests/unit/parser.test.ts`
+- acceptance criteria:
+  - parser tests cover empty file and malformed code behavior.
+  - non-UTF8 input handling is tested and documented.
+- linked tests:
+  - `npx vitest run tests/unit/parser.test.ts`
+- status: done
+
+### CWHARDEN-P2-005
+- owner: codex
+- scope/files: `tests/unit/parser.test.ts`, `tests/fixtures/sample.{py,go,rs}`
+- acceptance criteria:
+  - fixtures include richer Python decorator, Go interface embedding, and Rust macro cases.
+  - parser behavior over unusual AST shapes is asserted.
+- linked tests:
+  - `npx vitest run tests/unit/parser.test.ts`
+- status: done
+
+### CWHARDEN-P2-006
+- owner: codex
+- scope/files: `src/cli/commands/reindex.ts`, `tests/integration/reindex-directory.test.ts`
+- acceptance criteria:
+  - CLI `cw reindex <directory>` parity with MCP reindex directory behavior.
+  - clear output for directory runs and error paths.
+- linked tests:
+  - `npx vitest run tests/integration/reindex-directory.test.ts`
+- status: done
+
+### CWHARDEN-P2-007
+- owner: codex
+- scope/files: `src/db/connection.ts`, `tests/unit/db-connection-isolation.test.ts`
+- acceptance criteria:
+  - DB singleton is isolated by path and resettable in tests.
+  - test teardown cannot leak DB handle into subsequent test cases.
+- linked tests:
+  - `npx vitest run tests/unit/db-connection-isolation.test.ts`
+- status: done
+
+### CWHARDEN-P2-008
+- owner: codex
+- scope/files: `src/core/watcher.ts`, `tests/core/watcher-behavior.test.ts` (new)
+- acceptance criteria:
+  - watcher tests cover change->reindex, diff callback, stale propagation, and delete->remove.
+  - existing smoke test remains green.
+- linked tests:
+  - `npx vitest run tests/core/watcher-smoke.test.ts tests/core/watcher-behavior.test.ts`
+- status: done
+
+### CWHARDEN-P2-009
+- owner: codex
+- scope/files: `src/core/indexer.ts`, `tests/core/discover-symlink-loop.test.ts`, `tests/integration/reindex-directory.test.ts`
+- acceptance criteria:
+  - file discovery avoids excessive memory/main-thread syscall overhead on large trees.
+  - implementation remains deterministic and cancellation-safe.
+- linked tests:
+  - `npx vitest run tests/core/discover-symlink-loop.test.ts`
+  - `npx vitest run tests/integration/reindex-directory.test.ts`
+- status: done
+
+### CWHARDEN-P2-010
+- owner: codex
+- scope/files: `src/core/indexer.ts`, `src/core/parser-worker.js`, `tests/core/indexer-unsupported-language.test.ts`, parser extension checks in `tests/unit/parser.test.ts`
+- acceptance criteria:
+  - Swift/Kotlin support path is implemented or explicitly gated with deterministic diagnostics.
+  - unsupported-language behavior is no longer silent.
+- linked tests:
+  - `npx vitest run tests/core/indexer-unsupported-language.test.ts tests/unit/parser.test.ts`
+- status: done
+
+### CWHARDEN-P2-011
+- owner: codex
+- scope/files: `src/core/indexer.ts`, `tests/security/gitignore-filtering.test.ts`
+- acceptance criteria:
+  - `shouldIgnore` handles root-level directories and cross-platform separators robustly.
+  - false negatives/positives from fragile substring checks are eliminated.
+- linked tests:
+  - `npx vitest run tests/security/gitignore-filtering.test.ts`
+- status: done
+
+## Execution Order (CWHARDEN)
+1. CWHARDEN-P0-001
+2. CWHARDEN-P0-002
+3. CWHARDEN-P0-003
+4. CWHARDEN-P0-004
+5. CWHARDEN-P0-005
+6. CWHARDEN-P1-001
+7. CWHARDEN-P1-002
+8. CWHARDEN-P1-003
+9. CWHARDEN-P1-004
+10. CWHARDEN-P1-005
+11. CWHARDEN-P1-006
+12. CWHARDEN-P1-007
+13. CWHARDEN-P1-008
+14. CWHARDEN-P1-009
+15. CWHARDEN-P1-010
+16. CWHARDEN-P1-011
+17. CWHARDEN-P2-001
+18. CWHARDEN-P2-002
+19. CWHARDEN-P2-003
+20. CWHARDEN-P2-004
+21. CWHARDEN-P2-005
+22. CWHARDEN-P2-006
+23. CWHARDEN-P2-007
+24. CWHARDEN-P2-008
+25. CWHARDEN-P2-009
+26. CWHARDEN-P2-010
+27. CWHARDEN-P2-011

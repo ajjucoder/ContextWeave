@@ -26,7 +26,7 @@ export function buildAdjacencyMap(db: Database.Database): AdjacencyMap {
   const incoming = new Map<number, number[]>();
   const degree = new Map<number, number>();
 
-  for (const edge of edgeQueries(db).getAll()) {
+  for (const edge of edgeQueries(db).iterateAll()) {
     const out = outgoing.get(edge.sourceSymbolId);
     if (out) out.push(edge.targetSymbolId);
     else outgoing.set(edge.sourceSymbolId, [edge.targetSymbolId]);
@@ -203,19 +203,25 @@ export function getBatchSymbolDegrees(db: Database.Database, symbolIds: number[]
     degrees.set(id, 0);
   }
 
-  const outStmt = db.prepare(
-    "SELECT source_symbol_id as id, COUNT(*) as c FROM edges WHERE source_symbol_id IN (SELECT value FROM json_each(?)) GROUP BY source_symbol_id"
-  );
-  const incStmt = db.prepare(
-    "SELECT target_symbol_id as id, COUNT(*) as c FROM edges WHERE target_symbol_id IN (SELECT value FROM json_each(?)) GROUP BY target_symbol_id"
-  );
+  const CHUNK_SIZE = 400;
+  for (let i = 0; i < symbolIds.length; i += CHUNK_SIZE) {
+    const chunk = symbolIds.slice(i, i + CHUNK_SIZE);
+    const placeholders = chunk.map(() => "?").join(", ");
+    if (!placeholders) continue;
 
-  const json = JSON.stringify(symbolIds);
-  for (const row of outStmt.all(json) as Array<{ id: number; c: number }>) {
-    degrees.set(row.id, (degrees.get(row.id) ?? 0) + row.c);
-  }
-  for (const row of incStmt.all(json) as Array<{ id: number; c: number }>) {
-    degrees.set(row.id, (degrees.get(row.id) ?? 0) + row.c);
+    const outStmt = db.prepare(
+      `SELECT source_symbol_id as id, COUNT(*) as c FROM edges WHERE source_symbol_id IN (${placeholders}) GROUP BY source_symbol_id`
+    );
+    const incStmt = db.prepare(
+      `SELECT target_symbol_id as id, COUNT(*) as c FROM edges WHERE target_symbol_id IN (${placeholders}) GROUP BY target_symbol_id`
+    );
+
+    for (const row of outStmt.all(...chunk) as Array<{ id: number; c: number }>) {
+      degrees.set(row.id, (degrees.get(row.id) ?? 0) + row.c);
+    }
+    for (const row of incStmt.all(...chunk) as Array<{ id: number; c: number }>) {
+      degrees.set(row.id, (degrees.get(row.id) ?? 0) + row.c);
+    }
   }
 
   return degrees;
@@ -230,7 +236,6 @@ export function computePageRank(db: Database.Database): Map<number, number> {
   const edges = edgeQueries(db);
 
   const symbolIds = symbols.getAllIds();
-  const allEdges = edges.getAll();
 
   if (symbolIds.length === 0) return new Map();
 
@@ -238,7 +243,7 @@ export function computePageRank(db: Database.Database): Map<number, number> {
   const idToIndex = new Map(symbolIds.map((id, i) => [id, i]));
 
   const outLinks = new Map<number, number[]>();
-  for (const edge of allEdges) {
+  for (const edge of edges.iterateAll()) {
     const sourceIdx = idToIndex.get(edge.sourceSymbolId);
     const targetIdx = idToIndex.get(edge.targetSymbolId);
     if (sourceIdx === undefined || targetIdx === undefined) continue;
@@ -303,9 +308,13 @@ export function updateCentralityScores(db: Database.Database): void {
 
   log.info(`updating centrality for ${ranks.size} symbols`);
 
-  for (const [symbolId, rank] of ranks) {
-    symbolsQ.updateCentrality(symbolId, rank);
-  }
+  const applyUpdates = db.transaction(() => {
+    for (const [symbolId, rank] of ranks) {
+      symbolsQ.updateCentrality(symbolId, rank);
+    }
+  });
+
+  applyUpdates();
 }
 
 export function runPageRankInBackground(dbPath: string): void {

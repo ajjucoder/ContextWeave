@@ -11,9 +11,11 @@ const TEMP_DIR = resolve(__dirname, "../tmp-gitignore-test");
 
 beforeAll(async () => {
   mkdirSync(resolve(TEMP_DIR, "src"), { recursive: true });
+  mkdirSync(resolve(TEMP_DIR, "src/env"), { recursive: true });
   mkdirSync(resolve(TEMP_DIR, "secrets"), { recursive: true });
 
   writeFileSync(resolve(TEMP_DIR, "src/app.ts"), "export const app = true;");
+  writeFileSync(resolve(TEMP_DIR, "src/env/config.ts"), "export const envConfig = true;");
   writeFileSync(resolve(TEMP_DIR, ".env"), "SECRET_KEY=abc123");
   writeFileSync(resolve(TEMP_DIR, ".env.local"), "LOCAL_SECRET=xyz");
   writeFileSync(resolve(TEMP_DIR, ".env.production"), "PROD_KEY=secret");
@@ -53,6 +55,7 @@ describe("gitignore and .env filtering", () => {
 
     expect(paths.some((p) => p.includes(".env"))).toBe(false);
     expect(paths.some((p) => p.includes("app.ts"))).toBe(true);
+    expect(paths.some((p) => p.includes("src/env/config.ts"))).toBe(true);
   });
 
   it("excludes gitignored directories from indexing", async () => {

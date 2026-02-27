@@ -141,8 +141,15 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const files = fileQueries(db);
 
   // Phase 1: Pivot Resolution
-  const allFiles = files.getAll();
-  const filePaths = allFiles.map((f) => f.path);
+  const pathCandidateCache = new Map<string, FileRecord>();
+  const getPathCandidates = (term: string): string[] => {
+    if (term.length < 2) return [];
+    const candidates = files.searchByPath(term, 150);
+    for (const file of candidates) {
+      pathCandidateCache.set(file.path, file);
+    }
+    return candidates.map((file) => file.path);
+  };
 
   const exactQueryTerms = query
     .trim()
@@ -163,9 +170,10 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       for (const symbol of matched) pivotSymbolIds.add(symbol.id);
     }
 
-    const pathMatches = fuzzyMatch(term, filePaths, 0.4);
+    const pathCandidates = getPathCandidates(term);
+    const pathMatches = fuzzyMatch(term, pathCandidates, 0.4);
     for (const match of pathMatches.slice(0, 3)) {
-      const file = allFiles.find((f) => f.path === match.name);
+      const file = pathCandidateCache.get(match.name);
       if (!file) continue;
       const fileSymbols = symbols.getByFileId(file.id);
       for (const symbol of fileSymbols) pivotSymbolIds.add(symbol.id);

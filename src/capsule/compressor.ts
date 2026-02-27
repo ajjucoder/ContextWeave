@@ -1,4 +1,5 @@
 import type { SymbolRecord, FileRecord, CompressionLevel } from "../core/types.js";
+import { countTokens } from "../utils/tokens.js";
 
 interface EdgeSummary {
   targetName: string;
@@ -36,14 +37,13 @@ export function renderSymbol(
 }
 
 export function estimateTokens(symbol: SymbolRecord, level: CompressionLevel): number {
-  if (level === 0) return Math.ceil(symbol.fullSource.length / 3.5);
+  if (level === 0) return countTokens(symbol.fullSource);
   if (level === 1) {
-    const base = symbol.signature.length + 30;
-    const doc = symbol.docComment ? symbol.docComment.length : 0;
-    return Math.ceil((base + doc) / 3.5);
+    const doc = symbol.docComment ?? "";
+    return countTokens(`${symbol.signature}\n${doc}`);
   }
   if (level === 2) {
-    return Math.ceil((symbol.name.length + symbol.signature.length + 40) / 3.5);
+    return countTokens(`${symbol.kind} ${symbol.name}\n${symbol.signature}`);
   }
-  return Math.ceil((symbol.kind.length + symbol.name.length + 20) / 3.5);
+  return countTokens(`${symbol.kind} ${symbol.name}`);
 }

@@ -9,6 +9,8 @@ const FIXTURE_CONTENT = readFileSync(FIXTURE_PATH, "utf-8");
 const languageFixtures = [
   { language: "go", fileName: "sample.go", extProbe: "foo.go" },
   { language: "rust", fileName: "sample.rs", extProbe: "foo.rs" },
+  { language: "typescript", fileName: "sample.ts", extProbe: "foo.mts" },
+  { language: "typescript", fileName: "sample.ts", extProbe: "foo.cts" },
   { language: "java", fileName: "sample.java", extProbe: "Foo.java" },
   { language: "c", fileName: "sample.c", extProbe: "foo.c" },
   { language: "c", fileName: "sample.c", extProbe: "foo.h" },
@@ -20,6 +22,7 @@ const languageFixtures = [
   { language: "bash", fileName: "sample.sh", extProbe: "run.sh" },
   { language: "bash", fileName: "sample.sh", extProbe: "run.bash" },
   { language: "php", fileName: "sample.php", extProbe: "foo.php" },
+  { language: "python", fileName: "sample.py", extProbe: "foo.py" },
 ];
 
 describe("detectLanguage", () => {
@@ -141,6 +144,59 @@ describe("parseFile", () => {
     expect(names).toContain("helper");
     expect(names).toContain("localObject");
     expect(names).toContain("topLevel");
+  });
+
+  it("handles empty files without parser crashes", () => {
+    const parsed = parseFile("empty.ts", "", "typescript");
+    expect(parsed.symbols).toHaveLength(0);
+    expect(parsed.imports).toHaveLength(0);
+    expect(parsed.calls).toHaveLength(0);
+    expect(Array.isArray(parsed.errors)).toBe(true);
+  });
+
+  it("surfaces syntax errors for malformed source", () => {
+    const malformed = parseFile("broken.ts", "export function broken( {", "typescript");
+    expect(malformed.errors.length).toBeGreaterThan(0);
+    expect(malformed.errors.some((error) => error.includes("Syntax errors detected"))).toBe(true);
+  });
+
+  it("accepts replacement-character input from non-utf8 sources", () => {
+    const content = Buffer.from([0xff, 0xfe, 0xfd, 0x61]).toString("utf-8");
+    const parsed = parseFile("binary.ts", content, "typescript");
+    expect(Array.isArray(parsed.errors)).toBe(true);
+  });
+
+  it("parses python decorators without dropping class and method symbols", () => {
+    const path = resolve(__dirname, "../fixtures/sample.py");
+    const content = readFileSync(path, "utf-8");
+    const parsed = parseFile(path, content, "python");
+    const names = parsed.symbols.map((symbol) => symbol.name);
+
+    expect(parsed.errors).toHaveLength(0);
+    expect(names).toContain("UserService");
+    expect(names).toContain("greet");
+    expect(names).toContain("build_service");
+  });
+
+  it("parses go interface embedding constructs", () => {
+    const path = resolve(__dirname, "../fixtures/sample.go");
+    const content = readFileSync(path, "utf-8");
+    const parsed = parseFile(path, content, "go");
+    const names = parsed.symbols.map((symbol) => symbol.name);
+
+    expect(parsed.errors).toHaveLength(0);
+    expect(names).toContain("ReadCloser");
+    expect(names).toContain("NewUserService");
+  });
+
+  it("parses rust macro invocation contexts without parse failures", () => {
+    const path = resolve(__dirname, "../fixtures/sample.rs");
+    const content = readFileSync(path, "utf-8");
+    const parsed = parseFile(path, content, "rust");
+    const names = parsed.symbols.map((symbol) => symbol.name);
+
+    expect(parsed.errors).toHaveLength(0);
+    expect(names).toContain("new_service");
   });
 
   it("parses all language fixtures with symbols, imports, and calls", () => {

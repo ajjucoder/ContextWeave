@@ -1,8 +1,8 @@
-import { existsSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { getDb, closeDb } from "../../db/connection.js";
 import { runMigrations } from "../../db/migrations.js";
-import { indexProject, indexSingleFile } from "../../core/indexer.js";
+import { indexDirectory, indexProject, indexSingleFile } from "../../core/indexer.js";
 import { runPageRankInBackground } from "../../core/graph.js";
 import { loadConfig } from "../../utils/config.js";
 
@@ -22,11 +22,22 @@ export async function runReindex(projectRoot: string, targetPath?: string): Prom
 
   if (targetPath) {
     const fullPath = resolve(projectRoot, targetPath);
-    process.stdout.write(`Reindexing ${fullPath}...\n`);
-    const result = indexSingleFile(db, fullPath, projectRoot);
-    runPageRankInBackground(dbPath);
-    const elapsed = Date.now() - startTime;
-    process.stdout.write(`  ${result.symbolCount} symbols (${elapsed}ms)\n`);
+    const isDirectory = existsSync(fullPath) && statSync(fullPath).isDirectory();
+    process.stdout.write(`Reindexing ${fullPath}${isDirectory ? " (directory)" : ""}...\n`);
+    if (isDirectory) {
+      const result = await indexDirectory(db, fullPath, projectRoot);
+      runPageRankInBackground(dbPath);
+      const elapsed = Date.now() - startTime;
+      process.stdout.write(`  ${result.filesIndexed} files, ${result.symbolsFound} symbols (${elapsed}ms)\n`);
+      if (result.errors.length > 0) {
+        process.stdout.write(`  ${result.errors.length} files had parse errors\n`);
+      }
+    } else {
+      const result = indexSingleFile(db, fullPath, projectRoot);
+      runPageRankInBackground(dbPath);
+      const elapsed = Date.now() - startTime;
+      process.stdout.write(`  ${result.symbolCount} symbols (${elapsed}ms)\n`);
+    }
   } else {
     process.stdout.write("Reindexing entire project...\n");
     const config = loadConfig(projectRoot);

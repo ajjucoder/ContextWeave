@@ -1,6 +1,75 @@
 # Sprint Progress
 
 ## Session
+- date: 2026-02-27
+- branch: `feat/prod-hardening-2026-02-27`
+- execution mode: `superpowers:using-git-worktrees + writing-plans + executing-plans + systematic-debugging + test-driven-development + verification-before-completion`
+- source plan: `audits/IMPLEMENTATION_PLAN_END_TO_END.md` (Production Hardening Plan)
+- tracker plan: `audits/IMPLEMENTATION_PLAN_END_TO_END.md`
+
+## Ticket Status
+
+| Ticket | Tier | Status | Owner | Scope/Files | Evidence |
+|---|---|---|---|---|---|
+| CWHARDEN-P0-001 | P0 | done | codex | `src/core/indexer.ts` edge scoping + bounded fallback | E2, E5 |
+| CWHARDEN-P0-002 | P0 | done | codex | `src/core/graph.ts`, `src/db/queries/edges.ts` streaming edges | E2, E7 |
+| CWHARDEN-P0-003 | P0 | done | codex | `src/capsule/generator.ts`, `src/db/queries/files.ts` bounded filepath lookup | E3, E4 |
+| CWHARDEN-P0-004 | P0 | done | codex | worker + fallback file-size guard in indexer/parser worker | E2, E8 |
+| CWHARDEN-P0-005 | P0 | done | codex | per-path DB/watcher isolation + MCP file lock | E2, E6 |
+| CWHARDEN-P1-001 | P1 | done | codex | `observations.update` now persists `note` | E3 |
+| CWHARDEN-P1-002 | P1 | done | codex | MCP + CLI directory reindex support | E3, E8 |
+| CWHARDEN-P1-003 | P1 | done | codex | parser supports `.mts`/`.cts` | E3 |
+| CWHARDEN-P1-004 | P1 | done | codex | fixed ignore negation behavior | E3 |
+| CWHARDEN-P1-005 | P1 | done | codex | symlink-loop-safe traversal | E3 |
+| CWHARDEN-P1-006 | P1 | done | codex | centrality updates wrapped in transaction | E3 |
+| CWHARDEN-P1-007 | P1 | done | codex | chunked `IN` degree query (no huge JSON payload) | E3 |
+| CWHARDEN-P1-008 | P1 | done | codex | DB size guard + vacuum/maintenance pragmas | E4 |
+| CWHARDEN-P1-009 | P1 | done | codex | compressor estimate uses tokenizer-backed count | E3 |
+| CWHARDEN-P1-010 | P1 | done | codex | null parse-result now reported as explicit error | E3, E5 |
+| CWHARDEN-P1-011 | P1 | done | codex | removed broad `env` ignore, cross-platform path segment check | E3 |
+| CWHARDEN-P2-001 | P2 | done | codex | watcher reacts to `.gitignore`/`.cwignore` updates | E1 |
+| CWHARDEN-P2-002 | P2 | done | codex | shared ignore list parity between watcher/indexer | E1, E3 |
+| CWHARDEN-P2-003 | P2 | done | codex | `runInit` closes DB in `finally` | E4 |
+| CWHARDEN-P2-004 | P2 | done | codex | parser tests for empty/non-UTF8/malformed inputs | E3 |
+| CWHARDEN-P2-005 | P2 | done | codex | richer Python/Go/Rust fixtures and AST-shape coverage | E3 |
+| CWHARDEN-P2-006 | P2 | done | codex | CLI directory reindex parity with MCP tool | E3, E8 |
+| CWHARDEN-P2-007 | P2 | done | codex | DB singleton isolation/reset for tests | E2, E4 |
+| CWHARDEN-P2-008 | P2 | done | codex | watcher behavior test coverage added | E1 |
+| CWHARDEN-P2-009 | P2 | done | codex | iterative `readdirSync` traversal replacing glob sweep | E3, E8 |
+| CWHARDEN-P2-010 | P2 | done | codex | unsupported-language diagnostics (single-file + aggregate summaries) | E8 |
+| CWHARDEN-P2-011 | P2 | done | codex | robust ignore matching for root-level and OS separators | E3 |
+
+## Completion Summary
+- p0_completion: 5/5 done (100.0%)
+- p1_completion: 11/11 done (100.0%)
+- p2_completion: 11/11 done (100.0%)
+- overall_completion: 27/27 done (100.0%)
+
+## Test Evidence and Gate State
+- evidence legend:
+  - E1: `npx vitest run tests/core/watcher-behavior.test.ts tests/core/watcher-smoke.test.ts` -> pass (`2` files, `4` tests)
+  - E2: `npx vitest run tests/core/indexer-edge-resolution.test.ts tests/unit/file-size-guard.test.ts tests/unit/db-connection-isolation.test.ts tests/core/graph-streaming.test.ts tests/core/session-lock.test.ts tests/core/watcher-smoke.test.ts` -> pass
+  - E3: `npx vitest run tests/memory/observations-update.test.ts tests/integration/reindex-directory.test.ts tests/unit/parser.test.ts tests/security/cwignore-negation.test.ts tests/core/discover-symlink-loop.test.ts tests/core/centrality-transaction.test.ts tests/unit/batch-degree.test.ts tests/capsule/compressor.test.ts tests/security/gitignore-filtering.test.ts` -> pass
+  - E4: `npx vitest run tests/db/connection-maintenance.test.ts tests/integration/capsule-pivot-filepath.test.ts tests/integration/capsule.test.ts tests/unit/db-connection-isolation.test.ts tests/core/session-lock.test.ts tests/cli/init-close-db.test.ts` -> pass
+  - E5: `npx vitest run tests/core/parallel-index.test.ts` -> pass
+  - E6: `npx vitest run tests/core/session-lock.test.ts tests/unit/db-connection-isolation.test.ts` -> pass
+  - E7: `npx vitest run tests/core/graph-streaming.test.ts tests/integration/capsule.test.ts` -> pass
+  - E8: `npx vitest run tests/core/indexer-unsupported-language.test.ts tests/unit/file-size-guard.test.ts tests/integration/reindex-directory.test.ts` -> pass (`3` files, `8` tests)
+- full gate:
+  - `npx vitest run` -> pass (`43` files, `158` tests)
+  - `npm run lint` -> pass (`tsc --noEmit`)
+  - `npm run build` -> pass (`tsup`, ESM build success)
+
+## Blockers and Next Actions
+- blockers: none open
+- next actions:
+  1. reminder todo: keep hardening regression suites (`tests/core/indexer-edge-resolution.test.ts`, `tests/core/indexer-unsupported-language.test.ts`, `tests/core/watcher-behavior.test.ts`) in CI for every PR to prevent regressions
+  2. run a production-scale soak reindex on a >10K file repo and capture memory/latency baseline in `audits/SESSION_LOG_*`
+  3. merge `feat/prod-hardening-2026-02-27` after peer review
+
+---
+
+## Session
 - date: 2026-02-26
 - branch: `main`
 - execution mode: `superpowers:systematic-debugging + test-driven-development + verification-before-completion + finishing-a-development-branch`
