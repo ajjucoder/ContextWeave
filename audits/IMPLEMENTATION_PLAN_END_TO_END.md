@@ -41,7 +41,7 @@ Session execution context:
 - linked tests:
   - `npx vitest run tests/capsule/two-phase-retrieval.test.ts tests/capsule/multi-pass-generator.test.ts`
   - `npx vitest run tests/integration/task-query-quality.test.ts tests/integration/threshold-ratchet.test.ts`
-- status: todo
+- status: done
 
 ### CWW5-P1-002
 - owner: codex
@@ -50,9 +50,9 @@ Session execution context:
   - broad/task packing applies adaptive refill when utilization is low and candidates remain.
   - broad/task queries use meaningful share of budget (>60%) when content is available.
 - linked tests:
-  - `npx vitest run tests/capsule/broad-task-utilization.test.ts tests/integration/capsule.test.ts`
-  - `npx vitest run tests/integration/task-query-quality.test.ts`
-- status: todo
+  - `npx vitest run tests/capsule/two-phase-retrieval.test.ts tests/integration/capsule.test.ts`
+  - `npx vitest run tests/integration/task-query-quality.test.ts tests/integration/threshold-ratchet.test.ts`
+- status: done
 
 ### CWW5-P1-003
 - owner: codex
@@ -62,7 +62,7 @@ Session execution context:
   - formatter tests assert the updated label format.
 - linked tests:
   - `npx vitest run tests/capsule/formatter-multi-pass.test.ts tests/integration/capsule.test.ts`
-- status: todo
+- status: done
 
 ### CWW5-P1-004
 - owner: codex
@@ -73,7 +73,7 @@ Session execution context:
 - linked tests:
   - `npx vitest run tests/integration/mcp-tool-schema-compat.test.ts`
   - `npx vitest run tests/integration/mcp-navigation-tools.test.ts`
-- status: todo
+- status: done
 
 ### CWW5-P1-005
 - owner: codex
@@ -84,7 +84,7 @@ Session execution context:
 - linked tests:
   - `npx vitest run tests/integration/mcp-tool-schema-compat.test.ts`
   - `npx vitest run tests/integration/mcp-navigation-tools.test.ts`
-- status: todo
+- status: done
 
 ### CWW5-P1-006
 - owner: codex
@@ -95,7 +95,7 @@ Session execution context:
 - linked tests:
   - `npx vitest run tests/integration/mcp-tool-schema-compat.test.ts`
   - `npx vitest run tests/integration/mcp-navigation-tools.test.ts`
-- status: todo
+- status: done
 
 ### CWW5-P1-007
 - owner: codex
@@ -107,7 +107,7 @@ Session execution context:
   - `npx vitest run tests/integration/mcp-tool-schema-compat.test.ts`
   - `npx vitest run tests/security/mcp-read-path-guards.test.ts`
   - `npx vitest run tests/integration/mcp-navigation-tools.test.ts`
-- status: todo
+- status: done
 
 ### CWW5-P0-002
 - owner: codex
@@ -117,8 +117,8 @@ Session execution context:
   - evidence includes stageA/stageB counts, tokens used, and target entities found.
 - linked tests:
   - `npx vitest run tests/integration/task-query-quality.test.ts tests/integration/threshold-ratchet.test.ts`
-  - real-run evidence commands against `/path/to/project`
-- status: todo
+  - `npx tsx bench/wave5-polymarket-validation.ts`
+- status: done
 
 ## Execution Order (Wave 5)
 1. CWW5-P0-001

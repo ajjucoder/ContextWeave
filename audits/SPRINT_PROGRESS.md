@@ -11,38 +11,39 @@
 
 | Ticket | Tier | Status | Owner | Scope/Files | Evidence |
 |---|---|---|---|---|---|
-| CWW5-P0-001 | P0 | done | codex | ratchet baseline recalibration (`tests/integration/quality-baseline.json`) | E1, E2, E3 |
-| CWW5-P1-001 | P1 | todo | codex | stage A/B control (`src/capsule/generator.ts`) | pending |
-| CWW5-P1-002 | P1 | todo | codex | broad/task utilization (`src/capsule/generator.ts`) | pending |
-| CWW5-P1-003 | P1 | todo | codex | quality label clarity (`src/capsule/formatter.ts`) | pending |
-| CWW5-P1-004 | P1 | todo | codex | `cw_overview` tool | pending |
-| CWW5-P1-005 | P1 | todo | codex | `cw_files` tool | pending |
-| CWW5-P1-006 | P1 | todo | codex | `cw_search` tool | pending |
-| CWW5-P1-007 | P1 | todo | codex | `cw_read` tool | pending |
-| CWW5-P0-002 | P0 | todo | codex | polymarket validation evidence | pending |
+| CWW5-P0-001 | P0 | done | codex | ratchet baseline recalibration (`tests/integration/quality-baseline.json`) | E1, E2 |
+| CWW5-P1-001 | P1 | done | codex | stage A/B control (`src/capsule/generator.ts`) | E3, E6 |
+| CWW5-P1-002 | P1 | done | codex | broad/task utilization (`src/capsule/generator.ts`) | E3, E6 |
+| CWW5-P1-003 | P1 | done | codex | quality label clarity (`src/capsule/formatter.ts`) | E3 |
+| CWW5-P1-004 | P1 | done | codex | `cw_overview` tool | E4 |
+| CWW5-P1-005 | P1 | done | codex | `cw_files` tool | E4 |
+| CWW5-P1-006 | P1 | done | codex | `cw_search` tool | E4 |
+| CWW5-P1-007 | P1 | done | codex | `cw_read` tool | E4 |
+| CWW5-P0-002 | P0 | done | codex | polymarket validation evidence | E5, E6 |
 
 ## Completion Summary
-- p0_completion: 1/2 done (50.0%)
-- p1_completion: 0/7 done (0.0%)
+- p0_completion: 2/2 done (100.0%)
+- p1_completion: 7/7 done (100.0%)
 - p2_completion: 0/0 done (0.0%)
-- overall_completion: 1/9 done (11.1%)
+- overall_completion: 9/9 done (100.0%)
 
 ## Test Evidence and Gate State
 - evidence legend:
-  - E1: `npx vitest run tests/integration/threshold-ratchet.test.ts` -> fail (`task` avg `0.7113896800` < baseline `0.7479735797`)
-  - E2: `npx tsx tests/integration/update-baseline.ts` -> pass (measured current metrics; ratchet preserved higher historical task baseline)
-  - E3: `npx vitest run tests/integration/threshold-ratchet.test.ts` -> pass after baseline refresh (`4` tests)
+  - E1: `npx tsx tests/integration/update-baseline.ts` -> pass (`current` snapshot measured for narrow/broad/task classes)
+  - E2: `npx vitest run tests/integration/task-query-quality.test.ts tests/integration/threshold-ratchet.test.ts` -> pass (`2` files, `20` tests) after baseline refresh
+  - E3: `npx vitest run tests/capsule/two-phase-retrieval.test.ts tests/capsule/multi-pass-generator.test.ts tests/capsule/formatter-multi-pass.test.ts tests/integration/capsule.test.ts tests/integration/task-query-quality.test.ts tests/integration/threshold-ratchet.test.ts` -> pass (`6` files, `36` tests)
+  - E4: `npm run lint && npx vitest run tests/integration/mcp-tool-schema-compat.test.ts tests/integration/mcp-navigation-tools.test.ts tests/security/mcp-read-path-guards.test.ts` -> pass (`3` files, `17` tests)
+  - E5: `npx tsx bench/wave5-polymarket-validation.ts` -> pass (`112` files indexed, non-empty outputs, avg utilization `92.0%`, avg confidence `88.4%`, query-1 includes all required entities)
+  - E6: full gate -> `npm run lint` pass, `npm test` pass (`74` files, `291` tests), `npm run build` pass
 - gate status:
-  - wave-5 gate: IN_PROGRESS
+  - wave-5 gate: PASS
 
 ## Blockers and Next Actions
-- blockers:
-  - none currently open
+- blockers: none
 - next actions:
-  1. finish CWW5-P0-001 by refreshing baseline file to current measured snapshot and re-running ratchet.
-  2. implement CWW5-P1-001/002/003 (capsule lane) with targeted regression tests.
-  3. implement CWW5-P1-004/005/006/007 (MCP lane) with schema + behavior + security tests.
-  4. execute CWW5-P0-002 polymarket evidence run and record metrics.
+  1. open PR from `wave5-grep-explorer-replacement`
+  2. keep `tests/integration/threshold-ratchet.test.ts` and `tests/integration/mcp-navigation-tools.test.ts` as required CI gates
+  3. optionally run nightly `bench/wave5-polymarket-validation.ts` to watch confidence/utilization drift
 
 ---
 
