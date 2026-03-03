@@ -137,12 +137,37 @@ function traceOutgoing(
 
 function resolveSymbol(db: Database.Database, name: string): number | null {
   const symbols = symbolQueries(db);
+  const files = fileQueries(db);
+
+  // Support "file.ts:SymbolName" format
+  const colonIdx = name.lastIndexOf(":");
+  if (colonIdx > 0 && name.slice(0, colonIdx).includes(".")) {
+    const fileSuffix = name.slice(0, colonIdx);
+    const symbolName = name.slice(colonIdx + 1);
+    const file = files.getByPathSuffix(fileSuffix);
+    if (file) {
+      const sym = symbols.getByFileAndName(file.id, symbolName);
+      if (sym) return sym.id;
+    }
+    return null;
+  }
+
+  // Exact match first
+  const exactMatches = symbols.getByName(name);
+  if (exactMatches.length > 0) {
+    // prefer highest centrality when multiple definitions exist
+    return exactMatches.reduce((best, s) => s.centrality > best.centrality ? s : best).id;
+  }
+
+  // Fall back to fuzzy
   const allNames = symbols.getAllNames();
   const matches = fuzzyMatch(name, allNames, 0.6);
   if (matches.length === 0) return null;
 
   const syms = symbols.getByName(matches[0]!.name);
-  return syms.length > 0 ? syms[0]!.id : null;
+  return syms.length > 0
+    ? syms.reduce((best, s) => s.centrality > best.centrality ? s : best).id
+    : null;
 }
 
 export function registerFlowTool(server: McpServer, db: Database.Database): void {

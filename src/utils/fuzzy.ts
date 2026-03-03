@@ -26,10 +26,16 @@ export function trigramSimilarity(a: string, b: string): number {
 
 export function fuzzyMatch(query: string, candidates: string[], threshold = 0.7): Array<{ name: string; score: number }> {
   const results: Array<{ name: string; score: number }> = [];
+  const queryLower = query.toLowerCase();
 
   for (const candidate of candidates) {
-    if (candidate.toLowerCase().includes(query.toLowerCase())) {
+    const candidateLower = candidate.toLowerCase();
+    if (candidateLower === queryLower) {
       results.push({ name: candidate, score: 1.0 });
+      continue;
+    }
+    if (candidateLower.includes(queryLower)) {
+      results.push({ name: candidate, score: 0.9 });
       continue;
     }
 

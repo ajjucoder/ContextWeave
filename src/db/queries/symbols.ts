@@ -14,6 +14,12 @@ export function symbolQueries(db: Database.Database) {
     "SELECT id, file_id, name, kind, start_line, end_line, signature, body_hash, is_exported, doc_comment, centrality, last_seen FROM symbols WHERE id = ?"
   );
   const getByName = db.prepare("SELECT * FROM symbols WHERE name = ?");
+  const getByFileAndName = db.prepare(
+    "SELECT * FROM symbols WHERE file_id = ? AND name = ? ORDER BY centrality DESC LIMIT 1"
+  );
+  const getByNamePreferCentrality = db.prepare(
+    "SELECT * FROM symbols WHERE name = ? ORDER BY centrality DESC LIMIT 1"
+  );
   const getByBodyHash = db.prepare("SELECT * FROM symbols WHERE body_hash = ?");
   const deleteById = db.prepare("DELETE FROM symbols WHERE id = ?");
   const deleteByFileId = db.prepare("DELETE FROM symbols WHERE file_id = ?");
@@ -107,6 +113,14 @@ export function symbolQueries(db: Database.Database) {
 
     getByName(name: string): SymbolRecord[] {
       return getByName.all(name).map(mapRow).filter(Boolean) as SymbolRecord[];
+    },
+
+    getByFileAndName(fileId: number, name: string): SymbolRecord | undefined {
+      return mapRow(getByFileAndName.get(fileId, name));
+    },
+
+    getByNamePreferCentrality(name: string): SymbolRecord | undefined {
+      return mapRow(getByNamePreferCentrality.get(name));
     },
 
     getByBodyHash(hash: string): SymbolRecord[] {

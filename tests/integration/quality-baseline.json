@@ -4,12 +4,12 @@
     "minConfidence": 0.8459603658536586
   },
   "broad": {
-    "avgConfidence": 0.9673869594719635,
+    "avgConfidence": 0.9689207861104412,
     "minConfidence": 0.9423076923076923
   },
   "task": {
-    "avgConfidence": 0.7665662018316255,
-    "minConfidence": 0.7118864468864468
+    "avgConfidence": 0.7589113643135328,
+    "minConfidence": 0.7062318840579709
   },
-  "updatedAt": "2026-02-27T14:56:01.546Z"
+  "updatedAt": "2026-03-03T14:41:45.726Z"
 }

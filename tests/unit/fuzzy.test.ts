@@ -24,10 +24,22 @@ describe("trigramSimilarity", () => {
 describe("fuzzyMatch", () => {
   const candidates = ["validateEmail", "validateUser", "processOrder", "handleAuth", "loadConfig"];
 
-  it("returns exact substring matches with score 1.0", () => {
-    const results = fuzzyMatch("validate", candidates);
-    expect(results.length).toBeGreaterThanOrEqual(2);
-    expect(results.every((r) => r.score === 1.0)).toBe(true);
+  it("returns exact match with score 1.0, contains-but-not-exact with score 0.9", () => {
+    const exact = fuzzyMatch("validateEmail", ["validateEmail", "validateEmailAddress", "loadConfig"]);
+    expect(exact[0]?.name).toBe("validateEmail");
+    expect(exact[0]?.score).toBe(1.0);
+    expect(exact[1]?.score).toBe(0.9);
+
+    // "validate" is not an exact match for either "validateEmail" or "validateUser"
+    const contains = fuzzyMatch("validate", candidates);
+    expect(contains.length).toBeGreaterThanOrEqual(2);
+    expect(contains.every((r) => r.score === 0.9 || r.score < 1.0)).toBe(true);
+  });
+
+  it("exact match is preferred over substring match", () => {
+    const results = fuzzyMatch("Site", ["AllSitesPage", "Site", "SiteHeader"]);
+    expect(results[0]?.name).toBe("Site");
+    expect(results[0]?.score).toBe(1.0);
   });
 
   it("returns fuzzy matches above threshold", () => {
