@@ -19,7 +19,7 @@ const FIXTURE_DIR = resolve(__dirname, "../fixtures");
 
 const AGENT_COUNT = 10;
 const ITERATIONS_PER_AGENT = 4;
-const P95_TARGET_MS = 50;
+const P95_TARGET_MS = Number(process.env["CW_P95_TARGET_MS"] ?? "50");
 const QUERIES = ["UserService", "validateEmail", "loadUser", "getDefaultRole"];
 
 interface CapsuleWorkerPayload {

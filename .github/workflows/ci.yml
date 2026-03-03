@@ -25,4 +25,6 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm test
+        env:
+          CW_P95_TARGET_MS: 200
       - run: npm run build
