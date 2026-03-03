@@ -99,6 +99,7 @@ export function buildUncertainty(
   coverageConfidence: number
 ): CapsuleUncertainty {
   if (!lowConfidence) return "low";
-  if (reasonCount >= 2 || coverageConfidence < 0.45) return "high";
+  if (reasonCount >= 3 || coverageConfidence < 0.35) return "high";
+  if (reasonCount >= 2 && coverageConfidence < 0.45) return "high";
   return "medium";
 }

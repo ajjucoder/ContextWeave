@@ -777,11 +777,11 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   const reasons: string[] = [];
   if (pivotCount === 0) reasons.push("no pivot symbol match");
-  if (pivotCount > 0 && pivotCoverage < 0.8) reasons.push("pivot coverage below 80%");
-  if (selectedNonPivots > 0 && dependencyCoverage < 0.35) {
-    reasons.push("dependency coverage below 35%");
+  if (pivotCount > 0 && pivotCoverage < 0.5) reasons.push("pivot coverage below 50%");
+  if (selectedNonPivots > 0 && dependencyCoverage < 0.25) {
+    reasons.push("dependency coverage below 25%");
   }
-  if (noiseRatio > 0.55) reasons.push("low-relevance content exceeds 55%");
+  if (noiseRatio > 0.6) reasons.push("low-relevance content exceeds 60%");
 
   const coverageConfidence = computeCoverageConfidence({
     intent,
@@ -799,7 +799,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       maxSymbolsPerFile,
     },
   });
-  const confidenceFloor = intent === "narrow" ? 0.65 : 0.7;
+  const confidenceFloor = intent === "narrow" ? 0.55 : 0.6;
   const uncertaintyFlag = reasons.length > 0 || coverageConfidence < confidenceFloor;
   if (coverageConfidence < confidenceFloor) {
     reasons.push(`overall coverage confidence below ${Math.round(confidenceFloor * 100)}%`);
