@@ -19,39 +19,6 @@ interface QaProject {
 
 const PROJECTS: QaProject[] = [
   {
-    name: "codex-team-orchestrator",
-    repo: "https://github.com/ajjucoder/codex-team-orchestrator.git",
-    sessionQueries: [
-      "registerTaskBoardTools",
-      "buildRebalancePlan",
-      "HookEngine",
-      "task board rebalancing workflow scheduling",
-      "find bugs in task orchestration pipeline",
-    ],
-  },
-  {
-    name: "polymarket-arbitrage-sim",
-    repo: "https://github.com/ajjucoder/polymarket-arbitrage-sim.git",
-    sessionQueries: [
-      "simulateExecution",
-      "evaluateRisk",
-      "rankOpportunities",
-      "market simulation execution risk pipeline",
-      "find bugs in arbitrage execution flow",
-    ],
-  },
-  {
-    name: "research-agent",
-    repo: "https://github.com/ajjucoder/research-agent.git",
-    sessionQueries: [
-      "parse_query",
-      "build_reddit_query_variants",
-      "mention_scores",
-      "query parsing pipeline source normalization",
-      "find bugs in the ranking and evidence pipeline",
-    ],
-  },
-  {
     name: "express",
     repo: "https://github.com/expressjs/express.git",
     sessionQueries: [
@@ -60,6 +27,28 @@ const PROJECTS: QaProject[] = [
       "View",
       "middleware routing request response pipeline",
       "find bugs in express router error handling",
+    ],
+  },
+  {
+    name: "fastify",
+    repo: "https://github.com/fastify/fastify.git",
+    sessionQueries: [
+      "createServer",
+      "Route",
+      "ContentTypeParser",
+      "hook lifecycle request validation pipeline",
+      "find bugs in route matching and serialization",
+    ],
+  },
+  {
+    name: "zod",
+    repo: "https://github.com/colinhacks/zod.git",
+    sessionQueries: [
+      "ZodString",
+      "ZodObject",
+      "parse",
+      "schema validation transform pipeline",
+      "find bugs in discriminated union parsing",
     ],
   },
 ];
