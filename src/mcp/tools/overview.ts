@@ -1,7 +1,7 @@
 import { z } from "zod/v3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
-import { fileQueries } from "../../db/queries/files.js";
+import { countStaleFiles, fileQueries } from "../../db/queries/files.js";
 import { symbolQueries } from "../../db/queries/symbols.js";
 import { edgeQueries } from "../../db/queries/edges.js";
 import { searchFilesByQuery } from "../../core/file-summaries.js";
@@ -107,11 +107,16 @@ export function registerOverviewTool(server: McpServer, db: Database.Database, p
         const totalSymbols = files.reduce((sum, file) => sum + file.symbolCount, 0);
         const globalSymbols = symbolsApi.count();
 
+        const staleCount = countStaleFiles(db);
+        const staleNote = staleCount > 0
+          ? ` [${staleCount} stale — run cw_reindex]`
+          : "";
+
         const lines: string[] = [
           "ContextWeave Overview",
           `Project: ${projectRoot}`,
           `Scope: ${basePath ?? "."}`,
-          `Indexed Files: ${files.length}`,
+          `Indexed Files: ${files.length}${staleNote}`,
           `Indexed Symbols: ${totalSymbols} (global: ${globalSymbols})`,
           `Global Edges: ${edgesApi.count()}`,
         ];

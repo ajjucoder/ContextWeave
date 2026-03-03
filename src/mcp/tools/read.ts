@@ -71,6 +71,16 @@ function resolveSymbolTarget(
   return filtered[0]!;
 }
 
+export function parseSymbolTarget(
+  input: string
+): { fileSuffix: string; symbolName: string } | null {
+  const lastColon = input.lastIndexOf(":");
+  if (lastColon < 1) return null;
+  const filePart = input.slice(0, lastColon);
+  if (!filePart.includes(".")) return null;
+  return { fileSuffix: filePart, symbolName: input.slice(lastColon + 1) };
+}
+
 export function registerReadTool(server: McpServer, db: Database.Database, projectRoot: string): void {
   const registerTool = (server.tool as (...args: any[]) => void).bind(server);
   const inputSchema: Record<string, z.ZodTypeAny> = {
@@ -117,9 +127,22 @@ export function registerReadTool(server: McpServer, db: Database.Database, proje
           };
         }
 
-        const resolvedSymbol = symbol
-          ? resolveSymbolTarget(db, resolvedRoot, symbol, requestedPath)
-          : null;
+        let resolvedSymbol: ResolvedSymbol | null = null;
+        if (symbol) {
+          const parsed = parseSymbolTarget(symbol);
+          if (parsed) {
+            const file = fileQueries(db).getByPathSuffix(parsed.fileSuffix);
+            if (file) {
+              const sym = symbolQueries(db).getByFileAndName(file.id, parsed.symbolName);
+              if (sym) {
+                resolvedSymbol = { symbol: sym, filePath: resolve(resolvedRoot, file.path) };
+              }
+            }
+          }
+          if (!resolvedSymbol) {
+            resolvedSymbol = resolveSymbolTarget(db, resolvedRoot, symbol, requestedPath);
+          }
+        }
         if (symbol && !resolvedSymbol) {
           const detail = requestedPath ? ` in ${path}` : "";
           return {
