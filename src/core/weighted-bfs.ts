@@ -31,9 +31,11 @@ function edgeCost(kind: string, sourceDir: string, targetDir: string, targetPath
 
   if (sourceDir === targetDir) return base * 0.6;
 
+  if (/(^|[/\\])(legacy|archive|old|prototype)[/\\]/i.test(targetPath)) return base * 3.0;
+  if (/_(legacy|demo|old|prototype|archive)[_/\\]/i.test(targetPath)) return base * 3.0;
   if (/\/(tests?|__tests?__|spec)\//i.test(targetPath)) return base * 1.8;
   if (/\/(vendor|third_party|external)\//i.test(targetPath)) return base * 2.5;
-  if (/\/(examples?|samples?|demo)\//i.test(targetPath)) return base * 1.5;
+  if (/(^|[/\\])(examples?|samples?|demo)[/\\]/i.test(targetPath)) return base * 3.0;
 
   return base;
 }
