@@ -361,9 +361,10 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
   }
   const scopeDirs = scopeDirSet.size > 0 ? [...scopeDirSet] : null;
+  const maxVisitedNodes = Math.min(300, Math.floor(retrievalBudget / 20));
   const bfsNodes = skipBfs
     ? [...pivotSymbolIds].map((id) => ({ symbolId: id, distance: 0 }))
-    : weightedBfsTraversal(db, [...pivotSymbolIds], maxDepth, scopeDirs);
+    : weightedBfsTraversal(db, [...pivotSymbolIds], maxDepth, scopeDirs, { maxVisitedNodes });
   const visited = new Map<number, number>(bfsNodes.map((n) => [n.symbolId, n.distance]));
 
   logger.debug("bfs traversal complete", { nodesVisited: visited.size });

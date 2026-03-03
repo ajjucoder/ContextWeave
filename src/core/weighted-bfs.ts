@@ -6,6 +6,11 @@ export interface WeightedBfsNode {
   distance: number;
 }
 
+export interface BfsOptions {
+  maxVisitedNodes?: number;
+  incomingEdgeCostMultiplier?: number;
+}
+
 interface EdgeRow {
   symbol_id: number;
   kind: string;
@@ -37,7 +42,8 @@ export function weightedBfsTraversal(
   db: Database.Database,
   pivotIds: number[],
   maxDepth: number,
-  scopeDirs?: string[] | null
+  scopeDirs?: string[] | null,
+  options: BfsOptions = {}
 ): WeightedBfsNode[] {
   const getOutgoing = db.prepare(`
     SELECT e.target_symbol_id as symbol_id, e.kind, f.path as file_path
@@ -81,7 +87,12 @@ export function weightedBfsTraversal(
     enqueue(id, 0);
   }
 
+  const maxNodes = options.maxVisitedNodes ?? 300;
+  const incomingMult = options.incomingEdgeCostMultiplier ?? 1.5;
+
   while (queue.length > 0) {
+    if (visited.size >= maxNodes) break;
+
     const current = queue.shift()!;
 
     const bestKnown = visited.get(current.symbolId);
@@ -94,18 +105,26 @@ export function weightedBfsTraversal(
     const outgoing = getOutgoing.all(current.symbolId) as EdgeRow[];
     const incoming = getIncoming.all(current.symbolId) as EdgeRow[];
 
-    for (const edge of [...outgoing, ...incoming]) {
+    for (const edge of outgoing) {
       if (!isInScope(edge.file_path)) continue;
-
       const targetDir = dirname(edge.file_path);
       const cost = edgeCost(edge.kind, sourceDir, targetDir, edge.file_path);
       const newDist = current.distance + cost;
-
       if (newDist >= maxDepth) continue;
-
       const existing = visited.get(edge.symbol_id);
       if (existing !== undefined && existing <= newDist) continue;
+      visited.set(edge.symbol_id, newDist);
+      enqueue(edge.symbol_id, newDist);
+    }
 
+    for (const edge of incoming) {
+      if (!isInScope(edge.file_path)) continue;
+      const targetDir = dirname(edge.file_path);
+      const cost = edgeCost(edge.kind, sourceDir, targetDir, edge.file_path) * incomingMult;
+      const newDist = current.distance + cost;
+      if (newDist >= maxDepth) continue;
+      const existing = visited.get(edge.symbol_id);
+      if (existing !== undefined && existing <= newDist) continue;
       visited.set(edge.symbol_id, newDist);
       enqueue(edge.symbol_id, newDist);
     }

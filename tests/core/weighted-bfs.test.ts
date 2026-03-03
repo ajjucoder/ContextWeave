@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Database from "better-sqlite3";
 import { createSchema } from "../../src/db/schema.js";
 import { symbolQueries } from "../../src/db/queries/symbols.js";
@@ -29,6 +29,8 @@ beforeAll(() => {
   edges.insert({ sourceSymbolId: mainFn, targetSymbolId: helperFn, kind: "import", createdAt: now });
   edges.insert({ sourceSymbolId: testFn, targetSymbolId: mainFn, kind: "call", createdAt: now });
 });
+
+afterAll(() => db?.close());
 
 describe("weightedBfsTraversal", () => {
   it("reaches same-dir imports at lower effective distance than test-dir calls", () => {
@@ -66,5 +68,46 @@ describe("weightedBfsTraversal", () => {
     const nodes = weightedBfsTraversal(db, [mainSym.id], 0.5);
 
     expect(nodes.every((n) => n.distance < 0.5)).toBe(true);
+  });
+
+  it("respects maxVisitedNodes cap — stops expanding after limit", () => {
+    const syms = symbolQueries(db);
+    const mainSym = syms.getByName("processData")[0]!;
+    // cap at 1 node: only the pivot itself
+    const nodes = weightedBfsTraversal(db, [mainSym.id], 10, null, { maxVisitedNodes: 1 });
+    expect(nodes.length).toBe(1);
+    expect(nodes[0]!.symbolId).toBe(mainSym.id);
+  });
+
+  it("incoming edges cost more than outgoing edges with default multiplier", () => {
+    const syms = symbolQueries(db);
+    const mainSym = syms.getByName("processData")[0]!;
+    const nodes = weightedBfsTraversal(db, [mainSym.id], 10);
+
+    // helperFn is reached via outgoing import (low cost)
+    // testFn is reached via incoming call (higher cost due to 1.5x multiplier)
+    const helperNode = nodes.find((n) => syms.getById(n.symbolId)?.name === "validateInput");
+    const testNode = nodes.find((n) => syms.getById(n.symbolId)?.name === "testProcessData");
+
+    expect(helperNode).toBeDefined();
+    expect(testNode).toBeDefined();
+    // incoming edge cost = 1.0 (call) * 1.8 (test dir) * 1.5 (incoming mult) = 2.7
+    // outgoing edge cost = 0.8 (import) * 0.6 (same dir) = 0.48
+    expect(testNode!.distance).toBeGreaterThan(helperNode!.distance);
+  });
+
+  it("incomingEdgeCostMultiplier=1.0 makes incoming and outgoing symmetric", () => {
+    const syms = symbolQueries(db);
+    const mainSym = syms.getByName("processData")[0]!;
+    const nodesSymmetric = weightedBfsTraversal(db, [mainSym.id], 10, null, { incomingEdgeCostMultiplier: 1.0 });
+    const nodesDefault = weightedBfsTraversal(db, [mainSym.id], 10);
+
+    const testSymmetric = nodesSymmetric.find((n) => syms.getById(n.symbolId)?.name === "testProcessData");
+    const testDefault = nodesDefault.find((n) => syms.getById(n.symbolId)?.name === "testProcessData");
+
+    expect(testSymmetric).toBeDefined();
+    expect(testDefault).toBeDefined();
+    // with 1.0 multiplier, testFn is closer than with 1.5 multiplier
+    expect(testSymmetric!.distance).toBeLessThan(testDefault!.distance);
   });
 });
