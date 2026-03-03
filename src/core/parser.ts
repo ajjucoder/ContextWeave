@@ -380,7 +380,17 @@ export function parseFile(
 
   try {
     const parser = initParser(language);
-    const tree = parser.parse(content);
+    // tree-sitter's string parse() throws for inputs >= 32768 bytes.
+    // Use the callback (string-chunk) form for large files.
+    let tree: ReturnType<typeof parser.parse>;
+    if (content.length < 32768) {
+      tree = parser.parse(content);
+    } else {
+      tree = parser.parse(((index: number) => {
+        const chunk = content.slice(index, index + 4096);
+        return chunk.length > 0 ? chunk : null;
+      }) as unknown as string);
+    }
 
     if (tree.rootNode.hasError) {
       errors.push(`Syntax errors detected in ${filePath}`);

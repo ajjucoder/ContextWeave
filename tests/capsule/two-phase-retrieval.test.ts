@@ -58,7 +58,7 @@ describe("two-phase retrieval", () => {
 
     expect(result.metadata.quality.retrieval.stageACandidateCount).toBeGreaterThan(0);
     expect(result.metadata.quality.retrieval.stageBSelectedCount).toBeGreaterThan(0);
-    expect(result.metadata.quality.retrieval.stageACandidateCount).toBeLessThanOrEqual(160);
+    expect(result.metadata.quality.retrieval.stageACandidateCount).toBeLessThanOrEqual(200);
     expect(result.metadata.quality.retrieval.stageBSelectedCount).toBeLessThanOrEqual(260);
   });
 });

@@ -41,6 +41,7 @@ import { mergeSubCapsules, type SubCapsuleResult } from "./merger.js";
 import { searchFilesByQuery } from "../core/file-summaries.js";
 import { getFileClusterId, getClusterFileIds } from "../core/clusters.js";
 import { buildUncertainty, computeCoverageConfidence } from "./confidence.js";
+import { filePathMatchesQueryTerms } from "../utils/path-retrieval.js";
 import {
   getCommonDisplayRoot,
   getLexicalScore,
@@ -243,6 +244,28 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         if (rawPivotIds.size >= maxStageARaw) break;
       }
       if (rawPivotIds.size >= maxStageARaw) break;
+    }
+  }
+
+  // Path-segment coverage pass: catches route/feature files missed by FTS symbol search.
+  // e.g. "api/submit-inquiry/route.ts" found by query term "inquiry" (7 chars).
+  // Only runs for task/broad intent (narrow symbol queries already work via FTS).
+  // Only adds files that have NO symbols already in rawPivotIds ("orphaned" files).
+  if (intent !== "narrow" && rawPivotIds.size < maxStageARaw && pathCandidateCache.size > 0) {
+    const coveredFileIds = new Set<number>();
+    for (const id of rawPivotIds) {
+      const sym = symbols.getByIdLight(id);
+      if (sym) coveredFileIds.add(sym.fileId);
+    }
+    for (const [filePath, file] of pathCandidateCache) {
+      if (rawPivotIds.size >= maxStageARaw) break;
+      if (coveredFileIds.has(file.id)) continue;
+      if (!filePathMatchesQueryTerms(filePath, exactQueryTerms)) continue;
+      const fileSymbols = symbols.getByFileId(file.id);
+      for (const symbol of fileSymbols) {
+        rawPivotIds.add(symbol.id);
+        if (rawPivotIds.size >= maxStageARaw) break;
+      }
     }
   }
 
