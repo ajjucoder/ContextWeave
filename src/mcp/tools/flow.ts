@@ -170,6 +170,72 @@ function resolveSymbol(db: Database.Database, name: string): number | null {
     : null;
 }
 
+export interface FlowResult {
+  text: string;
+  isLimited: boolean;
+}
+
+export function buildFlowResult(
+  db: Database.Database,
+  source: string,
+  target: string | undefined,
+  maxHops: number
+): FlowResult {
+  const symbols = symbolQueries(db);
+  const files = fileQueries(db);
+
+  const sourceId = resolveSymbol(db, source);
+  if (!sourceId) {
+    return { text: `No symbol found matching "${source}"`, isLimited: false };
+  }
+
+  if (target) {
+    const targetId = resolveSymbol(db, target);
+    if (!targetId) {
+      return { text: `No symbol found matching "${target}"`, isLimited: false };
+    }
+    const path = findPath(db, sourceId, targetId, maxHops);
+    if (!path) {
+      return {
+        text: `No path found from "${source}" to "${target}" within ${maxHops} hops`,
+        isLimited: false,
+      };
+    }
+    const lines = [`Flow: ${source} → ${target}\n`];
+    for (let i = 0; i < path.length; i++) {
+      const step = path[i]!;
+      const prefix = i === 0 ? "  " : `  ${"─".repeat(i)}→ `;
+      lines.push(`${prefix}[${step.edgeKind}] ${step.kind} ${step.name} (${step.file}:${step.line})`);
+    }
+    return { text: lines.join("\n"), isLimited: false };
+  }
+
+  const paths = traceOutgoing(db, sourceId, maxHops);
+  if (paths.length === 0) {
+    const sym = symbols.getById(sourceId);
+    const file = sym ? files.getById(sym.fileId) : undefined;
+    const location = file && sym ? `${file.path}:${sym.startLine}` : "unknown";
+    const text = [
+      `No outgoing flows found from "${source}" (flows_limited: true).`,
+      `Symbol location: ${location}`,
+      `Reason: analysis is limited to static call expressions. Prop callbacks,`,
+      `higher-order functions, and dynamic dispatch are not traced.`,
+      `Recommendation: use cw_read to inspect "${source}" directly.`,
+    ].join("\n");
+    return { text, isLimited: true };
+  }
+
+  const lines = [`Outgoing flows from "${source}" (max ${maxHops} hops):\n`];
+  for (let p = 0; p < paths.length; p++) {
+    const path = paths[p]!;
+    lines.push(`\nPath ${p + 1}:`);
+    for (const step of path) {
+      lines.push(`  [${step.edgeKind}] → ${step.kind} ${step.name} (${step.file}:${step.line})`);
+    }
+  }
+  return { text: lines.join("\n"), isLimited: false };
+}
+
 export function registerFlowTool(server: McpServer, db: Database.Database): void {
   const registerTool = (server.tool as (...args: any[]) => void).bind(server);
   const inputSchema: Record<string, z.ZodTypeAny> = {
@@ -184,61 +250,9 @@ export function registerFlowTool(server: McpServer, db: Database.Database): void
     inputSchema,
     async ({ source, target, max_hops }: { source: string; target?: string; max_hops?: number }) => {
       try {
-      const maxHops = max_hops ?? 5;
-      const sourceId = resolveSymbol(db, source);
-
-      if (!sourceId) {
-        return {
-          content: [{ type: "text" as const, text: `No symbol found matching "${source}"` }],
-        };
-      }
-
-      if (target) {
-        const targetId = resolveSymbol(db, target);
-        if (!targetId) {
-          return {
-            content: [{ type: "text" as const, text: `No symbol found matching "${target}"` }],
-          };
-        }
-
-        const path = findPath(db, sourceId, targetId, maxHops);
-        if (!path) {
-          return {
-            content: [{ type: "text" as const, text: `No path found from "${source}" to "${target}" within ${maxHops} hops` }],
-          };
-        }
-
-        const lines = [`Flow: ${source} → ${target}\n`];
-        for (let i = 0; i < path.length; i++) {
-          const step = path[i]!;
-          const prefix = i === 0 ? "  " : `  ${"─".repeat(i)}→ `;
-          lines.push(`${prefix}[${step.edgeKind}] ${step.kind} ${step.name} (${step.file}:${step.line})`);
-        }
-
-        return {
-          content: [{ type: "text" as const, text: lines.join("\n") }],
-        };
-      }
-
-      const paths = traceOutgoing(db, sourceId, maxHops);
-      if (paths.length === 0) {
-        return {
-          content: [{ type: "text" as const, text: `No outgoing flows found from "${source}"` }],
-        };
-      }
-
-      const lines = [`Outgoing flows from "${source}" (max ${maxHops} hops):\n`];
-      for (let p = 0; p < paths.length; p++) {
-        const path = paths[p]!;
-        lines.push(`\nPath ${p + 1}:`);
-        for (const step of path) {
-          lines.push(`  [${step.edgeKind}] → ${step.kind} ${step.name} (${step.file}:${step.line})`);
-        }
-      }
-
-      return {
-        content: [{ type: "text" as const, text: lines.join("\n") }],
-      };
+        const maxHops = max_hops ?? 5;
+        const result = buildFlowResult(db, source, target, maxHops);
+        return { content: [{ type: "text" as const, text: result.text }] };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return {
