@@ -36,6 +36,12 @@ export function symbolQueries(db: Database.Database) {
   const getAllIds = db.prepare("SELECT id FROM symbols");
   const getAll = db.prepare("SELECT * FROM symbols");
   const getExported = db.prepare("SELECT * FROM symbols WHERE is_exported = 1");
+  const getEnclosingSymbolStmt = db.prepare(`
+    SELECT * FROM symbols
+    WHERE file_id = ? AND start_line <= ? AND end_line >= ?
+    ORDER BY (end_line - start_line) ASC
+    LIMIT 1
+  `);
 
   function mapRow(row: unknown): SymbolRecord | undefined {
     if (!row) return undefined;
@@ -161,5 +167,17 @@ export function symbolQueries(db: Database.Database) {
     count(): number {
       return (countAll.get() as { count: number }).count;
     },
+
+    getEnclosingSymbol(fileId: number, line: number): SymbolRecord | null {
+      return mapRow(getEnclosingSymbolStmt.get(fileId, line, line)) ?? null;
+    },
   };
+}
+
+export function getEnclosingSymbol(
+  db: Database.Database,
+  fileId: number,
+  line: number
+): SymbolRecord | null {
+  return symbolQueries(db).getEnclosingSymbol(fileId, line);
 }

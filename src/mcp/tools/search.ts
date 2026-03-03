@@ -5,6 +5,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod/v3";
 import { isPathWithinRoot } from "../../core/indexer.js";
 import { fileQueries } from "../../db/queries/files.js";
+import { symbolQueries } from "../../db/queries/symbols.js";
 import { globToRegExp, toProjectRelativePath, withinPath } from "./path-filters.js";
 
 interface MatchSpan {
@@ -195,6 +196,7 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
         const regex = buildRegex(query, use_regex ?? false, caseSensitive);
 
         const indexedFiles = fileQueries(db).getAll();
+        const symbols = symbolQueries(db);
         if (indexedFiles.length === 0) {
           return {
             content: [{ type: "text" as const, text: "No indexed files available. Run cw_reindex first." }],
@@ -229,8 +231,10 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
 
           for (const span of spans) {
             const lineNumber = lineForOffset(span.start, lineStarts);
+            const enclosing = symbols.getEnclosingSymbol(file.id, lineNumber);
+            const symbolContext = enclosing ? ` [in ${enclosing.kind} ${enclosing.name}]` : "";
             results.push({
-              path: relPath,
+              path: relPath + symbolContext,
               line: lineNumber,
               snippet: renderSnippet(lines, lineNumber, contextLines),
             });
