@@ -4,7 +4,7 @@ import { createSchema } from "../../src/db/schema.js";
 import { fileQueries } from "../../src/db/queries/files.js";
 import { symbolQueries } from "../../src/db/queries/symbols.js";
 import { edgeQueries } from "../../src/db/queries/edges.js";
-import { traceImpact } from "../../src/mcp/tools/impact.js";
+import { registerImpactTool, traceImpact } from "../../src/mcp/tools/impact.js";
 
 const NOW = Date.now();
 
@@ -114,6 +114,41 @@ describe("traceImpact", () => {
     // Tracing the barrel symbol finds EditPage
     const barrelResult = traceImpact(db, barrelId, 3);
     expect(barrelResult.map((n) => n.name)).toContain("EditPage");
+  });
+
+  it("follows same-directory barrel aliases for file:symbol targets in cw_impact", async () => {
+    const originalFileId = makeFile(db, "src/hooks/useDataLayer.ts");
+    const barrelFileId = makeFile(db, "src/hooks/index.ts");
+    const consumerFileId = makeFile(db, "src/components/EditPage.tsx");
+
+    const originalId = makeSymbol(db, originalFileId, "useDataLayer", 0.8);
+    const barrelId = makeSymbol(db, barrelFileId, "useDataLayer", 0.2);
+    const editPageId = makeSymbol(db, consumerFileId, "EditPage");
+
+    edgeQueries(db).insert({ sourceSymbolId: editPageId, targetSymbolId: barrelId, kind: "import", createdAt: NOW });
+
+    let handler:
+      | ((args: { target: string; depth?: number }) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>)
+      | undefined;
+    const fakeServer = {
+      tool: (
+        _name: string,
+        _description: string,
+        _schema: unknown,
+        fn: (args: { target: string; depth?: number }) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>
+      ) => {
+        handler = fn;
+      },
+    };
+    registerImpactTool(fakeServer as any, db);
+    expect(handler).toBeDefined();
+
+    const response = await handler!({
+      target: "src/hooks/useDataLayer.ts:useDataLayer",
+      depth: 3,
+    });
+    const text = response.content[0]?.text ?? "";
+    expect(text).toContain("EditPage");
   });
 });
 

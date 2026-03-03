@@ -1,6 +1,7 @@
 import { z } from "zod/v3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
+import { dirname } from "node:path";
 import { symbolQueries } from "../../db/queries/symbols.js";
 import { edgeQueries } from "../../db/queries/edges.js";
 import { fileQueries } from "../../db/queries/files.js";
@@ -62,6 +63,42 @@ export function traceImpact(db: Database.Database, symbolId: number, maxDepth: n
   }
 
   return result;
+}
+
+function traceImpactWithBarrelAliases(
+  db: Database.Database,
+  pivot: SymbolRecord,
+  maxDepth: number
+): ImpactNode[] {
+  const symbols = symbolQueries(db);
+  const files = fileQueries(db);
+  const traceIds = new Set<number>([pivot.id]);
+  const pivotFile = files.getById(pivot.fileId);
+
+  if (pivotFile) {
+    const pivotDir = dirname(pivotFile.path);
+    const pivotIsBarrel = /(^|[/\\])(index|barrel)\.[cm]?[jt]sx?$/i.test(pivotFile.path);
+    for (const candidate of symbols.getByName(pivot.name)) {
+      if (candidate.id === pivot.id || candidate.kind !== pivot.kind) continue;
+      const candidateFile = files.getById(candidate.fileId);
+      if (!candidateFile || dirname(candidateFile.path) !== pivotDir) continue;
+      const candidateIsBarrel = /(^|[/\\])(index|barrel)\.[cm]?[jt]sx?$/i.test(candidateFile.path);
+      if (pivotIsBarrel || candidateIsBarrel) traceIds.add(candidate.id);
+    }
+  }
+
+  const seen = new Set<string>();
+  const merged: ImpactNode[] = [];
+  for (const id of traceIds) {
+    for (const node of traceImpact(db, id, maxDepth)) {
+      const key = `${node.file}:${node.line}:${node.name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      merged.push(node);
+    }
+  }
+
+  return merged;
 }
 
 function resolveTargetSymbols(
@@ -130,7 +167,7 @@ export function registerImpactTool(server: McpServer, db: Database.Database): vo
         const seen = new Set<string>();
         const allImpacts: ImpactNode[] = [];
         for (const pivot of pivotSymbols) {
-          for (const node of traceImpact(db, pivot.id, maxDepth)) {
+          for (const node of traceImpactWithBarrelAliases(db, pivot, maxDepth)) {
             const key = `${node.file}:${node.line}:${node.name}`;
             if (!seen.has(key)) {
               seen.add(key);
