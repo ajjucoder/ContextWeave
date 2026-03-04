@@ -743,7 +743,7 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
 
   if (toProcess.length === 0) {
     const backfilledSummaries = backfillSummariesIfNeeded(db);
-    const backfilledClusters = backfillClustersIfNeeded(db);
+    const backfilledClusters = backfillClustersIfNeeded(db, projectRoot);
     if (backfilledSummaries || backfilledClusters) {
       log.info("backfilled derived data for existing files", { summaries: backfilledSummaries, clusters: backfilledClusters });
     }
@@ -829,7 +829,7 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
 
   upsertSummaries();
 
-  computeClusters(db);
+  computeClusters(db, projectRoot);
 
   log.info(`indexed ${toProcess.length} files, ${totalSymbols} symbols`);
   return { filesIndexed: filePaths.length, symbolsFound: totalSymbols, errors: allErrors };

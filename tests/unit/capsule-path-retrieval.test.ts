@@ -25,10 +25,13 @@ describe("extractPathTerms", () => {
     expect(terms).toContain("dddd");
   });
 
-  it("lowercases all tokens", () => {
+  it("lowercases all tokens and splits CamelCase segments", () => {
     const terms = extractPathTerms("src/Auth/LoginPage.tsx");
     expect(terms).toContain("auth");
-    expect(terms).toContain("loginpage");
+    // CamelCase splitting: LoginPage → "login", "page"
+    expect(terms).toContain("login");
+    expect(terms).toContain("page");
+    expect(terms).not.toContain("loginpage");
   });
 
   it("handles underscore-separated names", () => {
@@ -87,5 +90,14 @@ describe("filePathMatchesQueryTerms", () => {
     expect(
       filePathMatchesQueryTerms("src/submitInquiry/handler.ts", ["inquiry"])
     ).toBe(true);
+  });
+
+  it("does not false-positive short term against unrelated CamelCase segment", () => {
+    // "submit" should NOT match "resubmit" as a different concept
+    // With CamelCase splitting, "resubmit" stays as "resubmit" (no camel boundary)
+    // and "submit" (6 chars) requires exact match with pathTerms
+    expect(
+      filePathMatchesQueryTerms("src/resubmit/handler.ts", ["submit"])
+    ).toBe(false);
   });
 });

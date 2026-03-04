@@ -62,6 +62,10 @@ const STOP_WORDS = new Set([
   "new",
 ]);
 
+// Question words signal exploration intent, not task intent.
+// "how does auth work" should classify as narrow/broad, not task.
+export const QUESTION_WORDS = new Set(["how", "what", "why", "where", "when"]);
+
 export const TASK_VERBS = new Set([
   "find",
   "check",
@@ -83,9 +87,6 @@ export const TASK_VERBS = new Set([
   "migrate",
   "replace",
   "extract",
-  "how",
-  "what",
-  "why",
 ]);
 
 export const MODULE_SYNONYMS: Record<string, string[]> = {
@@ -128,8 +129,13 @@ function inferModules(terms: string[]): string[] {
   return uniq(implied);
 }
 
-function classifyIntent(actionVerbs: string[], normalizedTerms: string[]): QueryIntent {
+function classifyIntent(actionVerbs: string[], normalizedTerms: string[], hasQuestionWord: boolean): QueryIntent {
+  // Real action verbs (not question words) → task intent with multi-pass pipeline
   if (actionVerbs.length > 0) return "task";
+  // Question-word queries are exploration: use term count to decide narrow vs broad
+  if (hasQuestionWord) {
+    return normalizedTerms.length >= 4 ? "broad" : "narrow";
+  }
   if (normalizedTerms.length <= 2) return "narrow";
   if (normalizedTerms.length >= 4) return "broad";
   return "narrow";
@@ -145,18 +151,24 @@ export function classifyQueryIntent(query: string): ClassifiedQuery {
   const tokens = tokenize(query);
 
   const filtered = tokens.filter((token) => !STOP_WORDS.has(token.normalized));
-  const actionVerbs = uniq(filtered.filter((token) => TASK_VERBS.has(token.normalized)).map((token) => token.normalized));
+  const hasQuestionWord = filtered.some((token) => QUESTION_WORDS.has(token.normalized));
+  const actionVerbs = uniq(
+    filtered
+      .filter((token) => TASK_VERBS.has(token.normalized))
+      .map((token) => token.normalized)
+  );
+  // Exclude both action verbs and question words from content terms
   const normalizedTerms = uniq(
     filtered
-      .filter((token) => !TASK_VERBS.has(token.normalized))
+      .filter((token) => !TASK_VERBS.has(token.normalized) && !QUESTION_WORDS.has(token.normalized))
       .map((token) => token.normalized)
   );
 
-  const intent = classifyIntent(actionVerbs, normalizedTerms);
+  const intent = classifyIntent(actionVerbs, normalizedTerms, hasQuestionWord);
 
   const signalTerms = uniq(
     filtered
-      .filter((token) => !TASK_VERBS.has(token.normalized) && isSignalToken(token))
+      .filter((token) => !TASK_VERBS.has(token.normalized) && !QUESTION_WORDS.has(token.normalized) && isSignalToken(token))
       .map((token) => token.normalized)
   );
 

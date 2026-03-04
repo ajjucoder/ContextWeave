@@ -34,13 +34,14 @@ function union(parent: number[], rank: number[], x: number, y: number): void {
   }
 }
 
-export function computeClusters(db: Database.Database): void {
+export function computeClusters(db: Database.Database, projectRoot?: string): void {
   db.prepare("DELETE FROM file_clusters").run();
 
-  const allFiles = db.prepare("SELECT id FROM files").all() as Array<{ id: number }>;
-  if (allFiles.length === 0) return;
+  const allFileRows = db.prepare("SELECT id, path FROM files").all() as Array<{ id: number; path: string }>;
+  if (allFileRows.length === 0) return;
 
-  const fileIds = allFiles.map((f) => f.id);
+  const fileIds = allFileRows.map((f) => f.id);
+  const filePathById = new Map(allFileRows.map((f) => [f.id, f.path]));
   const indexMap = new Map(fileIds.map((id, i) => [id, i]));
 
   const { parent, rank } = buildUnionFind(fileIds.length);
@@ -88,8 +89,14 @@ export function computeClusters(db: Database.Database): void {
       } else {
         const byDir = new Map<string, number[]>();
         for (const fileId of group) {
-          const path = (db.prepare("SELECT path FROM files WHERE id = ?").get(fileId) as { path: string } | undefined)?.path ?? "";
-          const dir = path.split("/").slice(0, 2).join("/");
+          const absolutePath = filePathById.get(fileId) ?? "";
+          const relPath =
+            projectRoot && absolutePath.startsWith(projectRoot)
+              ? absolutePath.slice(projectRoot.length).replace(/^[/\\]/, "")
+              : absolutePath;
+          // Take first 2 directory segments from the project-relative path (exclude filename)
+          const parts = relPath.split(/[/\\]/);
+          const dir = parts.slice(0, -1).slice(0, 2).join("/");
           const dirGroup = byDir.get(dir) ?? [];
           dirGroup.push(fileId);
           byDir.set(dir, dirGroup);
@@ -107,14 +114,14 @@ export function computeClusters(db: Database.Database): void {
   insertAll();
 }
 
-export function backfillClustersIfNeeded(db: Database.Database): boolean {
+export function backfillClustersIfNeeded(db: Database.Database, projectRoot?: string): boolean {
   const fileCount = (db.prepare("SELECT COUNT(*) as c FROM files").get() as { c: number }).c;
   if (fileCount === 0) return false;
 
   const clusterCount = (db.prepare("SELECT COUNT(*) as c FROM file_clusters").get() as { c: number }).c;
   if (clusterCount > 0) return false;
 
-  computeClusters(db);
+  computeClusters(db, projectRoot);
   return true;
 }
 

@@ -61,4 +61,46 @@ describe("computeClusters", () => {
     const clusterFileIds = getClusterFileIds(db, row1.cluster_id);
     expect(clusterFileIds.length).toBeGreaterThanOrEqual(3);
   });
+
+  it("splits oversized clusters using project-relative paths when projectRoot is provided", () => {
+    const db2 = new Database(":memory:");
+    db2.pragma("foreign_keys = ON");
+    createSchema(db2);
+
+    const files2 = fileQueries(db2);
+    const syms2 = symbolQueries(db2);
+    const edges2 = edgeQueries(db2);
+    const now2 = Date.now();
+    const projectRoot = "/home/ci/project";
+
+    // Create 25 files (> MAX_CLUSTER_SIZE=20) spread across 2 dirs — all interconnected
+    const fileIds: number[] = [];
+    for (let i = 0; i < 13; i++) {
+      fileIds.push(files2.insert({ path: `${projectRoot}/src/auth/file${i}.ts`, hash: `h${i}`, lastIndexed: now2, mtime: now2, language: "typescript", symbolCount: 1, error: null }));
+    }
+    for (let i = 0; i < 13; i++) {
+      fileIds.push(files2.insert({ path: `${projectRoot}/src/utils/file${i}.ts`, hash: `u${i}`, lastIndexed: now2, mtime: now2, language: "typescript", symbolCount: 1, error: null }));
+    }
+
+    // Insert symbols and edges to form one big cluster
+    const symIds: number[] = [];
+    for (const fid of fileIds) {
+      symIds.push(syms2.insert({ fileId: fid, name: "fn", kind: "function", startLine: 1, endLine: 5, signature: "fn()", bodyHash: `bh${fid}`, fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now2 }));
+    }
+    // Connect all files into one cluster
+    for (let i = 1; i < symIds.length; i++) {
+      edges2.insert({ sourceSymbolId: symIds[i]!, targetSymbolId: symIds[0]!, kind: "import", createdAt: now2 });
+    }
+
+    computeClusters(db2, projectRoot);
+
+    // Files from different directories should get different cluster IDs
+    const authRow = db2.prepare(`SELECT cluster_id FROM file_clusters WHERE file_id = (SELECT id FROM files WHERE path = '${projectRoot}/src/auth/file0.ts')`).get() as { cluster_id: number } | undefined;
+    const utilsRow = db2.prepare(`SELECT cluster_id FROM file_clusters WHERE file_id = (SELECT id FROM files WHERE path = '${projectRoot}/src/utils/file0.ts')`).get() as { cluster_id: number } | undefined;
+
+    expect(authRow).toBeDefined();
+    expect(utilsRow).toBeDefined();
+    // The two directories should be in different sub-clusters after the split
+    expect(authRow!.cluster_id).not.toBe(utilsRow!.cluster_id);
+  });
 });

@@ -29,4 +29,29 @@ describe("classifyQueryIntent", () => {
     const classified = classifyQueryIntent("the capsule and capsule pipeline");
     expect(classified.normalizedTerms).toEqual(["capsule", "pipeline"]);
   });
+
+  it("classifies question-word queries as exploration, not task", () => {
+    // "how does X work" → narrow (single focus term)
+    expect(classifyQueryIntent("how does authentication work").intent).toBe("narrow");
+    // "what is" → narrow
+    expect(classifyQueryIntent("what is the session guard").intent).toBe("narrow");
+    // "why does" → narrow
+    expect(classifyQueryIntent("why does login fail").intent).toBe("narrow");
+  });
+
+  it("classifies multi-term question queries as broad", () => {
+    const classified = classifyQueryIntent("how does authentication middleware session guard dashboard work");
+    expect(classified.intent).toBe("broad");
+    // question words should NOT appear in normalizedTerms
+    expect(classified.normalizedTerms).not.toContain("how");
+    expect(classified.normalizedTerms).not.toContain("what");
+    expect(classified.normalizedTerms).not.toContain("why");
+  });
+
+  it("keeps real action verbs as task even when question words are present", () => {
+    const classified = classifyQueryIntent("how do I fix the auth bug");
+    // "fix" is an action verb → task
+    expect(classified.intent).toBe("task");
+    expect(classified.actionVerbs).toContain("fix");
+  });
 });
