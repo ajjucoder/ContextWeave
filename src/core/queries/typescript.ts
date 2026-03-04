@@ -104,3 +104,16 @@ export const typeReferences = `
   (generic_type
     name: (type_identifier) @name)) @reference
 `;
+
+export const jsxUsages = `
+(jsx_opening_element
+  name: (identifier) @component) @jsx
+
+(jsx_self_closing_element
+  name: (identifier) @component) @jsx
+
+(jsx_attribute
+  (property_identifier) @prop_name
+  (jsx_expression
+    (identifier) @prop_value)) @jsx_prop
+`;

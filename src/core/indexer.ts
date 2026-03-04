@@ -486,12 +486,13 @@ function resolveEdges(
     if (!callerId) continue;
 
     const targetIds = pickTargets(call.calleeName);
+    const kind = call.edgeKind ?? "call";
     for (const targetId of targetIds) {
       if (callerId === targetId) continue;
       edges.insert({
         sourceSymbolId: callerId,
         targetSymbolId: targetId,
-        kind: "call",
+        kind,
         createdAt: now,
       });
     }

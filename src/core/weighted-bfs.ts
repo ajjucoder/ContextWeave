@@ -24,6 +24,7 @@ const EDGE_WEIGHTS: Record<string, number> = {
   reference: 1.2,
   inheritance: 0.6,
   implements: 0.7,
+  jsx_render: 0.8,
 };
 
 function edgeCost(kind: string, sourceDir: string, targetDir: string, targetPath: string): number {

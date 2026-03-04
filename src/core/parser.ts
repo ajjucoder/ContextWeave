@@ -368,6 +368,62 @@ function parseCalls(
     log.debug("query execution failed in parseCalls", { language, error: err instanceof Error ? err.message : String(err) });
   }
 
+  if (queries.jsxUsages && (language === "tsx" || language === "jsx")) {
+    try {
+      const jsxQuery = new Parser.Query(lang, queries.jsxUsages);
+      const seen = new Set<string>();
+
+      for (const symbol of symbols) {
+        const startLine = symbol.startLine - 1;
+        const endLine = symbol.endLine - 1;
+
+        const matches = jsxQuery.matches(tree.rootNode, {
+          startPosition: { row: startLine, column: 0 },
+          endPosition: { row: endLine, column: Infinity },
+        });
+
+        for (const match of matches) {
+          const componentCapture = match.captures.find((c) => c.name === "component");
+          if (componentCapture) {
+            const callLine = componentCapture.node.startPosition.row + 1;
+            if (callLine < symbol.startLine || callLine > symbol.endLine) continue;
+            const name = componentCapture.node.text;
+            if (name[0] && name[0] === name[0].toUpperCase() && name[0] !== name[0].toLowerCase()) {
+              const key = `${symbol.name}:${name}:jsx`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                calls.push({
+                  callerSymbol: symbol.name,
+                  calleeName: name,
+                  line: callLine,
+                  edgeKind: "jsx_render",
+                });
+              }
+            }
+          }
+
+          const propValueCapture = match.captures.find((c) => c.name === "prop_value");
+          if (propValueCapture) {
+            const callLine = propValueCapture.node.startPosition.row + 1;
+            if (callLine < symbol.startLine || callLine > symbol.endLine) continue;
+            const name = propValueCapture.node.text;
+            const key = `${symbol.name}:${name}:call`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              calls.push({
+                callerSymbol: symbol.name,
+                calleeName: name,
+                line: callLine,
+              });
+            }
+          }
+        }
+      }
+    } catch (err) {
+      log.debug("query execution failed in parseJsxUsages", { language, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
   return calls;
 }
 

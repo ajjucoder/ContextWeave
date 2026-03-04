@@ -24,6 +24,7 @@ export interface LanguageQuerySet {
   typeAliasDeclarations?: string;
   enumDeclarations?: string;
   typeReferences?: string;
+  jsxUsages?: string;
 }
 
 const queryRegistry: Record<string, LanguageQuerySet> = {

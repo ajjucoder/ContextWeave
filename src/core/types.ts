@@ -17,7 +17,8 @@ export type EdgeKind =
   | "reference"
   | "type_usage"
   | "inheritance"
-  | "implements";
+  | "implements"
+  | "jsx_render";
 
 export type CompressionLevel = 0 | 1 | 2 | 3;
 
@@ -134,6 +135,7 @@ export interface ParsedCall {
   callerSymbol: string;
   calleeName: string;
   line: number;
+  edgeKind?: "call" | "jsx_render";
 }
 
 export interface ParseResult {
