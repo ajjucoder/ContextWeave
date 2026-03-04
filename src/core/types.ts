@@ -162,7 +162,7 @@ export interface CapsuleOutput {
   metadata: CapsuleMetadata;
 }
 
-export type CapsuleUncertainty = "low" | "medium" | "high";
+export type CapsuleUncertainty = "very_low" | "low" | "medium" | "high" | "critical";
 
 export interface CapsuleQuality {
   pivotCount: number;

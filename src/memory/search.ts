@@ -14,6 +14,24 @@ interface ScoredObservation {
   score: number;
 }
 
+const PASSIVE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+const SCOPE_WEIGHTS: Record<string, number> = {
+  architecture: 3.0,
+  decision: 2.0,
+  intent: 2.0,
+  pattern: 1.5,
+  passive: 0.3,
+};
+
+function getScopeWeight(scope: string): number {
+  return SCOPE_WEIGHTS[scope] ?? 1.0;
+}
+
+function isExpiredPassive(obs: ObservationRecord): boolean {
+  return obs.scope === "passive" && Date.now() - obs.updatedAt > PASSIVE_TTL_MS;
+}
+
 function formatObservation(obs: ObservationRecord): string {
   const parts = [`[${obs.scope}] ${obs.note}`];
   if (obs.stale && obs.staleReason) {
@@ -39,9 +57,10 @@ export class MemorySearch {
 
     for (const { observation: obs, bm25Score } of rawResults) {
       if (!includeStale && obs.stale) continue;
+      if (isExpiredPassive(obs)) continue;
       if (scope !== undefined && obs.scope !== scope) continue;
 
-      const combinedScore = obs.confidence * bm25Score;
+      const combinedScore = obs.confidence * bm25Score * getScopeWeight(obs.scope);
       scored.push({ observation: obs, score: combinedScore });
     }
 

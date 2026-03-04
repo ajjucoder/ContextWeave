@@ -852,7 +852,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   if (coverageConfidence < confidenceFloor) {
     reasons.push(`overall coverage confidence below ${Math.round(confidenceFloor * 100)}%`);
   }
-  const uncertainty = buildUncertainty(uncertaintyFlag, reasons.length, coverageConfidence);
+  const tokenUtilization = tokenBudget > 0 ? tokensUsed / tokenBudget : 0;
+  const uncertainty = buildUncertainty(uncertaintyFlag, reasons.length, coverageConfidence, tokenUtilization);
 
   const uniqueFiles = new Set(packed.map((node) => node.file.path));
   const clusterGroupStats = new Map<number, { symbolCount: number; fileIds: Set<number> }>();

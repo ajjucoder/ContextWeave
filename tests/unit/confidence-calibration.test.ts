@@ -22,9 +22,9 @@ describe("buildUncertainty calibration", () => {
     expect(uncertainty).toBe("high");
   });
 
-  it("returns low when not low confidence", () => {
+  it("returns very_low when not low confidence and high coverage", () => {
     const uncertainty = buildUncertainty(false, 0, 0.8);
-    expect(uncertainty).toBe("low");
+    expect(uncertainty).toBe("very_low");
   });
 
   it("returns medium when 1 reason and coverage is moderate", () => {

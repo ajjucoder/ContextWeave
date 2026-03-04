@@ -93,13 +93,36 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
   );
 }
 
+const UNCERTAINTY_LEVELS: CapsuleUncertainty[] = ["very_low", "low", "medium", "high", "critical"];
+
 export function buildUncertainty(
   lowConfidence: boolean,
   reasonCount: number,
-  coverageConfidence: number
+  coverageConfidence: number,
+  tokenUtilization?: number
 ): CapsuleUncertainty {
-  if (!lowConfidence) return "low";
-  if (reasonCount >= 3 || coverageConfidence < 0.35) return "high";
-  if (reasonCount >= 2 && coverageConfidence < 0.45) return "high";
-  return "medium";
+  let level: CapsuleUncertainty;
+
+  if (!lowConfidence && coverageConfidence >= 0.7) {
+    level = "very_low";
+  } else if (!lowConfidence) {
+    level = "low";
+  } else if (reasonCount >= 4 || coverageConfidence < 0.2) {
+    level = "critical";
+  } else if (reasonCount >= 3 || coverageConfidence < 0.35) {
+    level = "high";
+  } else if (reasonCount >= 2 && coverageConfidence < 0.45) {
+    level = "high";
+  } else {
+    level = "medium";
+  }
+
+  if (tokenUtilization !== undefined && tokenUtilization >= 0.95) {
+    const idx = UNCERTAINTY_LEVELS.indexOf(level);
+    if (idx < UNCERTAINTY_LEVELS.length - 1) {
+      level = UNCERTAINTY_LEVELS[idx + 1]!;
+    }
+  }
+
+  return level;
 }
