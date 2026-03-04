@@ -14,6 +14,44 @@ const DEFAULT_CONFIG = {
   gcThreshold: 0.1,
 };
 
+const DEFAULT_CWIGNORE = [
+  "# ContextWeave ignore patterns (gitignore syntax)",
+  "# Files matching these patterns will not be indexed",
+  "",
+  "node_modules/",
+  "dist/",
+  "build/",
+  ".git/",
+  ".next/",
+  "coverage/",
+  "__pycache__/",
+  ".turbo/",
+  ".cache/",
+  "venv/",
+  ".venv/",
+  "target/",
+  ".tox/",
+  "vendor/",
+  ".bundle/",
+  "",
+  "# Lock files",
+  "package-lock.json",
+  "yarn.lock",
+  "pnpm-lock.yaml",
+  "",
+  "# Generated files",
+  "*.min.js",
+  "*.min.css",
+  "*.map",
+  "",
+].join("\n");
+
+function writeCwignoreTemplate(projectRoot: string): void {
+  const cwignorePath = resolve(projectRoot, ".cwignore");
+  if (existsSync(cwignorePath)) return;
+  writeFileSync(cwignorePath, DEFAULT_CWIGNORE);
+}
+
 function generateClaudeMd(projectRoot: string): void {
   const claudeDir = resolve(projectRoot, ".claude");
   const claudeMdPath = resolve(claudeDir, "CLAUDE.md");
@@ -83,6 +121,8 @@ export async function autoInit(projectRoot: string): Promise<void> {
   const configPath = resolve(cwDir, "config.json");
   writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n");
 
+  writeCwignoreTemplate(projectRoot);
+
   const dbPath = resolve(cwDir, "contextweave.db");
   const db = getDb(dbPath);
   runMigrations(db);
@@ -113,6 +153,8 @@ export async function runInit(projectRoot: string): Promise<void> {
   const configPath = resolve(cwDir, "config.json");
   writeFileSync(configPath, JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n");
   process.stdout.write(`  Created ${configPath}\n`);
+
+  writeCwignoreTemplate(projectRoot);
 
   const dbPath = resolve(cwDir, "contextweave.db");
   const db = getDb(dbPath);

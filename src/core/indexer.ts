@@ -860,6 +860,21 @@ export async function indexDirectory(
     errors.push(unsupportedSummary);
   }
 
+  const discoveredPaths = new Set(inDirectory.map((f) => f.path));
+  const files = fileQueries(db);
+  const dirPrefix = `${resolvedDirectory}${sep}`;
+  const existingInDir = files.getAll().filter((f) => f.path.startsWith(dirPrefix));
+  let prunedCount = 0;
+  for (const existing of existingInDir) {
+    if (!discoveredPaths.has(existing.path)) {
+      files.deleteById(existing.id);
+      prunedCount++;
+    }
+  }
+  if (prunedCount > 0) {
+    log.info(`pruned ${prunedCount} excluded/deleted files from directory`);
+  }
+
   for (const file of inDirectory) {
     const result = indexSingleFile(db, file.path, projectRoot);
     symbolsFound += result.symbolCount;

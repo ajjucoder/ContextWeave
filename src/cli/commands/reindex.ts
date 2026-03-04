@@ -20,12 +20,14 @@ export async function runReindex(projectRoot: string, targetPath?: string): Prom
 
   const startTime = Date.now();
 
+  const config = loadConfig(projectRoot);
+
   if (targetPath) {
     const fullPath = resolve(projectRoot, targetPath);
     const isDirectory = existsSync(fullPath) && statSync(fullPath).isDirectory();
     process.stdout.write(`Reindexing ${fullPath}${isDirectory ? " (directory)" : ""}...\n`);
     if (isDirectory) {
-      const result = await indexDirectory(db, fullPath, projectRoot);
+      const result = await indexDirectory(db, fullPath, projectRoot, config.ignore);
       runPageRankInBackground(dbPath);
       const elapsed = Date.now() - startTime;
       process.stdout.write(`  ${result.filesIndexed} files, ${result.symbolsFound} symbols (${elapsed}ms)\n`);
@@ -40,7 +42,6 @@ export async function runReindex(projectRoot: string, targetPath?: string): Prom
     }
   } else {
     process.stdout.write("Reindexing entire project...\n");
-    const config = loadConfig(projectRoot);
     const result = await indexProject(db, projectRoot, config.ignore);
     runPageRankInBackground(dbPath);
     const elapsed = Date.now() - startTime;
