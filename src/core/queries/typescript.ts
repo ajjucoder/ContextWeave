@@ -105,6 +105,28 @@ export const typeReferences = `
     name: (type_identifier) @name)) @reference
 `;
 
+export const classHeritage = `
+(class_declaration
+  (class_heritage
+    (extends_clause
+      value: (identifier) @extends))) @definition
+
+(class_declaration
+  (class_heritage
+    (implements_clause
+      (type_identifier) @implements))) @definition
+
+(abstract_class_declaration
+  (class_heritage
+    (extends_clause
+      value: (identifier) @extends))) @definition
+
+(abstract_class_declaration
+  (class_heritage
+    (implements_clause
+      (type_identifier) @implements))) @definition
+`;
+
 export const jsxUsages = `
 (jsx_opening_element
   name: (identifier) @component) @jsx

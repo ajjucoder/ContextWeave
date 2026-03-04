@@ -424,6 +424,90 @@ function parseCalls(
     }
   }
 
+  if (queries.typeReferences) {
+    try {
+      const typeQuery = new Parser.Query(lang, queries.typeReferences);
+      const seen = new Set<string>();
+
+      for (const symbol of symbols) {
+        const startLine = symbol.startLine - 1;
+        const endLine = symbol.endLine - 1;
+
+        const matches = typeQuery.matches(tree.rootNode, {
+          startPosition: { row: startLine, column: 0 },
+          endPosition: { row: endLine, column: Infinity },
+        });
+
+        for (const match of matches) {
+          const nameCapture = match.captures.find((c) => c.name === "name");
+          if (!nameCapture) continue;
+
+          const callLine = nameCapture.node.startPosition.row + 1;
+          if (callLine < symbol.startLine || callLine > symbol.endLine) continue;
+
+          const name = nameCapture.node.text;
+          const key = `${symbol.name}:${name}:type`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            calls.push({
+              callerSymbol: symbol.name,
+              calleeName: name,
+              line: callLine,
+              edgeKind: "type_usage",
+            });
+          }
+        }
+      }
+    } catch (err) {
+      log.debug("query execution failed in parseTypeReferences", { language, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
+  if (queries.classHeritage) {
+    try {
+      const heritageQuery = new Parser.Query(lang, queries.classHeritage);
+
+      for (const symbol of symbols) {
+        if (symbol.kind !== "class") continue;
+        const startLine = symbol.startLine - 1;
+        const endLine = symbol.endLine - 1;
+
+        const matches = heritageQuery.matches(tree.rootNode, {
+          startPosition: { row: startLine, column: 0 },
+          endPosition: { row: endLine, column: Infinity },
+        });
+
+        for (const match of matches) {
+          const extendsCapture = match.captures.find((c) => c.name === "extends");
+          if (extendsCapture) {
+            const callLine = extendsCapture.node.startPosition.row + 1;
+            if (callLine < symbol.startLine || callLine > symbol.endLine) continue;
+            calls.push({
+              callerSymbol: symbol.name,
+              calleeName: extendsCapture.node.text,
+              line: callLine,
+              edgeKind: "inheritance",
+            });
+          }
+
+          const implementsCapture = match.captures.find((c) => c.name === "implements");
+          if (implementsCapture) {
+            const callLine = implementsCapture.node.startPosition.row + 1;
+            if (callLine < symbol.startLine || callLine > symbol.endLine) continue;
+            calls.push({
+              callerSymbol: symbol.name,
+              calleeName: implementsCapture.node.text,
+              line: callLine,
+              edgeKind: "implements",
+            });
+          }
+        }
+      }
+    } catch (err) {
+      log.debug("query execution failed in parseClassHeritage", { language, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
   return calls;
 }
 

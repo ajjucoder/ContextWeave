@@ -135,7 +135,7 @@ export interface ParsedCall {
   callerSymbol: string;
   calleeName: string;
   line: number;
-  edgeKind?: "call" | "jsx_render";
+  edgeKind?: "call" | "jsx_render" | "type_usage" | "inheritance" | "implements";
 }
 
 export interface ParseResult {

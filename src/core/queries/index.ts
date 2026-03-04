@@ -24,6 +24,7 @@ export interface LanguageQuerySet {
   typeAliasDeclarations?: string;
   enumDeclarations?: string;
   typeReferences?: string;
+  classHeritage?: string;
   jsxUsages?: string;
 }
 
