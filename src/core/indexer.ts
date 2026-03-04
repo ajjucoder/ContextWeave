@@ -14,6 +14,7 @@ import { edgeQueries } from "../db/queries/edges.js";
 import { createLogger } from "../utils/logger.js";
 import { upsertFileSummary, backfillSummariesIfNeeded } from "./file-summaries.js";
 import { computeClusters, backfillClustersIfNeeded } from "./clusters.js";
+import { loadTsconfigPaths, resolveAliasedImport, type TsconfigPaths } from "../utils/tsconfig-paths.js";
 
 const log = createLogger("indexer");
 
@@ -350,7 +351,8 @@ function resolveEdges(
   fileId: number,
   filePath: string,
   parseResult: ReturnType<typeof parseFile>,
-  symbolMap: Map<string, number>
+  symbolMap: Map<string, number>,
+  tsconfigPaths?: TsconfigPaths | null
 ): void {
   const edges = edgeQueries(db);
   const symbols = symbolQueries(db);
@@ -386,16 +388,27 @@ function resolveEdges(
   const relativeImportCache = new Map<string, number[]>();
 
   const resolveImportFileIds = (importSource: string): number[] => {
-    if (!importSource.startsWith(".")) return [];
     const cached = relativeImportCache.get(importSource);
     if (cached) return cached;
 
     const candidatePaths = new Set<string>();
-    const basePath = resolve(dirname(filePath), importSource);
-    candidatePaths.add(basePath);
-    for (const ext of IMPORT_RESOLVE_EXTENSIONS) {
-      candidatePaths.add(`${basePath}${ext}`);
-      candidatePaths.add(join(basePath, `index${ext}`));
+
+    if (importSource.startsWith(".")) {
+      const basePath = resolve(dirname(filePath), importSource);
+      candidatePaths.add(basePath);
+      for (const ext of IMPORT_RESOLVE_EXTENSIONS) {
+        candidatePaths.add(`${basePath}${ext}`);
+        candidatePaths.add(join(basePath, `index${ext}`));
+      }
+    } else if (tsconfigPaths) {
+      const resolvedBases = resolveAliasedImport(importSource, tsconfigPaths);
+      for (const base of resolvedBases) {
+        candidatePaths.add(base);
+        for (const ext of IMPORT_RESOLVE_EXTENSIONS) {
+          candidatePaths.add(`${base}${ext}`);
+          candidatePaths.add(join(base, `index${ext}`));
+        }
+      }
     }
 
     const fileIds: number[] = [];
@@ -598,7 +611,8 @@ function writeParseResult(
   language: string,
   parsedAt: number,
   parseResult: ParseResult,
-  shouldResolveEdges = true
+  shouldResolveEdges = true,
+  tsconfigPaths?: TsconfigPaths | null
 ): { symbolCount: number; errors: string[]; diff: IndexDiff | null } {
   const files = fileQueries(db);
   const symbolsDb = symbolQueries(db);
@@ -691,13 +705,14 @@ function writeParseResult(
   }
 
   if (shouldResolveEdges) {
-    resolveEdges(db, fileId, filePath, parseResult, symbolMap);
+    resolveEdges(db, fileId, filePath, parseResult, symbolMap, tsconfigPaths);
   }
   return { symbolCount: parseResult.symbols.length, errors: parseResult.errors, diff };
 }
 
 export async function indexProject(db: Database.Database, projectRoot: string, extraIgnore?: string[]): Promise<{ filesIndexed: number; symbolsFound: number; errors: string[] }> {
   const allErrors: string[] = [];
+  const tsconfigPaths = loadTsconfigPaths(projectRoot);
 
   log.info("starting parallel index", { projectRoot, workers: WORKER_CONCURRENCY });
   const discovery = await discoverFiles(projectRoot, extraIgnore);
@@ -813,7 +828,7 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
         if (!symbolMap.has(symbol.name)) symbolMap.set(symbol.name, symbol.id);
       }
 
-      resolveEdges(db, fileRecord.id, pending.filePath, pending.parseResult, symbolMap);
+      resolveEdges(db, fileRecord.id, pending.filePath, pending.parseResult, symbolMap, tsconfigPaths);
     }
   });
 
@@ -959,7 +974,8 @@ export function indexSingleFile(
 
   const hash = hashFile(content);
   const parseResult = parseFile(resolvedPath, content, language);
-  return writeParseResult(db, resolvedPath, hash, fileMtime, language, Date.now(), parseResult);
+  const tsconfigPaths = loadTsconfigPaths(projectRoot);
+  return writeParseResult(db, resolvedPath, hash, fileMtime, language, Date.now(), parseResult, true, tsconfigPaths);
 }
 
 export function removeFile(db: Database.Database, filePath: string): void {
