@@ -1,5 +1,5 @@
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
-import { resolve } from "node:path";
+import { resolve, relative } from "node:path";
 import type Database from "better-sqlite3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod/v3";
@@ -7,6 +7,7 @@ import { isPathWithinRoot } from "../../core/indexer.js";
 import { fileQueries } from "../../db/queries/files.js";
 import { symbolQueries } from "../../db/queries/symbols.js";
 import { globToRegExp, toProjectRelativePath, withinPath } from "./path-filters.js";
+import { runRipgrepSearch, isRipgrepAvailable } from "./ripgrep.js";
 
 interface MatchSpan {
   start: number;
@@ -166,8 +167,8 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
   };
 
   registerTool(
-    "cw_search",
-    "Search indexed project files by text or regex-like patterns with line-aware snippets.",
+    "cw_grep",
+    "Search project files by text or regex pattern with line-aware snippets and enclosing symbol context. Uses ripgrep when available for fast search.",
     inputSchema,
     async ({
       query,
@@ -193,52 +194,92 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
         const maxResults = max_results ?? 20;
         const scopePath = path?.trim();
         const globRegex = glob && glob.trim().length > 0 ? globToRegExp(glob.trim()) : null;
-        const regex = buildRegex(query, use_regex ?? false, caseSensitive);
 
-        const indexedFiles = fileQueries(db).getAll();
+        const files = fileQueries(db);
         const symbols = symbolQueries(db);
-        if (indexedFiles.length === 0) {
+
+        if (files.getAll().length === 0) {
           return {
             content: [{ type: "text" as const, text: "No indexed files available. Run cw_reindex first." }],
           };
         }
 
+        const useRipgrep = !use_regex && await isRipgrepAvailable();
         const results: SearchResult[] = [];
-        for (const file of indexedFiles) {
-          if (results.length >= maxResults) break;
-          const fullPath = resolve(resolvedRoot, file.path);
-          if (!isSafeProjectPath(fullPath, resolvedRoot)) continue;
-          const relPath = toProjectRelativePath(resolvedRoot, fullPath);
-          if (!withinPath(relPath, scopePath)) continue;
-          if (globRegex && !globRegex.test(relPath)) continue;
 
-          let content: string;
-          try {
-            content = readFileSync(fullPath, "utf-8");
-          } catch {
-            continue;
-          }
-          if (!content) continue;
+        if (useRipgrep) {
+          const searchRoot = scopePath ? resolve(resolvedRoot, scopePath) : resolvedRoot;
+          const rgMatches = await runRipgrepSearch(query, searchRoot, {
+            caseSensitive,
+            glob: glob?.trim() || undefined,
+            maxResults: maxResults * 3,
+          });
 
-          const lineStarts = buildLineStarts(content);
-          const lines = content.split(/\r?\n/);
-          const remaining = maxResults - results.length;
-          const spans = regex
-            ? findRegexMatches(content, regex, remaining)
-            : findLiteralMatches(content, query, caseSensitive, remaining);
+          for (const match of rgMatches) {
+            if (results.length >= maxResults) break;
+            const absPath = resolve(searchRoot, match.path);
+            if (!isSafeProjectPath(absPath, resolvedRoot)) continue;
+            const relPath = toProjectRelativePath(resolvedRoot, absPath);
+            if (globRegex && !globRegex.test(relPath)) continue;
 
-          if (spans.length === 0) continue;
-
-          for (const span of spans) {
-            const lineNumber = lineForOffset(span.start, lineStarts);
-            const enclosing = symbols.getEnclosingSymbol(file.id, lineNumber);
+            const file = files.getByPath(relPath);
+            const enclosing = file ? symbols.getEnclosingSymbol(file.id, match.line) : null;
             const symbolContext = enclosing ? ` [in ${enclosing.kind} ${enclosing.name}]` : "";
+
+            let content: string;
+            try {
+              content = readFileSync(absPath, "utf-8");
+            } catch {
+              continue;
+            }
+            const lines = content.split(/\r?\n/);
             results.push({
               path: relPath + symbolContext,
-              line: lineNumber,
-              snippet: renderSnippet(lines, lineNumber, contextLines),
+              line: match.line,
+              snippet: renderSnippet(lines, match.line, contextLines),
             });
+          }
+        } else {
+          // Fallback: in-process file scan
+          const regex = buildRegex(query, use_regex ?? false, caseSensitive);
+          const indexedFiles = files.getAll();
+
+          for (const file of indexedFiles) {
             if (results.length >= maxResults) break;
+            const fullPath = resolve(resolvedRoot, file.path);
+            if (!isSafeProjectPath(fullPath, resolvedRoot)) continue;
+            const relPath = toProjectRelativePath(resolvedRoot, fullPath);
+            if (!withinPath(relPath, scopePath)) continue;
+            if (globRegex && !globRegex.test(relPath)) continue;
+
+            let content: string;
+            try {
+              content = readFileSync(fullPath, "utf-8");
+            } catch {
+              continue;
+            }
+            if (!content) continue;
+
+            const lineStarts = buildLineStarts(content);
+            const lines = content.split(/\r?\n/);
+            const remaining = maxResults - results.length;
+            const spans = regex
+              ? findRegexMatches(content, regex, remaining)
+              : findLiteralMatches(content, query, caseSensitive, remaining);
+
+            if (spans.length === 0) continue;
+
+            for (const span of spans) {
+              const lineNumber = lineForOffset(span.start, lineStarts);
+              const enclosing = symbols.getEnclosingSymbol(file.id, lineNumber);
+              const symbolContext = enclosing ? ` [in ${enclosing.kind} ${enclosing.name}]` : "";
+              results.push({
+                path: relPath + symbolContext,
+                line: lineNumber,
+                snippet: renderSnippet(lines, lineNumber, contextLines),
+              });
+              if (results.length >= maxResults) break;
+            }
           }
         }
 

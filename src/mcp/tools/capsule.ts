@@ -19,13 +19,15 @@ export function registerCapsuleTool(
     query: z.string().describe("What you're working on or looking for"),
     token_budget: z.number().min(100).max(100000).optional().describe(`Max tokens for the capsule (default: ${defaultBudget})`),
     mode: z.enum(["debug", "refactor", "feature", "review"]).optional().describe(`Task mode affecting scoring weights (default: ${defaultMode})`),
+    path: z.string().optional().describe("Restrict results to files within this directory (relative to project root)"),
+    glob: z.string().optional().describe("Restrict results to files matching this glob pattern, e.g. **/*.ts"),
   };
 
   registerTool(
     "cw_capsule",
     "Generate token-budgeted code context for a query. Returns compressed AST-aware context capsule with multi-level compression.",
     inputSchema,
-    async ({ query, token_budget, mode }: { query: string; token_budget?: number; mode?: CapsuleMode }) => {
+    async ({ query, token_budget, mode, path, glob }: { query: string; token_budget?: number; mode?: CapsuleMode; path?: string; glob?: string }) => {
       try {
         const result = generateCapsule(db, {
           query,
@@ -33,6 +35,8 @@ export function registerCapsuleTool(
           mode: (mode ?? defaultMode) as CapsuleMode,
           sessionId,
           projectRoot,
+          path,
+          glob,
         });
 
         return {

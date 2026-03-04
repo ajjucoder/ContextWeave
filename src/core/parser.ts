@@ -177,22 +177,35 @@ function shouldSkipTrivialSymbol(
   return true;
 }
 
+function languageOverrideExported(name: string, language: string): boolean | null {
+  if (language === "python") {
+    return !name.startsWith("_");
+  }
+  if (language === "go") {
+    return name.length > 0 && /^[A-Z]/.test(name);
+  }
+  return null;
+}
+
 function nodeToSymbol(
   node: Parser.SyntaxNode,
   nameNode: Parser.SyntaxNode,
   kind: SymbolKind,
-  content: string
+  content: string,
+  language: string
 ): ParsedSymbol {
+  const name = nameNode.text;
   const fullSource = node.text;
+  const override = languageOverrideExported(name, language);
   return {
-    name: nameNode.text,
+    name,
     kind,
     startLine: node.startPosition.row + 1,
     endLine: node.endPosition.row + 1,
     signature: buildSignature(node, content),
     fullSource,
     bodyHash: hashContent(fullSource),
-    isExported: isExported(node),
+    isExported: override !== null ? override : isExported(node),
     docComment: extractDocComment(node),
   };
 }
@@ -243,7 +256,7 @@ function parseSymbols(
         }
 
         symbols.push(
-          nodeToSymbol(defCapture.node, nameCapture.node, effectiveKind, content)
+          nodeToSymbol(defCapture.node, nameCapture.node, effectiveKind, content, language)
         );
       }
     } catch (err) {

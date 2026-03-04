@@ -79,8 +79,8 @@ describe("mcp navigation tools", () => {
     expect(text).toContain("symbols:");
   });
 
-  it("cw_search returns snippet matches with optional scope filters", async () => {
-    const result = await getTool(server, "cw_search").handler({
+  it("cw_grep returns snippet matches with optional scope filters", async () => {
+    const result = await getTool(server, "cw_grep").handler({
       query: "validateEmail",
       path: ".",
       glob: "**/*.ts",

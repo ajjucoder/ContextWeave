@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
+import { withinPath, globToRegExp, toProjectRelativePath } from "../mcp/tools/path-filters.js";
 import type {
   CapsuleOutput,
   CapsuleMode,
@@ -61,6 +62,8 @@ interface CapsuleParams {
   sessionId?: string;
   projectRoot?: string;
   maxQueryTimeMs?: number;
+  path?: string;
+  glob?: string;
 }
 
 interface RankedCandidate {
@@ -402,6 +405,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   logger.debug("bfs traversal complete", { nodesVisited: visited.size });
 
+  // Build path/glob restriction set if requested
+  const pathGlobRegex = params.glob ? globToRegExp(params.glob) : null;
+  const scopePath = params.path?.trim() ?? null;
+  const resolvedProjectRoot = params.projectRoot ? resolve(params.projectRoot) : null;
+  const hasPathRestriction = pathGlobRegex !== null || scopePath !== null;
+
   // Phase 3: Stage B reranking (intent + locality + hub dampening)
   const candidates: RankedCandidate[] = [];
   const centralityValues: number[] = [];
@@ -415,6 +424,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     if (!symbol) continue;
     const file = getFile(symbol.fileId);
     if (!file) continue;
+
+    if (hasPathRestriction) {
+      const relPath = resolvedProjectRoot ? toProjectRelativePath(resolvedProjectRoot, file.path) : file.path;
+      if (scopePath && !withinPath(relPath, scopePath)) continue;
+      if (pathGlobRegex && !pathGlobRegex.test(relPath)) continue;
+    }
 
     const degree = batchDegrees.get(symbolId) ?? 0;
     const lexicalScore = getLexicalScore(symbol, file, expandedQueryTerms, exactQueryTermSet);

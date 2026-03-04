@@ -133,11 +133,11 @@ describe("MCP tool schema compatibility", () => {
     expect(parseResult?.success).toBe(true);
   });
 
-  it("cw_search input schema parses valid args", async () => {
+  it("cw_grep input schema parses valid args", async () => {
     const server = new McpServer({ name: "contextweave-test", version: "0.0.0" });
     registerSearchTool(server, null as never, "/tmp/project");
 
-    const parseResult = await getRegisteredTool(server, "cw_search").inputSchema?.safeParseAsync({
+    const parseResult = await getRegisteredTool(server, "cw_grep").inputSchema?.safeParseAsync({
       query: "generateCapsule",
       path: "src/capsule",
       glob: "**/*.ts",
