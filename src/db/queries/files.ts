@@ -19,9 +19,7 @@ export function fileQueries(db: Database.Database) {
   const searchByPath = db.prepare(
     "SELECT * FROM files WHERE path LIKE ? ESCAPE '\\' ORDER BY last_indexed DESC LIMIT ?"
   );
-  const getByPathSuffix = db.prepare(
-    "SELECT * FROM files WHERE path = ? OR path LIKE ? ESCAPE '\\' ORDER BY length(path) ASC LIMIT 1"
-  );
+  const getAllPaths = db.prepare("SELECT id, path FROM files");
   const deleteById = db.prepare("DELETE FROM files WHERE id = ?");
   const deleteByPath = db.prepare("DELETE FROM files WHERE path = ?");
   const countAll = db.prepare("SELECT COUNT(*) as count FROM files");
@@ -93,8 +91,21 @@ export function fileQueries(db: Database.Database) {
     },
 
     getByPathSuffix(suffix: string): FileRecord | undefined {
-      const escaped = suffix.replace(/[\\%_]/g, "\\$&");
-      return mapRow(getByPathSuffix.get(suffix, `%/${escaped}`));
+      const exact = getByPath.get(suffix);
+      if (exact) return mapRow(exact);
+
+      const tail = `/${suffix}`;
+      const rows = getAllPaths.all() as { id: number; path: string }[];
+      let best: { id: number; path: string } | undefined;
+      for (const row of rows) {
+        if (row.path.endsWith(tail)) {
+          if (!best || row.path.length < best.path.length) {
+            best = row;
+          }
+        }
+      }
+      if (!best) return undefined;
+      return mapRow(getById.get(best.id));
     },
 
     deleteById(id: number): void {
