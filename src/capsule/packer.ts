@@ -117,6 +117,28 @@ export function packNodes(
   };
 }
 
+export function enrichL2WithDeps(
+  packed: ScoredNode[],
+  tokensUsed: number,
+  codeBudget: number
+): { packed: ScoredNode[]; tokensUsed: number } {
+  let remaining = codeBudget - tokensUsed;
+
+  const enriched = packed.map((node) => {
+    if (node.compressionLevel !== 2 || !node.outgoingEdges?.length) return node;
+    const rendered = renderSymbol(node.symbol, node.file, 2, node.outgoingEdges);
+    const tokens = countTokens(rendered);
+    const delta = tokens - node.tokenCount;
+    if (delta > 0 && delta <= remaining) {
+      remaining -= delta;
+      return { ...node, rendered, tokenCount: tokens };
+    }
+    return node;
+  });
+
+  return { packed: enriched, tokensUsed: codeBudget - remaining };
+}
+
 export function packNodesStoryMode(
   scoredNodes: ScoredNode[],
   tokenBudget: number,

@@ -40,6 +40,7 @@ export interface CapsuleDiagnostic {
     l3Count: number;
   };
   bottleneck: "pivot_flood" | "bfs_noise" | "packing_scatter" | "budget_exhaustion" | "none";
+  bottlenecks: Array<"pivot_flood" | "bfs_noise" | "packing_scatter" | "budget_exhaustion">;
   bottleneckDetail: string;
   suggestion: string;
 }
@@ -97,31 +98,39 @@ export function diagnose(
     ? metadata.symbolCount / metadata.quality.retrieval.stageBSelectedCount
     : 0;
 
-  let bottleneck: CapsuleDiagnostic["bottleneck"] = "none";
-  let bottleneckDetail = "No obvious bottleneck detected in the current pipeline stages.";
-  let suggestion = "No immediate action needed. Keep monitoring this query class over time.";
+  type BottleneckKind = "pivot_flood" | "bfs_noise" | "packing_scatter" | "budget_exhaustion";
+  const detectedBottlenecks: BottleneckKind[] = [];
+  const details: string[] = [];
+  const suggestions: string[] = [];
 
   if (metadata.quality.retrieval.stageACandidateCount > 200) {
-    bottleneck = "pivot_flood";
-    bottleneckDetail = `Stage A produced ${metadata.quality.retrieval.stageACandidateCount} candidates, overwhelming ranking quality.`;
-    suggestion = "Narrow the initial pivot query terms or apply stronger intent-aware filtering before ranking.";
-  } else if (tokenBudgetUsed > 0.9 && metadata.quality.pivotCoverage < 0.5) {
-    bottleneck = "budget_exhaustion";
-    bottleneckDetail = `Token usage reached ${Math.round(tokenBudgetUsed * 100)}% with only ${Math.round(metadata.quality.pivotCoverage * 100)}% pivot coverage.`;
-    suggestion = "Increase effective retrieval budget or improve compression to preserve higher-value pivots.";
-  } else if (
+    detectedBottlenecks.push("pivot_flood");
+    details.push(`Stage A produced ${metadata.quality.retrieval.stageACandidateCount} candidates, overwhelming ranking quality.`);
+    suggestions.push("Narrow the initial pivot query terms or apply stronger intent-aware filtering before ranking.");
+  }
+  if (tokenBudgetUsed > 0.9 && metadata.quality.pivotCoverage < 0.5) {
+    detectedBottlenecks.push("budget_exhaustion");
+    details.push(`Token usage reached ${Math.round(tokenBudgetUsed * 100)}% with only ${Math.round(metadata.quality.pivotCoverage * 100)}% pivot coverage.`);
+    suggestions.push("Increase effective retrieval budget or improve compression to preserve higher-value pivots.");
+  }
+  if (
     metadata.quality.retrieval.stageBSelectedCount >= 50 &&
     packRetention < 0.35 &&
     metadata.quality.dependencyCoverage < 0.35
   ) {
-    bottleneck = "bfs_noise";
-    bottleneckDetail = `Stage B selected ${metadata.quality.retrieval.stageBSelectedCount} symbols but only ${metadata.symbolCount} were packed.`;
-    suggestion = "Constrain BFS expansion with stronger lexical or module locality guards.";
-  } else if (metadata.fileCount >= 10 && symbolsPerFile < 3) {
-    bottleneck = "packing_scatter";
-    bottleneckDetail = `Packed symbols are spread across ${metadata.fileCount} files at ${symbolsPerFile.toFixed(2)} symbols/file.`;
-    suggestion = "Use story-complete packing to favor denser, coherent file groups before tail references.";
+    detectedBottlenecks.push("bfs_noise");
+    details.push(`Stage B selected ${metadata.quality.retrieval.stageBSelectedCount} symbols but only ${metadata.symbolCount} were packed.`);
+    suggestions.push("Constrain BFS expansion with stronger lexical or module locality guards.");
   }
+  if (metadata.fileCount >= 10 && symbolsPerFile < 3) {
+    detectedBottlenecks.push("packing_scatter");
+    details.push(`Packed symbols are spread across ${metadata.fileCount} files at ${symbolsPerFile.toFixed(2)} symbols/file.`);
+    suggestions.push("Use story-complete packing to favor denser, coherent file groups before tail references.");
+  }
+
+  const bottleneck: CapsuleDiagnostic["bottleneck"] = detectedBottlenecks[0] ?? "none";
+  const bottleneckDetail = details.length > 0 ? details.join(" ") : "No obvious bottleneck detected in the current pipeline stages.";
+  const suggestion = suggestions.length > 0 ? suggestions.join(" ") : "No immediate action needed. Keep monitoring this query class over time.";
 
   return {
     queryClass,
@@ -144,6 +153,7 @@ export function diagnose(
       l3Count,
     },
     bottleneck,
+    bottlenecks: detectedBottlenecks,
     bottleneckDetail,
     suggestion,
   };

@@ -19,8 +19,8 @@ import { expandQueryWithSynonyms } from "../utils/synonyms.js";
 import { getDirectoryWeight } from "../utils/directory-weights.js";
 import { scoreNode, assignCompressionLevel } from "./scorer.js";
 import { rankPivotsWithScores } from "./pivot-scorer.js";
-import { renderSymbol } from "./compressor.js";
-import { packNodes, packNodesStoryMode } from "./packer.js";
+import { renderSymbol, type EdgeSummary } from "./compressor.js";
+import { packNodes, packNodesStoryMode, enrichL2WithDeps } from "./packer.js";
 import { formatCapsule } from "./formatter.js";
 import { diagnose } from "./diagnostics.js";
 import { classifyQueryIntent } from "./intent-classifier.js";
@@ -343,6 +343,14 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const observationBudget = Math.floor(tokenBudget * 0.2);
   const { observations } = memorySearch.getRelevantForCapsule(query, observationBudget);
 
+  // Build symbol → observation count map so scoreNode can use memory signal
+  const observationCountBySymbol = new Map<number, number>();
+  for (const obs of observations) {
+    if (obs.symbolId != null) {
+      observationCountBySymbol.set(obs.symbolId, (observationCountBySymbol.get(obs.symbolId) ?? 0) + 1);
+    }
+  }
+
   const fileCache = new Map<number, FileRecord | undefined>();
   const getFile = (fileId: number): FileRecord | undefined => {
     if (!fileCache.has(fileId)) fileCache.set(fileId, files.getById(fileId));
@@ -385,9 +393,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   }
   const scopeDirs = scopeDirSet.size > 0 ? [...scopeDirSet] : null;
   const maxVisitedNodes = Math.min(300, Math.floor(retrievalBudget / 20));
-  const bfsNodes = skipBfs
-    ? [...pivotSymbolIds].map((id) => ({ symbolId: id, distance: 0 }))
-    : weightedBfsTraversal(db, [...pivotSymbolIds], maxDepth, scopeDirs, { maxVisitedNodes });
+  const effectiveBfsDepth = skipBfs ? 1 : maxDepth;
+  const bfsNodes = weightedBfsTraversal(db, [...pivotSymbolIds], effectiveBfsDepth, scopeDirs, { maxVisitedNodes });
   const visited = new Map<number, number>(bfsNodes.map((n) => [n.symbolId, n.distance]));
 
   logger.debug("bfs traversal complete", { nodesVisited: visited.size });
@@ -468,7 +475,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       distance: candidate.distance,
       centrality: candidate.symbol.centrality,
       lastSeen: candidate.symbol.lastSeen,
-      observationCount: 0,
+      observationCount: observationCountBySymbol.get(candidate.symbol.id) ?? 0,
       isExported: candidate.symbol.isExported,
       isPivot: candidate.isPivot,
       lexicalBoost,
@@ -503,10 +510,40 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     return result;
   }
 
+  function batchFetchOutgoingEdges(symbolIds: number[]): Map<number, EdgeSummary[]> {
+    const result = new Map<number, EdgeSummary[]>();
+    if (symbolIds.length === 0) return result;
+
+    const CHUNK = 400;
+    for (let i = 0; i < symbolIds.length; i += CHUNK) {
+      const chunk = symbolIds.slice(i, i + CHUNK);
+      const placeholders = chunk.map(() => "?").join(",");
+      const rows = db
+        .prepare(
+          `SELECT e.source_symbol_id, s.name AS target_name, e.kind
+           FROM edges e
+           JOIN symbols s ON s.id = e.target_symbol_id
+           WHERE e.source_symbol_id IN (${placeholders})
+             AND e.kind IN ('call', 'import')`
+        )
+        .all(...chunk) as { source_symbol_id: number; target_name: string; kind: string }[];
+
+      for (const row of rows) {
+        const list = result.get(row.source_symbol_id) ?? [];
+        list.push({ targetName: row.target_name, kind: row.kind });
+        result.set(row.source_symbol_id, list);
+      }
+    }
+
+    return result;
+  }
+
   function buildScoredNodes(sel: RankedCandidate[]): ScoredNode[] {
     const maxSc = sel.reduce((max, item) => Math.max(max, item.score), 0);
     const root = getCommonDisplayRoot(sel.map((item) => item.file.path));
     const cache = new Map<number, FileRecord>();
+
+    const outgoingEdgesMap = batchFetchOutgoingEdges(sel.map((c) => c.symbol.id));
 
     return sel.map(({ symbol, file, score, distance }) => {
       const fullSymbol = symbols.getById(symbol.id) ?? {
@@ -518,11 +555,13 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         ({ ...file, path: toDisplayPath(file.path, root) } satisfies FileRecord);
       if (!cache.has(file.id)) cache.set(file.id, displayFile);
 
+      const outgoingEdges = outgoingEdgesMap.get(symbol.id);
       const compressionLevel = assignCompressionLevel(score, distance, maxSc);
+      // Render without edges for initial tokenCount estimate — packer re-renders with edges
       const rendered = renderSymbol(fullSymbol, displayFile, compressionLevel);
       const tokenCount = countTokens(rendered);
 
-      return { symbol: fullSymbol, file: displayFile, score, distance, compressionLevel, rendered, tokenCount };
+      return { symbol: fullSymbol, file: displayFile, score, distance, compressionLevel, rendered, tokenCount, outgoingEdges };
     });
   }
 
@@ -714,7 +753,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     let tokensDelta = 0;
     for (let i = 0; i < packed.length; i++) {
       const node = packed[i]!;
-      if (node.compressionLevel === 0 && recentSymbolIds.has(node.symbol.id)) {
+      if ((node.compressionLevel === 0 || node.compressionLevel === 1) && recentSymbolIds.has(node.symbol.id)) {
         const dedupRendered = `[previously shown] ${node.symbol.signature}`;
         const dedupTokens = countTokens(dedupRendered);
         tokensDelta += dedupTokens - node.tokenCount;
@@ -729,6 +768,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     tokensUsed += tokensDelta;
     logger.debug("dedup pass complete", { recentCount: recentSymbolIds.size, tokensDelta });
   }
+
+  // Enrich L2 nodes with dependency info where remaining budget allows
+  const codeBudgetForEnrich = Math.floor(tokenBudget * codeRatio);
+  const enrichResult = enrichL2WithDeps(packed, tokensUsed, codeBudgetForEnrich);
+  packed = enrichResult.packed;
+  tokensUsed = enrichResult.tokensUsed;
 
   // Phase 7: Quality gate + format + return
   const compressionBreakdown: Record<CompressionLevel, number> = { 0: 0, 1: 0, 2: 0, 3: 0 };

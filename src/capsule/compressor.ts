@@ -1,7 +1,7 @@
 import type { SymbolRecord, FileRecord, CompressionLevel } from "../core/types.js";
 import { countTokens } from "../utils/tokens.js";
 
-interface EdgeSummary {
+export interface EdgeSummary {
   targetName: string;
   kind: string;
 }
@@ -24,7 +24,10 @@ export function renderSymbol(
   }
 
   if (level === 2) {
-    const depNames = edges ? edges.map((e) => e.targetName).join(", ") : "";
+    const MAX_DEPS = 5;
+    const depSlice = edges ? edges.slice(0, MAX_DEPS) : [];
+    const depSuffix = edges && edges.length > MAX_DEPS ? `, +${edges.length - MAX_DEPS} more` : "";
+    const depNames = depSlice.map((e) => e.targetName).join(", ") + depSuffix;
     const lines = [
       `[${symbol.kind}] ${symbol.name} (${file.path}:${symbol.startLine})`,
       `sig: ${symbol.signature}`,

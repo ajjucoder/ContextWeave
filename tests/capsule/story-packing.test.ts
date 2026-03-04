@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { FileRecord, ScoredNode, SymbolRecord } from "../../src/core/types.js";
-import { packNodesStoryMode } from "../../src/capsule/packer.js";
+import { packNodesStoryMode, enrichL2WithDeps } from "../../src/capsule/packer.js";
+import { countTokens } from "../../src/utils/tokens.js";
 
 function makeFile(id: number, path: string): FileRecord {
   return {
@@ -134,5 +135,101 @@ describe("packNodesStoryMode", () => {
     expect(pivot).toBeDefined();
     expect(pivot?.compressionLevel).toBe(0);
     expect(pivot?.tokenCount).toBeGreaterThan(0);
+  });
+});
+
+describe("enrichL2WithDeps", () => {
+  it("adds deps to L2 nodes when budget allows", () => {
+    const file = makeFile(5, "src/service/payment.ts");
+    const symbol = makeSymbol(501, file.id, "processPayment");
+
+    const renderedNoEdges = `[function] processPayment (${file.path}:1)\nsig: ${symbol.signature}`;
+    const initialTokens = countTokens(renderedNoEdges);
+
+    const node: ScoredNode = {
+      symbol,
+      file,
+      score: 8,
+      distance: 1,
+      compressionLevel: 2,
+      rendered: renderedNoEdges,
+      tokenCount: initialTokens,
+      outgoingEdges: [
+        { targetName: "validateCard", kind: "call" },
+        { targetName: "chargeGateway", kind: "call" },
+      ],
+    };
+
+    const budget = initialTokens * 10;
+    const result = enrichL2WithDeps([node], initialTokens, budget);
+
+    expect(result.packed[0]?.rendered).toContain("deps: validateCard, chargeGateway");
+    expect(result.tokensUsed).toBeGreaterThan(initialTokens);
+  });
+
+  it("leaves L2 nodes unchanged when no outgoing edges", () => {
+    const file = makeFile(6, "src/service/order.ts");
+    const symbol = makeSymbol(601, file.id, "getOrder");
+    const rendered = `[function] getOrder (${file.path}:1)\nsig: ${symbol.signature}`;
+    const initialTokens = countTokens(rendered);
+
+    const node: ScoredNode = {
+      symbol,
+      file,
+      score: 6,
+      distance: 2,
+      compressionLevel: 2,
+      rendered,
+      tokenCount: initialTokens,
+    };
+
+    const result = enrichL2WithDeps([node], initialTokens, initialTokens * 10);
+    expect(result.packed[0]?.rendered).toBe(rendered);
+    expect(result.tokensUsed).toBe(initialTokens);
+  });
+
+  it("skips enrichment when remaining budget is insufficient", () => {
+    const file = makeFile(7, "src/service/auth.ts");
+    const symbol = makeSymbol(701, file.id, "authenticate");
+    const rendered = `[function] authenticate (${file.path}:1)\nsig: ${symbol.signature}`;
+    const initialTokens = countTokens(rendered);
+
+    const node: ScoredNode = {
+      symbol,
+      file,
+      score: 7,
+      distance: 1,
+      compressionLevel: 2,
+      rendered,
+      tokenCount: initialTokens,
+      outgoingEdges: [{ targetName: "verifyToken", kind: "call" }],
+    };
+
+    // Budget exactly equal to current tokens — no room for deps
+    const result = enrichL2WithDeps([node], initialTokens, initialTokens);
+    expect(result.packed[0]?.rendered).toBe(rendered);
+    expect(result.tokensUsed).toBe(initialTokens);
+  });
+
+  it("does not touch L0 or L3 nodes", () => {
+    const file = makeFile(8, "src/core/indexer.ts");
+    const symbol = makeSymbol(801, file.id, "indexProject");
+    const rendered = symbol.fullSource;
+    const tokens = countTokens(rendered);
+
+    const l0Node: ScoredNode = {
+      symbol,
+      file,
+      score: 9,
+      distance: 0,
+      compressionLevel: 0,
+      rendered,
+      tokenCount: tokens,
+      outgoingEdges: [{ targetName: "parseFile", kind: "call" }],
+    };
+
+    const result = enrichL2WithDeps([l0Node], tokens, tokens * 10);
+    expect(result.packed[0]?.rendered).toBe(rendered);
+    expect(result.tokensUsed).toBe(tokens);
   });
 });

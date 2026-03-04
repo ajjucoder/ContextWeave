@@ -116,6 +116,30 @@ describe("diagnose", () => {
 
     const result = diagnose(metadata, [5, 4, 3]);
     expect(result.bottleneck).toBe("none");
+    expect(result.bottlenecks).toHaveLength(0);
     expect(result.suggestion.length).toBeGreaterThan(0);
+  });
+
+  it("reports multiple bottlenecks when more than one condition is met simultaneously", () => {
+    const metadata = buildMetadata({
+      tokenBudget: 1000,
+      tokensUsed: 980,
+      fileCount: 12,
+      symbolCount: 20,
+      quality: {
+        ...buildMetadata().quality,
+        pivotCoverage: 0.3,
+        retrieval: {
+          stageACandidateCount: 260,
+          stageBSelectedCount: 80,
+        },
+      },
+    });
+
+    const result = diagnose(metadata, [4, 3, 2]);
+    expect(result.bottlenecks.length).toBeGreaterThanOrEqual(2);
+    expect(result.bottlenecks).toContain("pivot_flood");
+    expect(result.bottlenecks).toContain("budget_exhaustion");
+    expect(result.bottleneck).toBe("pivot_flood");
   });
 });

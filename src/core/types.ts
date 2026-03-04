@@ -151,6 +151,7 @@ export interface ScoredNode {
   compressionLevel: CompressionLevel;
   rendered: string;
   tokenCount: number;
+  outgoingEdges?: { targetName: string; kind: string }[];
 }
 
 export interface CapsuleOutput {
