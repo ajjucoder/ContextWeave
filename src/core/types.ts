@@ -129,6 +129,7 @@ export interface ParsedImport {
   names: string[];
   source: string;
   kind: "named" | "default" | "namespace";
+  isReExport?: boolean;
 }
 
 export interface ParsedCall {

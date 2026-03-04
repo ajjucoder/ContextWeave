@@ -77,6 +77,14 @@ export const importDeclarations = `
   source: (string) @source) @definition
 `;
 
+export const reExportDeclarations = `
+(export_statement
+  (export_clause
+    (export_specifier
+      name: (identifier) @name))
+  source: (string) @source) @definition
+`;
+
 export const exportDeclarations = `
 (export_statement
   declaration: (_) @declaration) @definition

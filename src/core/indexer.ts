@@ -346,13 +346,19 @@ function diffSymbols(existing: SymbolRecord[], parsed: ParsedSymbol[]): IndexDif
   return { added, modified, deleted, renamed, unchanged };
 }
 
+interface ReExportEntry {
+  names: string[];
+  source: string;
+}
+
 function resolveEdges(
   db: Database.Database,
   fileId: number,
   filePath: string,
   parseResult: ReturnType<typeof parseFile>,
   symbolMap: Map<string, number>,
-  tsconfigPaths?: TsconfigPaths | null
+  tsconfigPaths?: TsconfigPaths | null,
+  reExportsByFileId?: Map<number, ReExportEntry[]>
 ): void {
   const edges = edgeQueries(db);
   const symbols = symbolQueries(db);
@@ -422,7 +428,36 @@ function resolveEdges(
     return fileIds;
   };
 
+  const resolveSourceFileIds = (source: string, fromFilePath: string): number[] => {
+    const candidatePaths = new Set<string>();
+    if (source.startsWith(".")) {
+      const basePath = resolve(dirname(fromFilePath), source);
+      candidatePaths.add(basePath);
+      for (const ext of IMPORT_RESOLVE_EXTENSIONS) {
+        candidatePaths.add(`${basePath}${ext}`);
+        candidatePaths.add(join(basePath, `index${ext}`));
+      }
+    } else if (tsconfigPaths) {
+      const resolvedBases = resolveAliasedImport(source, tsconfigPaths);
+      for (const base of resolvedBases) {
+        candidatePaths.add(base);
+        for (const ext of IMPORT_RESOLVE_EXTENSIONS) {
+          candidatePaths.add(`${base}${ext}`);
+          candidatePaths.add(join(base, `index${ext}`));
+        }
+      }
+    }
+    const fileIds: number[] = [];
+    for (const candidatePath of candidatePaths) {
+      const candidateFile = files.getByPath(candidatePath);
+      if (!candidateFile) continue;
+      fileIds.push(candidateFile.id);
+    }
+    return fileIds;
+  };
+
   for (const imp of parseResult.imports) {
+    if (imp.isReExport) continue;
     const importFileIds = resolveImportFileIds(imp.source);
     if (importFileIds.length === 0) continue;
 
@@ -430,10 +465,30 @@ function resolveEdges(
       const targetSymbols = symbols.getByFileId(importFileId);
       for (const name of imp.names) {
         const matches = targetSymbols.filter((symbol) => symbol.name === name);
-        if (matches.length === 0) continue;
-        const bucket = importedTargetsByName.get(name) ?? new Set<number>();
-        for (const match of matches) bucket.add(match.id);
-        importedTargetsByName.set(name, bucket);
+        if (matches.length > 0) {
+          const bucket = importedTargetsByName.get(name) ?? new Set<number>();
+          for (const match of matches) bucket.add(match.id);
+          importedTargetsByName.set(name, bucket);
+          continue;
+        }
+
+        // Barrel file: symbol not defined here, follow re-exports one level
+        if (!reExportsByFileId) continue;
+        const barrelFile = files.getById(importFileId);
+        if (!barrelFile) continue;
+        const barrelReExports = reExportsByFileId.get(importFileId) ?? [];
+        for (const reExport of barrelReExports) {
+          if (!reExport.names.includes(name)) continue;
+          const sourceFileIds = resolveSourceFileIds(reExport.source, barrelFile.path);
+          for (const sourceFileId of sourceFileIds) {
+            const sourceSymbols = symbols.getByFileId(sourceFileId);
+            const sourceMatches = sourceSymbols.filter((s) => s.name === name);
+            if (sourceMatches.length === 0) continue;
+            const bucket = importedTargetsByName.get(name) ?? new Set<number>();
+            for (const m of sourceMatches) bucket.add(m.id);
+            importedTargetsByName.set(name, bucket);
+          }
+        }
       }
     }
   }
@@ -469,6 +524,7 @@ function resolveEdges(
   };
 
   for (const imp of parseResult.imports) {
+    if (imp.isReExport) continue;
     for (const name of imp.names) {
       const targetIds = pickTargets(name);
       if (targetIds.length === 0) continue;
@@ -815,9 +871,23 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
 
   indexAll();
 
+  const reExportsByPath = new Map<string, ReExportEntry[]>();
+  for (const pending of pendingEdgeResolutions) {
+    const reExports = pending.parseResult.imports.filter((imp) => imp.isReExport);
+    if (reExports.length > 0) {
+      reExportsByPath.set(pending.filePath, reExports.map((imp) => ({ names: imp.names, source: imp.source })));
+    }
+  }
+
   const resolveAllEdges = db.transaction(() => {
     const filesDb = fileQueries(db);
     const symbolsDb = symbolQueries(db);
+
+    const reExportsByFileId = new Map<number, ReExportEntry[]>();
+    for (const [filePath, reExports] of reExportsByPath) {
+      const fileRecord = filesDb.getByPath(filePath);
+      if (fileRecord) reExportsByFileId.set(fileRecord.id, reExports);
+    }
 
     for (const pending of pendingEdgeResolutions) {
       const fileRecord = filesDb.getByPath(pending.filePath);
@@ -828,7 +898,7 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
         if (!symbolMap.has(symbol.name)) symbolMap.set(symbol.name, symbol.id);
       }
 
-      resolveEdges(db, fileRecord.id, pending.filePath, pending.parseResult, symbolMap, tsconfigPaths);
+      resolveEdges(db, fileRecord.id, pending.filePath, pending.parseResult, symbolMap, tsconfigPaths, reExportsByFileId);
     }
   });
 

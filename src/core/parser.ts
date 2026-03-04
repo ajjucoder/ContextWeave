@@ -321,6 +321,27 @@ function parseImports(
     log.debug("query execution failed in parseImports", { language, error: err instanceof Error ? err.message : String(err) });
   }
 
+  if (queries.reExportDeclarations) {
+    try {
+      const reExportQuery = new Parser.Query(lang, queries.reExportDeclarations);
+      const matches = reExportQuery.matches(tree.rootNode);
+
+      for (const match of matches) {
+        const sourceCapture = match.captures.find((c) => c.name === "source");
+        const nameCaptures = match.captures.filter((c) => c.name === "name");
+
+        if (!sourceCapture || nameCaptures.length === 0) continue;
+
+        const source = sourceCapture.node.text.replace(/^['"]|['"]$/g, "");
+        const names = nameCaptures.map((c) => c.node.text);
+
+        imports.push({ names, source, kind: "named", isReExport: true });
+      }
+    } catch (err) {
+      log.debug("query execution failed in parseReExports", { language, error: err instanceof Error ? err.message : String(err) });
+    }
+  }
+
   return imports;
 }
 

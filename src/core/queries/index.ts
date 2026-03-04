@@ -26,6 +26,7 @@ export interface LanguageQuerySet {
   typeReferences?: string;
   classHeritage?: string;
   jsxUsages?: string;
+  reExportDeclarations?: string;
 }
 
 const queryRegistry: Record<string, LanguageQuerySet> = {
