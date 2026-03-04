@@ -1,7 +1,18 @@
 import type Database from "better-sqlite3";
 import type { LightSymbolRecord, SymbolRecord } from "../../core/types.js";
 
-export function symbolQueries(db: Database.Database) {
+type SymbolQueriesResult = ReturnType<typeof symbolQueriesImpl>;
+const symbolQueriesCache = new WeakMap<Database.Database, SymbolQueriesResult>();
+
+export function symbolQueries(db: Database.Database): SymbolQueriesResult {
+  const cached = symbolQueriesCache.get(db);
+  if (cached) return cached;
+  const result = symbolQueriesImpl(db);
+  symbolQueriesCache.set(db, result);
+  return result;
+}
+
+function symbolQueriesImpl(db: Database.Database) {
   const insert = db.prepare(`
     INSERT INTO symbols (file_id, name, kind, start_line, end_line, signature, body_hash, full_source, is_exported, doc_comment, centrality, last_seen)
     VALUES (@fileId, @name, @kind, @startLine, @endLine, @signature, @bodyHash, @fullSource, @isExported, @docComment, @centrality, @lastSeen)
@@ -9,6 +20,12 @@ export function symbolQueries(db: Database.Database) {
 
   const updateCentrality = db.prepare("UPDATE symbols SET centrality = @centrality WHERE id = @id");
   const getByFileId = db.prepare("SELECT * FROM symbols WHERE file_id = ?");
+  const getByFileIdLight = db.prepare(
+    "SELECT id, file_id, name, kind, start_line, end_line, signature, body_hash, is_exported, doc_comment, centrality, last_seen FROM symbols WHERE file_id = ?"
+  );
+  const getByNameLight = db.prepare(
+    "SELECT id, file_id, name, kind, start_line, end_line, signature, body_hash, is_exported, doc_comment, centrality, last_seen FROM symbols WHERE name = ?"
+  );
   const getById = db.prepare("SELECT * FROM symbols WHERE id = ?");
   const getByIdLight = db.prepare(
     "SELECT id, file_id, name, kind, start_line, end_line, signature, body_hash, is_exported, doc_comment, centrality, last_seen FROM symbols WHERE id = ?"
@@ -108,6 +125,14 @@ export function symbolQueries(db: Database.Database) {
 
     getByFileId(fileId: number): SymbolRecord[] {
       return getByFileId.all(fileId).map(mapRow).filter(Boolean) as SymbolRecord[];
+    },
+
+    getByFileIdLight(fileId: number): LightSymbolRecord[] {
+      return getByFileIdLight.all(fileId).map(mapRowLight).filter(Boolean) as LightSymbolRecord[];
+    },
+
+    getByNameLight(name: string): LightSymbolRecord[] {
+      return getByNameLight.all(name).map(mapRowLight).filter(Boolean) as LightSymbolRecord[];
     },
 
     getById(id: number): SymbolRecord | undefined {

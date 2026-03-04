@@ -21,6 +21,11 @@ export function countTokens(text: string): number {
   return tokenCount;
 }
 
+export function estimateTokens(text: string): number {
+  if (text.length === 0) return 0;
+  return Math.ceil(text.length / CHARS_PER_TOKEN_ESTIMATE);
+}
+
 export function tokenBudgetToChars(tokens: number): number {
   return Math.floor(tokens * CHARS_PER_TOKEN_ESTIMATE);
 }

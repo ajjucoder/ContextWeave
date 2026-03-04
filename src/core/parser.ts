@@ -68,12 +68,18 @@ export function detectLanguage(filePath: string): string | null {
   return extensionToLanguage[ext] ?? null;
 }
 
+const parserCache = new Map<string, Parser>();
+
 export function initParser(language: string): Parser {
+  const cached = parserCache.get(language);
+  if (cached) return cached;
+
   const getLanguage = languageModules[language];
   if (!getLanguage) throw new Error(`Unsupported language: ${language}`);
 
   const parser = new Parser();
   parser.setLanguage(getLanguage());
+  parserCache.set(language, parser);
   return parser;
 }
 

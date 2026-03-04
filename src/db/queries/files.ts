@@ -1,7 +1,18 @@
 import type Database from "better-sqlite3";
 import type { FileRecord } from "../../core/types.js";
 
-export function fileQueries(db: Database.Database) {
+type FileQueriesResult = ReturnType<typeof fileQueriesImpl>;
+const fileQueriesCache = new WeakMap<Database.Database, FileQueriesResult>();
+
+export function fileQueries(db: Database.Database): FileQueriesResult {
+  const cached = fileQueriesCache.get(db);
+  if (cached) return cached;
+  const result = fileQueriesImpl(db);
+  fileQueriesCache.set(db, result);
+  return result;
+}
+
+function fileQueriesImpl(db: Database.Database) {
   const insert = db.prepare(`
     INSERT INTO files (path, hash, last_indexed, mtime, language, symbol_count, error)
     VALUES (@path, @hash, @lastIndexed, @mtime, @language, @symbolCount, @error)

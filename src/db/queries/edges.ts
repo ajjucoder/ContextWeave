@@ -8,7 +8,18 @@ export interface EdgeRowStream {
   createdAt: number;
 }
 
-export function edgeQueries(db: Database.Database) {
+type EdgeQueriesResult = ReturnType<typeof edgeQueriesImpl>;
+const edgeQueriesCache = new WeakMap<Database.Database, EdgeQueriesResult>();
+
+export function edgeQueries(db: Database.Database): EdgeQueriesResult {
+  const cached = edgeQueriesCache.get(db);
+  if (cached) return cached;
+  const result = edgeQueriesImpl(db);
+  edgeQueriesCache.set(db, result);
+  return result;
+}
+
+function edgeQueriesImpl(db: Database.Database) {
   const insert = db.prepare(`
     INSERT OR IGNORE INTO edges (source_symbol_id, target_symbol_id, kind, created_at)
     VALUES (@sourceSymbolId, @targetSymbolId, @kind, @createdAt)

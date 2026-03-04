@@ -14,7 +14,7 @@ import { fileQueries } from "../db/queries/files.js";
 import { getBatchSymbolDegrees } from "../core/graph.js";
 import { weightedBfsTraversal } from "../core/weighted-bfs.js";
 import { fuzzyMatch } from "../utils/fuzzy.js";
-import { countTokens } from "../utils/tokens.js";
+import { countTokens, estimateTokens } from "../utils/tokens.js";
 import { expandQueryWithSynonyms } from "../utils/synonyms.js";
 import { getDirectoryWeight } from "../utils/directory-weights.js";
 import { scoreNode, assignCompressionLevel } from "./scorer.js";
@@ -241,7 +241,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     for (const match of pathMatches.slice(0, perTermPathMatchCap)) {
       const file = pathCandidateCache.get(match.name);
       if (!file) continue;
-      const fileSymbols = symbols.getByFileId(file.id);
+      const fileSymbols = symbols.getByFileIdLight(file.id);
       for (const symbol of fileSymbols) {
         rawPivotIds.add(symbol.id);
         if (rawPivotIds.size >= maxStageARaw) break;
@@ -264,7 +264,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       if (rawPivotIds.size >= maxStageARaw) break;
       if (coveredFileIds.has(file.id)) continue;
       if (!filePathMatchesQueryTerms(filePath, exactQueryTerms)) continue;
-      const fileSymbols = symbols.getByFileId(file.id);
+      const fileSymbols = symbols.getByFileIdLight(file.id);
       for (const symbol of fileSymbols) {
         rawPivotIds.add(symbol.id);
         if (rawPivotIds.size >= maxStageARaw) break;
@@ -364,7 +364,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const pivotDirs = new Set<string>();
   const localityPivotDirs = new Set<string>();
   for (const id of pivotSymbolIds) {
-    const symbol = symbols.getById(id);
+    const symbol = symbols.getByIdLight(id);
     if (!symbol) continue;
     const file = getFile(symbol.fileId);
     if (!file) continue;
@@ -562,7 +562,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       const compressionLevel = assignCompressionLevel(score, distance, maxSc);
       // Render without edges for initial tokenCount estimate — packer re-renders with edges
       const rendered = renderSymbol(fullSymbol, displayFile, compressionLevel);
-      const tokenCount = countTokens(rendered);
+      const tokenCount = estimateTokens(rendered);
 
       return { symbol: fullSymbol, file: displayFile, score, distance, compressionLevel, rendered, tokenCount, outgoingEdges };
     });
