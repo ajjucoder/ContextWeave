@@ -211,20 +211,23 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   for (const term of expandedQueryTerms) {
     if (rawPivotIds.size >= maxStageARaw) break;
 
-    if (term.length >= 3) {
+    // Phase 1: exact case-insensitive name match
+    const EXACT_MATCH_THRESHOLD = 3;
+    const exactMatches = symbols.getByNameCI(term);
+    const exactFiltered = candidateFileIds
+      ? exactMatches.filter((s) => candidateFileIds.has(s.fileId))
+      : exactMatches;
+    for (const symbol of exactFiltered.slice(0, perTermSymbolCap)) {
+      rawPivotIds.add(symbol.id);
+      if (rawPivotIds.size >= maxStageARaw) break;
+    }
+
+    // Phase 2: FTS — only if exact match didn't find enough results
+    if (exactFiltered.length < EXACT_MATCH_THRESHOLD && term.length >= 3) {
       const ftsMatches = symbols.searchFTS(term, perTermSymbolCap);
       const filtered = candidateFileIds
         ? ftsMatches.filter((s) => candidateFileIds.has(s.fileId))
         : ftsMatches;
-      for (const symbol of filtered.slice(0, perTermSymbolCap)) {
-        rawPivotIds.add(symbol.id);
-        if (rawPivotIds.size >= maxStageARaw) break;
-      }
-    } else {
-      const matched = symbols.getByName(term);
-      const filtered = candidateFileIds
-        ? matched.filter((s) => candidateFileIds.has(s.fileId))
-        : matched;
       for (const symbol of filtered.slice(0, perTermSymbolCap)) {
         rawPivotIds.add(symbol.id);
         if (rawPivotIds.size >= maxStageARaw) break;
@@ -394,7 +397,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const scopeDirs = scopeDirSet.size > 0 ? [...scopeDirSet] : null;
   const maxVisitedNodes = Math.min(300, Math.floor(retrievalBudget / 20));
   const effectiveBfsDepth = skipBfs ? 1 : maxDepth;
-  const bfsNodes = weightedBfsTraversal(db, [...pivotSymbolIds], effectiveBfsDepth, scopeDirs, { maxVisitedNodes });
+  const bfsNodes = weightedBfsTraversal(db, [...pivotSymbolIds], effectiveBfsDepth, scopeDirs, { maxVisitedNodes, maxHops: 8 });
   const visited = new Map<number, number>(bfsNodes.map((n) => [n.symbolId, n.distance]));
 
   logger.debug("bfs traversal complete", { nodesVisited: visited.size });

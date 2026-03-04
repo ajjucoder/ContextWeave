@@ -14,6 +14,7 @@ export function symbolQueries(db: Database.Database) {
     "SELECT id, file_id, name, kind, start_line, end_line, signature, body_hash, is_exported, doc_comment, centrality, last_seen FROM symbols WHERE id = ?"
   );
   const getByName = db.prepare("SELECT * FROM symbols WHERE name = ?");
+  const getByNameCI = db.prepare("SELECT * FROM symbols WHERE name = ? COLLATE NOCASE");
   const getByFileAndName = db.prepare(
     "SELECT * FROM symbols WHERE file_id = ? AND name = ? ORDER BY centrality DESC LIMIT 1"
   );
@@ -119,6 +120,10 @@ export function symbolQueries(db: Database.Database) {
 
     getByName(name: string): SymbolRecord[] {
       return getByName.all(name).map(mapRow).filter(Boolean) as SymbolRecord[];
+    },
+
+    getByNameCI(name: string): SymbolRecord[] {
+      return getByNameCI.all(name).map(mapRow).filter(Boolean) as SymbolRecord[];
     },
 
     getByFileAndName(fileId: number, name: string): SymbolRecord | undefined {

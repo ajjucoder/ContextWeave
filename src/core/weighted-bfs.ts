@@ -9,6 +9,7 @@ export interface WeightedBfsNode {
 export interface BfsOptions {
   maxVisitedNodes?: number;
   incomingEdgeCostMultiplier?: number;
+  maxHops?: number;
 }
 
 interface EdgeRow {
@@ -72,9 +73,10 @@ export function weightedBfsTraversal(
   };
 
   const visited = new Map<number, number>();
+  const visitedHops = new Map<number, number>();
 
-  const queue: Array<{ symbolId: number; distance: number }> = [];
-  const enqueue = (symbolId: number, distance: number) => {
+  const queue: Array<{ symbolId: number; distance: number; hopCount: number }> = [];
+  const enqueue = (symbolId: number, distance: number, hopCount: number) => {
     let lo = 0;
     let hi = queue.length;
     while (lo < hi) {
@@ -82,16 +84,18 @@ export function weightedBfsTraversal(
       if (queue[mid]!.distance <= distance) lo = mid + 1;
       else hi = mid;
     }
-    queue.splice(lo, 0, { symbolId, distance });
+    queue.splice(lo, 0, { symbolId, distance, hopCount });
   };
 
   for (const id of pivotIds) {
     visited.set(id, 0);
-    enqueue(id, 0);
+    visitedHops.set(id, 0);
+    enqueue(id, 0, 0);
   }
 
   const maxNodes = options.maxVisitedNodes ?? 300;
   const incomingMult = options.incomingEdgeCostMultiplier ?? 1.5;
+  const maxHops = options.maxHops;
 
   while (queue.length > 0) {
     if (visited.size >= maxNodes) break;
@@ -101,12 +105,15 @@ export function weightedBfsTraversal(
     const bestKnown = visited.get(current.symbolId);
     if (bestKnown !== undefined && bestKnown < current.distance) continue;
     if (current.distance >= maxDepth) continue;
+    if (maxHops !== undefined && current.hopCount >= maxHops) continue;
 
     const sourcePathRow = getFilePath.get(current.symbolId) as { path: string } | undefined;
     const sourceDir = sourcePathRow ? dirname(sourcePathRow.path) : "";
 
     const outgoing = getOutgoing.all(current.symbolId) as EdgeRow[];
     const incoming = getIncoming.all(current.symbolId) as EdgeRow[];
+
+    const newHopCount = current.hopCount + 1;
 
     for (const edge of outgoing) {
       if (!isInScope(edge.file_path)) continue;
@@ -117,7 +124,8 @@ export function weightedBfsTraversal(
       const existing = visited.get(edge.symbol_id);
       if (existing !== undefined && existing <= newDist) continue;
       visited.set(edge.symbol_id, newDist);
-      enqueue(edge.symbol_id, newDist);
+      visitedHops.set(edge.symbol_id, newHopCount);
+      enqueue(edge.symbol_id, newDist, newHopCount);
     }
 
     for (const edge of incoming) {
@@ -129,7 +137,8 @@ export function weightedBfsTraversal(
       const existing = visited.get(edge.symbol_id);
       if (existing !== undefined && existing <= newDist) continue;
       visited.set(edge.symbol_id, newDist);
-      enqueue(edge.symbol_id, newDist);
+      visitedHops.set(edge.symbol_id, newHopCount);
+      enqueue(edge.symbol_id, newDist, newHopCount);
     }
   }
 
