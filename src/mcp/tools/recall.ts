@@ -30,13 +30,26 @@ export function registerRecallTool(server: McpServer, db: Database.Database): vo
           };
         }
 
+        const intentional = results.filter(({ observation }) => observation.scope !== "passive");
+        const passive = results.filter(({ observation }) => observation.scope === "passive");
         const lines = [`Memory recall for "${query}" (${results.length} results):\n`];
 
-        for (const { observation: obs } of results) {
-          const staleTag = obs.stale ? " [STALE]" : "";
-          const confidenceTag = obs.confidence < 1.0 ? ` (confidence: ${obs.confidence.toFixed(2)})` : "";
-          lines.push(`[${obs.scope}]${staleTag}${confidenceTag} ${obs.note}`);
-        }
+        const renderGroup = (
+          title: string,
+          grouped: Array<{ observation: { scope: string; stale: boolean; confidence: number; note: string } }>
+        ) => {
+          if (grouped.length === 0) return;
+          lines.push(`${title}:`);
+          for (const { observation: obs } of grouped) {
+            const staleTag = obs.stale ? " [STALE]" : "";
+            const confidenceTag = obs.confidence < 1.0 ? ` (confidence: ${obs.confidence.toFixed(2)})` : "";
+            lines.push(`- [${obs.scope}]${staleTag}${confidenceTag} ${obs.note}`);
+          }
+          lines.push("");
+        };
+
+        renderGroup("Intentional observations", intentional);
+        renderGroup("Passive observations", passive);
 
         return {
           content: [{ type: "text" as const, text: lines.join("\n") }],

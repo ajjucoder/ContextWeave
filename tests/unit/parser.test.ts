@@ -107,6 +107,28 @@ describe("parseFile", () => {
     expect(fsImport?.names).toContain("readFile");
   });
 
+  it("extracts js-like import/re-export aliases and export-star declarations", () => {
+    const content = `
+import { add as sum } from "./math";
+export { add as plus } from "./math";
+export * from "./shared";
+`;
+    const parsed = parseFile("module.ts", content, "typescript");
+
+    const aliasedImport = parsed.imports.find((imp) => imp.source === "./math" && !imp.isReExport);
+    expect(aliasedImport).toBeDefined();
+    expect(aliasedImport?.names).toContain("sum");
+    expect(aliasedImport?.specifiers).toEqual([{ localName: "sum", importedName: "add" }]);
+
+    const reExportAlias = parsed.imports.find((imp) => imp.source === "./math" && imp.isReExport);
+    expect(reExportAlias).toBeDefined();
+    expect(reExportAlias?.specifiers).toEqual([{ localName: "plus", importedName: "add" }]);
+
+    const exportAll = parsed.imports.find((imp) => imp.source === "./shared" && imp.isReExport);
+    expect(exportAll).toBeDefined();
+    expect(exportAll?.exportAll).toBe(true);
+  });
+
   it("extracts call references", () => {
     expect(result.calls.length).toBeGreaterThan(0);
   });
@@ -176,6 +198,28 @@ describe("parseFile", () => {
     expect(names).toContain("UserService");
     expect(names).toContain("greet");
     expect(names).toContain("build_service");
+  });
+
+  it("honors python __all__ for module-level export detection", () => {
+    const content = `
+__all__ = ["public_api"]
+
+def public_api():
+  return 1
+
+def _internal():
+  return 2
+
+class Service:
+  def method(self):
+    return 3
+`;
+    const parsed = parseFile("exports.py", content, "python");
+    const byName = new Map(parsed.symbols.map((symbol) => [symbol.name, symbol]));
+
+    expect(byName.get("public_api")?.isExported).toBe(true);
+    expect(byName.get("_internal")?.isExported).toBe(false);
+    expect(byName.get("method")?.isExported).toBe(false);
   });
 
   it("parses go interface embedding constructs", () => {

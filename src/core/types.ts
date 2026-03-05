@@ -14,11 +14,13 @@ export type SymbolKind =
 export type EdgeKind =
   | "import"
   | "call"
+  | "reexport"
   | "reference"
   | "type_usage"
   | "inheritance"
   | "implements"
-  | "jsx_render";
+  | "jsx_render"
+  | "framework_entry";
 
 export type CompressionLevel = 0 | 1 | 2 | 3;
 
@@ -130,6 +132,11 @@ export interface ParsedImport {
   source: string;
   kind: "named" | "default" | "namespace";
   isReExport?: boolean;
+  exportAll?: boolean;
+  specifiers?: Array<{
+    localName: string;
+    importedName: string;
+  }>;
 }
 
 export interface ParsedCall {

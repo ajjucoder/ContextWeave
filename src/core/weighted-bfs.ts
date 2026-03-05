@@ -20,12 +20,14 @@ interface EdgeRow {
 
 const EDGE_WEIGHTS: Record<string, number> = {
   import: 0.8,
+  reexport: 0.1,
   call: 1.0,
   type_usage: 0.9,
   reference: 1.2,
   inheritance: 0.6,
   implements: 0.7,
   jsx_render: 0.8,
+  framework_entry: 0.55,
 };
 
 function edgeCost(kind: string, sourceDir: string, targetDir: string, targetPath: string): number {
@@ -45,7 +47,7 @@ function edgeCost(kind: string, sourceDir: string, targetDir: string, targetPath
 export function weightedBfsTraversal(
   db: Database.Database,
   pivotIds: number[],
-  maxDepth: number,
+  maxCost: number,
   scopeDirs?: string[] | null,
   options: BfsOptions = {}
 ): WeightedBfsNode[] {
@@ -104,7 +106,7 @@ export function weightedBfsTraversal(
 
     const bestKnown = visited.get(current.symbolId);
     if (bestKnown !== undefined && bestKnown < current.distance) continue;
-    if (current.distance >= maxDepth) continue;
+    if (current.distance >= maxCost) continue;
     if (maxHops !== undefined && current.hopCount >= maxHops) continue;
 
     const sourcePathRow = getFilePath.get(current.symbolId) as { path: string } | undefined;
@@ -113,14 +115,13 @@ export function weightedBfsTraversal(
     const outgoing = getOutgoing.all(current.symbolId) as EdgeRow[];
     const incoming = getIncoming.all(current.symbolId) as EdgeRow[];
 
-    const newHopCount = current.hopCount + 1;
-
     for (const edge of outgoing) {
       if (!isInScope(edge.file_path)) continue;
       const targetDir = dirname(edge.file_path);
       const cost = edgeCost(edge.kind, sourceDir, targetDir, edge.file_path);
       const newDist = current.distance + cost;
-      if (newDist >= maxDepth) continue;
+      if (newDist >= maxCost) continue;
+      const newHopCount = current.hopCount + 1;
       const existing = visited.get(edge.symbol_id);
       if (existing !== undefined && existing <= newDist) continue;
       visited.set(edge.symbol_id, newDist);
@@ -133,7 +134,8 @@ export function weightedBfsTraversal(
       const targetDir = dirname(edge.file_path);
       const cost = edgeCost(edge.kind, sourceDir, targetDir, edge.file_path) * incomingMult;
       const newDist = current.distance + cost;
-      if (newDist >= maxDepth) continue;
+      if (newDist >= maxCost) continue;
+      const newHopCount = current.hopCount + 1;
       const existing = visited.get(edge.symbol_id);
       if (existing !== undefined && existing <= newDist) continue;
       visited.set(edge.symbol_id, newDist);

@@ -1,87 +1,48 @@
-import Database from "better-sqlite3";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createSchema } from "../../src/db/schema.js";
-import { runMigrations } from "../../src/db/migrations.js";
-import { indexProject } from "../../src/core/indexer.js";
-import { updateCentralityScores } from "../../src/core/graph.js";
-import { generateCapsule } from "../../src/capsule/generator.js";
 import {
-  NARROW_QUERIES,
-  BROAD_QUERIES,
-  TASK_QUERIES,
-  NARROW_TOKEN_BUDGET,
-  BROAD_TOKEN_BUDGET,
-  TASK_TOKEN_BUDGET,
-} from "./task-query-fixtures.js";
+  runEvalSuite,
+  toBaseline,
+  DEFAULT_BASELINE,
+  type EvalBaseline,
+} from "../eval/eval-runner.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const BASELINE_PATH = resolve(__dirname, "./quality-baseline.json");
+const BASELINE_PATH = resolve(__dirname, "../eval/quality-baseline.json");
 
-interface QueryClassBaseline {
-  avgConfidence: number;
-  minConfidence: number;
-}
-
-interface QualityBaseline {
-  narrow: QueryClassBaseline;
-  broad: QueryClassBaseline;
-  task: QueryClassBaseline;
-  updatedAt: string;
-}
-
-function measureClass(
-  db: Database.Database,
-  queries: readonly string[],
-  tokenBudget: number
-): QueryClassBaseline {
-  const confidences = queries.map((query) =>
-    generateCapsule(db, { query, tokenBudget }).metadata.quality.coverageConfidence
-  );
-
-  return {
-    avgConfidence: confidences.reduce((sum, value) => sum + value, 0) / confidences.length,
-    minConfidence: Math.min(...confidences),
-  };
-}
-
-function loadExistingBaseline(): QualityBaseline | null {
+function loadExistingBaseline(): EvalBaseline | null {
   if (!existsSync(BASELINE_PATH)) return null;
-  return JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as QualityBaseline;
+  return JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as EvalBaseline;
 }
 
-function ratchet(existing: QueryClassBaseline | undefined, current: QueryClassBaseline): QueryClassBaseline {
+function ratchetMetrics(
+  existing: EvalBaseline["metrics"] | undefined,
+  current: EvalBaseline["metrics"]
+): EvalBaseline["metrics"] {
   if (!existing) return current;
   return {
+    precision: Math.max(existing.precision, current.precision),
+    recall: Math.max(existing.recall, current.recall),
     avgConfidence: Math.max(existing.avgConfidence, current.avgConfidence),
-    minConfidence: Math.max(existing.minConfidence, current.minConfidence),
+    avgTokenEfficiency: Math.max(existing.avgTokenEfficiency, current.avgTokenEfficiency),
+    p95LatencyMs: Math.max(existing.p95LatencyMs, current.p95LatencyMs),
   };
 }
 
 async function main(): Promise<void> {
-  const db = new Database(":memory:");
-  db.pragma("foreign_keys = ON");
+  const run = await runEvalSuite();
+  const current = toBaseline(run);
+  const existing = loadExistingBaseline() ?? DEFAULT_BASELINE;
 
-  createSchema(db);
-  runMigrations(db);
-  await indexProject(db, resolve(__dirname, "../../src"));
-  updateCentralityScores(db);
+  const codebases: EvalBaseline["codebases"] = {};
+  for (const [codebaseId, currentMetrics] of Object.entries(current.codebases)) {
+    codebases[codebaseId] = ratchetMetrics(existing.codebases[codebaseId], currentMetrics);
+  }
 
-  const current: QualityBaseline = {
-    narrow: measureClass(db, NARROW_QUERIES, NARROW_TOKEN_BUDGET),
-    broad: measureClass(db, BROAD_QUERIES, BROAD_TOKEN_BUDGET),
-    task: measureClass(db, TASK_QUERIES, TASK_TOKEN_BUDGET),
-    updatedAt: new Date().toISOString(),
-  };
-
-  db.close();
-
-  const existing = loadExistingBaseline();
-  const next: QualityBaseline = {
-    narrow: ratchet(existing?.narrow, current.narrow),
-    broad: ratchet(existing?.broad, current.broad),
-    task: ratchet(existing?.task, current.task),
+  const next: EvalBaseline = {
+    metrics: ratchetMetrics(existing.metrics, current.metrics),
+    codebases,
     updatedAt: current.updatedAt,
   };
 

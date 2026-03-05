@@ -4,6 +4,7 @@ const TABLES = `
 CREATE TABLE IF NOT EXISTS files (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   path         TEXT    NOT NULL UNIQUE,
+  basename     TEXT    NOT NULL DEFAULT '',
   hash         TEXT    NOT NULL,
   last_indexed INTEGER NOT NULL,
   mtime        INTEGER NOT NULL DEFAULT 0,
@@ -135,6 +136,7 @@ CREATE TABLE IF NOT EXISTS file_clusters (
 
 const INDEXES = `
 CREATE INDEX IF NOT EXISTS idx_files_path ON files(path);
+CREATE INDEX IF NOT EXISTS idx_files_basename_path ON files(basename, path);
 CREATE INDEX IF NOT EXISTS idx_symbols_file_id ON symbols(file_id);
 CREATE INDEX IF NOT EXISTS idx_symbols_name ON symbols(name);
 CREATE INDEX IF NOT EXISTS idx_symbols_body_hash ON symbols(body_hash);

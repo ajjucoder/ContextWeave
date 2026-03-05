@@ -79,7 +79,9 @@ export function renderPage() {
 
     const pageEdges = edges.getBySource(renderPage!.id);
     const importEdges = pageEdges.filter((e) => e.kind === "import");
+    const reexportEdges = pageEdges.filter((e) => e.kind === "reexport");
     const importTargetIds = new Set(importEdges.map((e) => e.targetSymbolId));
+    const reexportTargetIds = new Set(reexportEdges.map((e) => e.targetSymbolId));
 
     const allFormatDates = symbols.getByName("formatDate");
     expect(allFormatDates.length).toBe(2);
@@ -99,11 +101,13 @@ export function renderPage() {
     // Must target the barrel-resolved file's symbol, not both
     expect(importTargetIds.has(utilsFormatDate!.id)).toBe(true);
     expect(importTargetIds.has(legacyFormatDate!.id)).toBe(false);
+    expect(reexportTargetIds.has(utilsFormatDate!.id)).toBe(true);
+    expect(reexportTargetIds.has(legacyFormatDate!.id)).toBe(false);
 
     db.close();
   });
 
-  it("falls through to actual symbol when barrel re-exports with alias", async () => {
+  it("resolves renamed barrel re-exports (export { add as sum })", async () => {
     const root = makeTempProject();
     mkdirSync(join(root, "src", "lib"), { recursive: true });
     mkdirSync(join(root, "src"), { recursive: true });
@@ -120,16 +124,16 @@ export function renderPage() {
     // Barrel re-exports with rename: export { add as sum }
     writeFileSync(
       join(root, "src", "index.ts"),
-      `export { add } from "./lib/math";
+      `export { add as sum } from "./lib/math";
 `
     );
 
     writeFileSync(
       join(root, "src", "app", "calc.ts"),
-      `import { add } from "../index";
+      `import { sum } from "../index";
 
 export function calculate() {
-  return add(1, 2);
+  return sum(1, 2);
 }
 `
     );
@@ -147,7 +151,9 @@ export function calculate() {
 
     const calcEdges = edges.getBySource(calculate!.id);
     const importEdges = calcEdges.filter((e) => e.kind === "import");
+    const reexportEdges = calcEdges.filter((e) => e.kind === "reexport");
     const importTargetIds = new Set(importEdges.map((e) => e.targetSymbolId));
+    const reexportTargetIds = new Set(reexportEdges.map((e) => e.targetSymbolId));
 
     const libAdd = symbols.getByName("add").find((s) => {
       const file = files.getById(s.fileId);
@@ -156,6 +162,66 @@ export function calculate() {
 
     expect(libAdd).toBeDefined();
     expect(importTargetIds.has(libAdd!.id)).toBe(true);
+    expect(reexportTargetIds.has(libAdd!.id)).toBe(true);
+
+    db.close();
+  });
+
+  it("resolves export-star barrel re-exports (export * from ...)", async () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "lib"), { recursive: true });
+    mkdirSync(join(root, "src"), { recursive: true });
+    mkdirSync(join(root, "src", "app"), { recursive: true });
+
+    writeFileSync(
+      join(root, "src", "lib", "math.ts"),
+      `export function multiply(a: number, b: number): number {
+  return a * b;
+}
+`
+    );
+
+    writeFileSync(
+      join(root, "src", "index.ts"),
+      `export * from "./lib/math";
+`
+    );
+
+    writeFileSync(
+      join(root, "src", "app", "calc.ts"),
+      `import { multiply } from "../index";
+
+export function calculate() {
+  return multiply(2, 3);
+}
+`
+    );
+
+    const db = new Database(":memory:");
+    runMigrations(db);
+    await indexProject(db, root);
+
+    const symbols = symbolQueries(db);
+    const edges = edgeQueries(db);
+    const files = fileQueries(db);
+
+    const calculate = symbols.getByName("calculate").find((s) => s.kind === "function");
+    expect(calculate).toBeDefined();
+
+    const calcEdges = edges.getBySource(calculate!.id);
+    const importEdges = calcEdges.filter((e) => e.kind === "import");
+    const reexportEdges = calcEdges.filter((e) => e.kind === "reexport");
+    const importTargetIds = new Set(importEdges.map((e) => e.targetSymbolId));
+    const reexportTargetIds = new Set(reexportEdges.map((e) => e.targetSymbolId));
+
+    const libMultiply = symbols.getByName("multiply").find((s) => {
+      const file = files.getById(s.fileId);
+      return file?.path.includes("lib/math");
+    });
+
+    expect(libMultiply).toBeDefined();
+    expect(importTargetIds.has(libMultiply!.id)).toBe(true);
+    expect(reexportTargetIds.has(libMultiply!.id)).toBe(true);
 
     db.close();
   });

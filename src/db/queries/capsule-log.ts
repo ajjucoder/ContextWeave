@@ -7,9 +7,10 @@ export function capsuleLogQueries(db: Database.Database) {
     VALUES (@sessionId, @query, @mode, @tokenBudget, @tokensUsed, @symbolsIncluded, @filesIncluded, @timestamp, @followedUp, @missRatio, @noiseRatio)
   `);
 
-  const getBySession = db.prepare("SELECT * FROM capsule_log WHERE session_id = ? ORDER BY timestamp DESC");
-  const getLatest = db.prepare("SELECT * FROM capsule_log ORDER BY timestamp DESC LIMIT 1");
-  const getRecent = db.prepare("SELECT * FROM capsule_log ORDER BY timestamp DESC LIMIT ?");
+  const getBySession = db.prepare("SELECT * FROM capsule_log WHERE session_id = ? ORDER BY id DESC");
+  const getBySessionAndQuery = db.prepare("SELECT * FROM capsule_log WHERE session_id = ? AND query = ? ORDER BY id DESC LIMIT 1");
+  const getLatest = db.prepare("SELECT * FROM capsule_log ORDER BY id DESC LIMIT 1");
+  const getRecent = db.prepare("SELECT * FROM capsule_log ORDER BY id DESC LIMIT ?");
   const updateFeedback = db.prepare(
     "UPDATE capsule_log SET followed_up = @followedUp, miss_ratio = @missRatio, noise_ratio = @noiseRatio WHERE id = @id"
   );
@@ -53,6 +54,10 @@ export function capsuleLogQueries(db: Database.Database) {
 
     getBySession(sessionId: string): CapsuleLogRecord[] {
       return getBySession.all(sessionId).map(mapRow).filter(Boolean) as CapsuleLogRecord[];
+    },
+
+    getBySessionAndQuery(sessionId: string, query: string): CapsuleLogRecord | undefined {
+      return mapRow(getBySessionAndQuery.get(sessionId, query));
     },
 
     getLatest(): CapsuleLogRecord | undefined {

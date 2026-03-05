@@ -1,3 +1,12 @@
+const FRAMEWORK_ENTRY_EXT = String.raw`\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$`;
+const FRAMEWORK_ENTRY_RE = new RegExp(
+  `(^|/)middleware${FRAMEWORK_ENTRY_EXT}|/app/.+/route${FRAMEWORK_ENTRY_EXT}|/app/.+/(page|layout)${FRAMEWORK_ENTRY_EXT}`
+);
+
+export function isFrameworkEntryPath(filePath: string): boolean {
+  return FRAMEWORK_ENTRY_RE.test(filePath.replace(/\\/g, "/").toLowerCase());
+}
+
 export function extractPathTerms(filePath: string): string[] {
   // Strip extension, then split on path separators and common delimiters
   const withoutExt = filePath.replace(/\.[^.]+$/, "");

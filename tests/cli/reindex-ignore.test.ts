@@ -56,4 +56,45 @@ describe("CLI reindex passes config.ignore to targeted reindex", () => {
 
     db.close();
   });
+
+  it("targeted directory reindex merges config.exclude and config.excludePatterns", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cw-reindex-exclude-"));
+    tempRoots.push(root);
+
+    mkdirSync(join(root, ".contextweave"), { recursive: true });
+    mkdirSync(join(root, "src", "generated-code"), { recursive: true });
+    mkdirSync(join(root, "src", "tmp"), { recursive: true });
+    mkdirSync(join(root, "src", "lib"), { recursive: true });
+    writeFileSync(join(root, "src", "lib", "main.ts"), "export const main = 1;\n");
+    writeFileSync(join(root, "src", "generated-code", "output.ts"), "export const gen = 1;\n");
+    writeFileSync(join(root, "src", "tmp", "cache.gen.ts"), "export const cache = 1;\n");
+
+    writeFileSync(
+      join(root, ".contextweave", "config.json"),
+      JSON.stringify({
+        version: 1,
+        ignore: [],
+        exclude: ["generated-code"],
+        excludePatterns: ["**/*.gen.ts"],
+        tokenBudget: 4000,
+        defaultMode: "feature",
+        stalenessDepth: 2,
+        confidenceDecay: 0.1,
+        gcThreshold: 0.1,
+      })
+    );
+
+    const { runReindex } = await import("../../src/cli/commands/reindex.js");
+    await runReindex(root, "src");
+
+    const dbPath = resolve(root, ".contextweave", "contextweave.db");
+    const db = new Database(dbPath);
+    const paths = fileQueries(db).getAll().map((f) => f.path);
+
+    expect(paths.some((path) => path.includes("main.ts"))).toBe(true);
+    expect(paths.some((path) => path.includes("generated-code"))).toBe(false);
+    expect(paths.some((path) => path.includes("cache.gen.ts"))).toBe(false);
+
+    db.close();
+  });
 });

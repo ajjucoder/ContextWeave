@@ -14,13 +14,13 @@ export function fileQueries(db: Database.Database): FileQueriesResult {
 
 function fileQueriesImpl(db: Database.Database) {
   const insert = db.prepare(`
-    INSERT INTO files (path, hash, last_indexed, mtime, language, symbol_count, error)
-    VALUES (@path, @hash, @lastIndexed, @mtime, @language, @symbolCount, @error)
+    INSERT INTO files (path, basename, hash, last_indexed, mtime, language, symbol_count, error)
+    VALUES (@path, @basename, @hash, @lastIndexed, @mtime, @language, @symbolCount, @error)
   `);
 
   const update = db.prepare(`
     UPDATE files
-    SET hash = @hash, last_indexed = @lastIndexed, mtime = @mtime, symbol_count = @symbolCount, error = @error
+    SET basename = @basename, hash = @hash, last_indexed = @lastIndexed, mtime = @mtime, symbol_count = @symbolCount, error = @error
     WHERE id = @id
   `);
 
@@ -30,12 +30,25 @@ function fileQueriesImpl(db: Database.Database) {
   const searchByPath = db.prepare(
     "SELECT * FROM files WHERE path LIKE ? ESCAPE '\\' ORDER BY last_indexed DESC LIMIT ?"
   );
-  const getAllPaths = db.prepare("SELECT id, path FROM files");
+  const getByBasenameSuffix = db.prepare(`
+    SELECT *
+    FROM files
+    WHERE basename = ?
+      AND (path = ? OR path LIKE ? ESCAPE '\\')
+    ORDER BY LENGTH(path) ASC
+    LIMIT 1
+  `);
   const deleteById = db.prepare("DELETE FROM files WHERE id = ?");
   const deleteByPath = db.prepare("DELETE FROM files WHERE path = ?");
   const countAll = db.prepare("SELECT COUNT(*) as count FROM files");
   const countStale = db.prepare("SELECT COUNT(*) as count FROM files WHERE mtime > last_indexed");
   const updateMtime = db.prepare("UPDATE files SET mtime = ? WHERE id = ?");
+
+  function basenameForPath(path: string): string {
+    const normalized = path.replace(/\\/g, "/");
+    const idx = normalized.lastIndexOf("/");
+    return idx >= 0 ? normalized.slice(idx + 1) : normalized;
+  }
 
   function mapRow(row: unknown): FileRecord | undefined {
     if (!row) return undefined;
@@ -56,6 +69,7 @@ function fileQueriesImpl(db: Database.Database) {
     insert(file: Omit<FileRecord, "id">): number {
       const result = insert.run({
         path: file.path,
+        basename: basenameForPath(file.path),
         hash: file.hash,
         lastIndexed: file.lastIndexed,
         mtime: file.mtime,
@@ -69,6 +83,7 @@ function fileQueriesImpl(db: Database.Database) {
     update(file: FileRecord): void {
       update.run({
         id: file.id,
+        basename: basenameForPath(file.path),
         hash: file.hash,
         lastIndexed: file.lastIndexed,
         mtime: file.mtime,
@@ -102,21 +117,14 @@ function fileQueriesImpl(db: Database.Database) {
     },
 
     getByPathSuffix(suffix: string): FileRecord | undefined {
-      const exact = getByPath.get(suffix);
+      const normalizedSuffix = suffix.replace(/\\/g, "/");
+      const exact = getByPath.get(suffix) ?? getByPath.get(normalizedSuffix);
       if (exact) return mapRow(exact);
 
-      const tail = `/${suffix}`;
-      const rows = getAllPaths.all() as { id: number; path: string }[];
-      let best: { id: number; path: string } | undefined;
-      for (const row of rows) {
-        if (row.path.endsWith(tail)) {
-          if (!best || row.path.length < best.path.length) {
-            best = row;
-          }
-        }
-      }
-      if (!best) return undefined;
-      return mapRow(getById.get(best.id));
+      const basename = basenameForPath(normalizedSuffix);
+      if (!basename) return undefined;
+      const escapedSuffix = normalizedSuffix.replace(/[\\%_]/g, "\\$&");
+      return mapRow(getByBasenameSuffix.get(basename, normalizedSuffix, `%/${escapedSuffix}`));
     },
 
     deleteById(id: number): void {

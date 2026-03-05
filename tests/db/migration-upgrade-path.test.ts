@@ -31,7 +31,7 @@ describe("DB migration upgrade path", () => {
     db.close();
   });
 
-  it("records all 5 migration versions in schema_migrations", () => {
+  it("records all 6 migration versions in schema_migrations", () => {
     const db = new Database(":memory:");
     db.pragma("foreign_keys = ON");
     runMigrations(db);
@@ -41,7 +41,7 @@ describe("DB migration upgrade path", () => {
       .all() as Array<{ version: number }>;
     const versions = applied.map((r) => r.version);
 
-    expect(versions).toEqual([1, 2, 3, 4, 5]);
+    expect(versions).toEqual([1, 2, 3, 4, 5, 6]);
 
     db.close();
   });
@@ -71,7 +71,7 @@ describe("DB migration upgrade path", () => {
         .get() as { cnt: number }
     ).cnt;
 
-    expect(count).toBe(5);
+    expect(count).toBe(6);
 
     db.close();
   });

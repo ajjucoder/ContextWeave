@@ -12,6 +12,7 @@ import { fileQueries } from "../db/queries/files.js";
 import { symbolQueries } from "../db/queries/symbols.js";
 import { edgeQueries } from "../db/queries/edges.js";
 import { createLogger } from "../utils/logger.js";
+import { isFrameworkEntryPath } from "../utils/path-retrieval.js";
 import { upsertFileSummary, backfillSummariesIfNeeded } from "./file-summaries.js";
 import { computeClusters, backfillClustersIfNeeded } from "./clusters.js";
 import { loadTsconfigPaths, resolveAliasedImport, type TsconfigPaths } from "../utils/tsconfig-paths.js";
@@ -170,19 +171,6 @@ function isAlwaysIgnored(relativePath: string): boolean {
   return ALWAYS_IGNORE_PATTERNS.some((re) => re.test(fileName) || re.test(normalizedPath));
 }
 
-function matchesExtraIgnore(relativePath: string, pattern: string): boolean {
-  const normalizedPath = relativePath.replace(/\\/g, "/");
-  const normalizedPattern = pattern.replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/$/, "");
-  if (!normalizedPattern) return false;
-
-  if (normalizedPattern.includes("/")) {
-    return normalizedPath === normalizedPattern || normalizedPath.startsWith(`${normalizedPattern}/`);
-  }
-
-  const parts = normalizedPath.split("/").filter(Boolean);
-  return parts.includes(normalizedPattern);
-}
-
 function summarizeUnsupportedFiles(unsupportedByExtension: Map<string, number>): string | null {
   if (unsupportedByExtension.size === 0) return null;
 
@@ -243,7 +231,7 @@ async function discoverFiles(
 
       if (entry.isDirectory()) {
         if (shouldIgnore(fullPath)) continue;
-        if (extraIgnore && extraIgnore.length > 0 && extraIgnore.some((pattern) => matchesExtraIgnore(relativePath, pattern))) continue;
+        if (extraIgnore && extraIgnore.length > 0 && isIgnoredByGitignore(relativePath, extraIgnore)) continue;
         pendingDirs.push(fullPath);
         continue;
       }
@@ -253,7 +241,7 @@ async function discoverFiles(
       if (isAlwaysIgnored(relativePath)) continue;
       if (gitignorePatterns.length > 0 && isIgnoredByGitignore(relativePath, gitignorePatterns)) continue;
       if (cwignorePatterns.length > 0 && isIgnoredByGitignore(relativePath, cwignorePatterns)) continue;
-      if (extraIgnore && extraIgnore.length > 0 && extraIgnore.some((pattern) => matchesExtraIgnore(relativePath, pattern))) continue;
+      if (extraIgnore && extraIgnore.length > 0 && isIgnoredByGitignore(relativePath, extraIgnore)) continue;
       const language = detectLanguage(fullPath);
       if (!language) {
         const extension = extname(entry.name).toLowerCase() || "<no-extension>";
@@ -347,8 +335,35 @@ function diffSymbols(existing: SymbolRecord[], parsed: ParsedSymbol[]): IndexDif
 }
 
 interface ReExportEntry {
-  names: string[];
   source: string;
+  exportAll: boolean;
+  specifiers: Array<{
+    exportedName: string;
+    importedName: string;
+  }>;
+}
+
+interface TargetCandidate {
+  id: number;
+  viaReexport: boolean;
+}
+
+function extractReExports(parseResult: ParseResult): ReExportEntry[] {
+  const entries: ReExportEntry[] = [];
+  for (const imp of parseResult.imports) {
+    if (!imp.isReExport) continue;
+    entries.push({
+      source: imp.source,
+      exportAll: imp.exportAll ?? false,
+      specifiers: (imp.specifiers ?? imp.names.map((name) => ({ localName: name, importedName: name }))).map(
+        (specifier) => ({
+          exportedName: specifier.localName,
+          importedName: specifier.importedName,
+        })
+      ),
+    });
+  }
+  return entries;
 }
 
 function resolveEdges(
@@ -366,6 +381,7 @@ function resolveEdges(
   const now = Date.now();
   const fileSymbols = symbols.getByFileId(fileId);
   if (fileSymbols.length === 0) return;
+  const sourceIsFrameworkEntry = isFrameworkEntryPath(filePath);
 
   for (const symbol of fileSymbols) {
     edges.deleteBySource(symbol.id);
@@ -391,7 +407,33 @@ function resolveEdges(
   }
 
   const importedTargetsByName = new Map<string, Set<number>>();
+  const importedReExportTargetsByName = new Map<string, Set<number>>();
   const relativeImportCache = new Map<string, number[]>();
+  const fileRecordCache = new Map<number, ReturnType<typeof files.getById>>();
+  const fileSymbolsCache = new Map<number, ReturnType<typeof symbols.getByFileId>>();
+  const reExportCache = reExportsByFileId ?? new Map<number, ReExportEntry[]>();
+  const reExportResolutionCache = new Map<string, number[]>();
+
+  const getFileRecord = (id: number) => {
+    if (!fileRecordCache.has(id)) {
+      fileRecordCache.set(id, files.getById(id));
+    }
+    return fileRecordCache.get(id);
+  };
+
+  const getFileSymbols = (id: number) => {
+    if (!fileSymbolsCache.has(id)) {
+      fileSymbolsCache.set(id, symbols.getByFileId(id));
+    }
+    return fileSymbolsCache.get(id) ?? [];
+  };
+
+  const addImportedTarget = (name: string, symbolId: number, viaReexport: boolean) => {
+    const map = viaReexport ? importedReExportTargetsByName : importedTargetsByName;
+    const bucket = map.get(name) ?? new Set<number>();
+    bucket.add(symbolId);
+    map.set(name, bucket);
+  };
 
   const resolveImportFileIds = (importSource: string): number[] => {
     const cached = relativeImportCache.get(importSource);
@@ -456,38 +498,117 @@ function resolveEdges(
     return fileIds;
   };
 
+  const getReExportsForFile = (targetFileId: number): ReExportEntry[] => {
+    const cached = reExportCache.get(targetFileId);
+    if (cached) return cached;
+
+    const file = getFileRecord(targetFileId);
+    if (!file) {
+      reExportCache.set(targetFileId, []);
+      return [];
+    }
+
+    try {
+      const language = detectLanguage(file.path);
+      if (!language) {
+        reExportCache.set(targetFileId, []);
+        return [];
+      }
+      const content = readFileSync(file.path, "utf-8");
+      const parsed = parseFile(file.path, content, language);
+      const entries = extractReExports(parsed);
+      reExportCache.set(targetFileId, entries);
+      return entries;
+    } catch {
+      reExportCache.set(targetFileId, []);
+      return [];
+    }
+  };
+
+  const resolveReExportTargets = (
+    targetFileId: number,
+    exportedName: string,
+    visited = new Set<number>()
+  ): number[] => {
+    const cacheKey = `${targetFileId}:${exportedName}`;
+    const cached = reExportResolutionCache.get(cacheKey);
+    if (cached) return cached;
+    if (visited.has(targetFileId)) return [];
+    visited.add(targetFileId);
+
+    const file = getFileRecord(targetFileId);
+    if (!file) {
+      reExportResolutionCache.set(cacheKey, []);
+      return [];
+    }
+
+    const resolved = new Set<number>();
+    const reExports = getReExportsForFile(targetFileId);
+
+    for (const reExport of reExports) {
+      const lookups = reExport.exportAll
+        ? [exportedName]
+        : reExport.specifiers
+          .filter((specifier) => specifier.exportedName === exportedName)
+          .map((specifier) => specifier.importedName);
+      if (lookups.length === 0) continue;
+
+      const sourceFileIds = resolveSourceFileIds(reExport.source, file.path);
+      for (const sourceFileId of sourceFileIds) {
+        const sourceFile = getFileRecord(sourceFileId);
+        if (!sourceFile) continue;
+        const sourceSymbols = getFileSymbols(sourceFileId);
+        for (const lookupName of lookups) {
+          for (const sourceSymbol of sourceSymbols) {
+            if (sourceSymbol.name === lookupName) {
+              resolved.add(sourceSymbol.id);
+            }
+          }
+          for (const nestedId of resolveReExportTargets(sourceFileId, lookupName, new Set(visited))) {
+            resolved.add(nestedId);
+          }
+        }
+      }
+    }
+
+    const out = [...resolved];
+    reExportResolutionCache.set(cacheKey, out);
+    return out;
+  };
+
+  const importNamePairs = (imp: ParseResult["imports"][number]): Array<{ localName: string; lookupName: string }> => {
+    const specifiers = imp.specifiers;
+    if (specifiers && specifiers.length > 0) {
+      return specifiers.map((specifier) => ({
+        localName: specifier.localName,
+        lookupName: specifier.importedName,
+      }));
+    }
+    return imp.names.map((name) => ({
+      localName: name,
+      lookupName: name,
+    }));
+  };
+
   for (const imp of parseResult.imports) {
     if (imp.isReExport) continue;
     const importFileIds = resolveImportFileIds(imp.source);
     if (importFileIds.length === 0) continue;
+    const pairs = importNamePairs(imp);
 
     for (const importFileId of importFileIds) {
-      const targetSymbols = symbols.getByFileId(importFileId);
-      for (const name of imp.names) {
-        const matches = targetSymbols.filter((symbol) => symbol.name === name);
+      const targetSymbols = getFileSymbols(importFileId);
+      for (const pair of pairs) {
+        const matches = targetSymbols.filter((symbol) => symbol.name === pair.lookupName);
         if (matches.length > 0) {
-          const bucket = importedTargetsByName.get(name) ?? new Set<number>();
-          for (const match of matches) bucket.add(match.id);
-          importedTargetsByName.set(name, bucket);
+          for (const match of matches) {
+            addImportedTarget(pair.localName, match.id, false);
+          }
           continue;
         }
 
-        // Barrel file: symbol not defined here, follow re-exports one level
-        if (!reExportsByFileId) continue;
-        const barrelFile = files.getById(importFileId);
-        if (!barrelFile) continue;
-        const barrelReExports = reExportsByFileId.get(importFileId) ?? [];
-        for (const reExport of barrelReExports) {
-          if (!reExport.names.includes(name)) continue;
-          const sourceFileIds = resolveSourceFileIds(reExport.source, barrelFile.path);
-          for (const sourceFileId of sourceFileIds) {
-            const sourceSymbols = symbols.getByFileId(sourceFileId);
-            const sourceMatches = sourceSymbols.filter((s) => s.name === name);
-            if (sourceMatches.length === 0) continue;
-            const bucket = importedTargetsByName.get(name) ?? new Set<number>();
-            for (const m of sourceMatches) bucket.add(m.id);
-            importedTargetsByName.set(name, bucket);
-          }
+        for (const targetId of resolveReExportTargets(importFileId, pair.lookupName)) {
+          addImportedTarget(pair.localName, targetId, true);
         }
       }
     }
@@ -507,44 +628,77 @@ function resolveEdges(
     return fallbackTargets;
   };
 
-  const pickTargets = (name: string): number[] => {
-    const combined = new Set<number>();
-    const local = localTargetsByName.get(name);
+  const pickTargets = (localName: string, lookupName?: string): TargetCandidate[] => {
+    const combined = new Map<number, TargetCandidate>();
+    const local = localTargetsByName.get(localName);
     if (local) {
-      for (const id of local) combined.add(id);
+      for (const id of local) combined.set(id, { id, viaReexport: false });
     }
-    const imported = importedTargetsByName.get(name);
+    const imported = importedTargetsByName.get(localName);
     if (imported) {
-      for (const id of imported) combined.add(id);
+      for (const id of imported) {
+        if (!combined.has(id)) combined.set(id, { id, viaReexport: false });
+      }
+    }
+    const importedViaReexport = importedReExportTargetsByName.get(localName);
+    if (importedViaReexport) {
+      for (const id of importedViaReexport) {
+        const existing = combined.get(id);
+        if (existing) {
+          existing.viaReexport = true;
+        } else {
+          combined.set(id, { id, viaReexport: true });
+        }
+      }
     }
     if (combined.size === 0) {
-      for (const id of getGlobalFallbackTargets(name)) combined.add(id);
+      const fallbackName = lookupName ?? localName;
+      for (const id of getGlobalFallbackTargets(fallbackName)) {
+        combined.set(id, { id, viaReexport: false });
+      }
     }
-    return [...combined].slice(0, MAX_EDGE_TARGETS_PER_REFERENCE);
+    return [...combined.values()].slice(0, MAX_EDGE_TARGETS_PER_REFERENCE);
   };
 
   for (const imp of parseResult.imports) {
     if (imp.isReExport) continue;
-    for (const name of imp.names) {
-      const targetIds = pickTargets(name);
-      if (targetIds.length === 0) continue;
+    const pairs = importNamePairs(imp);
+    for (const pair of pairs) {
+      const targetCandidates = pickTargets(pair.localName, pair.lookupName);
+      if (targetCandidates.length === 0) continue;
 
-      const callSourceIds = [...(callerIdsByCallee.get(name) ?? new Set<number>())];
+      const callSourceIds = [...(callerIdsByCallee.get(pair.localName) ?? new Set<number>())];
       const sourceIds = (
         callSourceIds.length > 0
           ? callSourceIds
-          : [symbolMap.get(name) ?? fileSymbols[0]?.id].filter((id): id is number => id !== undefined)
+          : [symbolMap.get(pair.localName) ?? fileSymbols[0]?.id].filter((id): id is number => id !== undefined)
       ).slice(0, MAX_IMPORT_EDGE_SOURCES);
 
       for (const sourceId of sourceIds) {
-        for (const targetId of targetIds) {
-          if (sourceId === targetId) continue;
+        for (const target of targetCandidates) {
+          if (sourceId === target.id) continue;
           edges.insert({
             sourceSymbolId: sourceId,
-            targetSymbolId: targetId,
+            targetSymbolId: target.id,
             kind: "import",
             createdAt: now,
           });
+          if (target.viaReexport) {
+            edges.insert({
+              sourceSymbolId: sourceId,
+              targetSymbolId: target.id,
+              kind: "reexport",
+              createdAt: now,
+            });
+          }
+          if (sourceIsFrameworkEntry) {
+            edges.insert({
+              sourceSymbolId: sourceId,
+              targetSymbolId: target.id,
+              kind: "framework_entry",
+              createdAt: now,
+            });
+          }
         }
       }
     }
@@ -554,16 +708,24 @@ function resolveEdges(
     const callerId = symbolMap.get(call.callerSymbol);
     if (!callerId) continue;
 
-    const targetIds = pickTargets(call.calleeName);
+    const targetCandidates = pickTargets(call.calleeName);
     const kind = call.edgeKind ?? "call";
-    for (const targetId of targetIds) {
-      if (callerId === targetId) continue;
+    for (const target of targetCandidates) {
+      if (callerId === target.id) continue;
       edges.insert({
         sourceSymbolId: callerId,
-        targetSymbolId: targetId,
+        targetSymbolId: target.id,
         kind,
         createdAt: now,
       });
+      if (sourceIsFrameworkEntry) {
+        edges.insert({
+          sourceSymbolId: callerId,
+          targetSymbolId: target.id,
+          kind: "framework_entry",
+          createdAt: now,
+        });
+      }
     }
   }
 }
@@ -873,9 +1035,9 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
 
   const reExportsByPath = new Map<string, ReExportEntry[]>();
   for (const pending of pendingEdgeResolutions) {
-    const reExports = pending.parseResult.imports.filter((imp) => imp.isReExport);
+    const reExports = extractReExports(pending.parseResult);
     if (reExports.length > 0) {
-      reExportsByPath.set(pending.filePath, reExports.map((imp) => ({ names: imp.names, source: imp.source })));
+      reExportsByPath.set(pending.filePath, reExports);
     }
   }
 

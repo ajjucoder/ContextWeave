@@ -1,5 +1,5 @@
 import { lstatSync, readFileSync, realpathSync } from "node:fs";
-import { resolve, relative } from "node:path";
+import { resolve } from "node:path";
 import type Database from "better-sqlite3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod/v3";

@@ -1,47 +1,29 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import Database from "better-sqlite3";
+import { describe, it, expect, beforeAll } from "vitest";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { createSchema } from "../../src/db/schema.js";
-import { runMigrations } from "../../src/db/migrations.js";
-import { indexProject } from "../../src/core/indexer.js";
-import { updateCentralityScores } from "../../src/core/graph.js";
-import { generateCapsule } from "../../src/capsule/generator.js";
 import {
-  NARROW_QUERIES,
-  BROAD_QUERIES,
-  TASK_QUERIES,
-  NARROW_TOKEN_BUDGET,
-  BROAD_TOKEN_BUDGET,
-  TASK_TOKEN_BUDGET,
-} from "./task-query-fixtures.js";
+  DEFAULT_BASELINE,
+  runEvalSuite,
+  toBaseline,
+  type EvalBaseline,
+} from "../eval/eval-runner.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const BASELINE_PATH = resolve(__dirname, "./quality-baseline.json");
+const BASELINE_PATH = resolve(__dirname, "../eval/quality-baseline.json");
 
-interface QueryClassBaseline {
-  avgConfidence: number;
-  minConfidence: number;
-}
-
-interface QualityBaseline {
-  narrow: QueryClassBaseline;
-  broad: QueryClassBaseline;
-  task: QueryClassBaseline;
-  updatedAt: string;
-}
-
-const DEFAULT_BASELINE: QualityBaseline = {
-  narrow: { avgConfidence: 0.7, minConfidence: 0.6 },
-  broad: { avgConfidence: 0.4, minConfidence: 0.3 },
-  task: { avgConfidence: 0.35, minConfidence: 0.25 },
-  updatedAt: new Date(0).toISOString(),
+const TOLERANCE = {
+  precision: 0.02,
+  recall: 0.02,
+  avgConfidence: 0.02,
+  avgTokenEfficiency: 0.03,
+  // Full-suite parallelism can add heavy contention/jitter versus isolated eval runs.
+  p95LatencyMs: 45,
 };
 
-function loadBaseline(): QualityBaseline {
+function loadBaseline(): EvalBaseline {
   if (existsSync(BASELINE_PATH)) {
-    return JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as QualityBaseline;
+    return JSON.parse(readFileSync(BASELINE_PATH, "utf8")) as EvalBaseline;
   }
 
   mkdirSync(dirname(BASELINE_PATH), { recursive: true });
@@ -49,32 +31,34 @@ function loadBaseline(): QualityBaseline {
   return DEFAULT_BASELINE;
 }
 
-let db: Database.Database;
-
-beforeAll(async () => {
-  db = new Database(":memory:");
-  db.pragma("foreign_keys = ON");
-  createSchema(db);
-  runMigrations(db);
-  await indexProject(db, resolve(__dirname, "../../src"));
-  updateCentralityScores(db);
-}, 60000);
-
-afterAll(() => db?.close());
-
-function measureClass(queries: readonly string[], tokenBudget: number): QueryClassBaseline {
-  const confidences = queries.map((query) =>
-    generateCapsule(db, { query, tokenBudget }).metadata.quality.coverageConfidence
+function expectNoRegression(current: EvalBaseline["metrics"], baseline: EvalBaseline["metrics"], label: string): void {
+  expect(current.precision, `${label}: precision`).toBeGreaterThanOrEqual(
+    baseline.precision - TOLERANCE.precision
   );
-  const avgConfidence = confidences.reduce((sum, value) => sum + value, 0) / confidences.length;
-  const minConfidence = Math.min(...confidences);
-  return { avgConfidence, minConfidence };
+  expect(current.recall, `${label}: recall`).toBeGreaterThanOrEqual(
+    baseline.recall - TOLERANCE.recall
+  );
+  expect(current.avgConfidence, `${label}: avgConfidence`).toBeGreaterThanOrEqual(
+    baseline.avgConfidence - TOLERANCE.avgConfidence
+  );
+  expect(current.avgTokenEfficiency, `${label}: avgTokenEfficiency`).toBeGreaterThanOrEqual(
+    baseline.avgTokenEfficiency - TOLERANCE.avgTokenEfficiency
+  );
+  expect(current.p95LatencyMs, `${label}: p95LatencyMs`).toBeLessThanOrEqual(
+    baseline.p95LatencyMs + TOLERANCE.p95LatencyMs
+  );
 }
 
-describe("quality ratchet - no regression allowed", () => {
-  const baselineExistedBefore = existsSync(BASELINE_PATH);
-  const baseline = loadBaseline();
+const baselineExistedBefore = existsSync(BASELINE_PATH);
+const baseline = loadBaseline();
+let current: EvalBaseline;
 
+beforeAll(async () => {
+  const run = await runEvalSuite();
+  current = toBaseline(run);
+}, 120000);
+
+describe("quality ratchet - no regression allowed", () => {
   it("baseline file is not using initial defaults (would mask regressions)", () => {
     if (!baselineExistedBefore) {
       expect.fail(
@@ -86,21 +70,16 @@ describe("quality ratchet - no regression allowed", () => {
     expect(baseline.updatedAt).not.toBe(defaultDate);
   });
 
-  it("narrow queries don't regress below baseline", () => {
-    const current = measureClass(NARROW_QUERIES, NARROW_TOKEN_BUDGET);
-    expect(current.avgConfidence).toBeGreaterThanOrEqual(baseline.narrow.avgConfidence);
-    expect(current.minConfidence).toBeGreaterThanOrEqual(baseline.narrow.minConfidence);
+  it("overall eval metrics do not regress beyond tolerance", () => {
+    expectNoRegression(current.metrics, baseline.metrics, "overall");
   });
 
-  it("broad queries don't regress below baseline", () => {
-    const current = measureClass(BROAD_QUERIES, BROAD_TOKEN_BUDGET);
-    expect(current.avgConfidence).toBeGreaterThanOrEqual(baseline.broad.avgConfidence);
-    expect(current.minConfidence).toBeGreaterThanOrEqual(baseline.broad.minConfidence);
-  });
-
-  it("task queries don't regress below baseline", () => {
-    const current = measureClass(TASK_QUERIES, TASK_TOKEN_BUDGET);
-    expect(current.avgConfidence).toBeGreaterThanOrEqual(baseline.task.avgConfidence);
-    expect(current.minConfidence).toBeGreaterThanOrEqual(baseline.task.minConfidence);
+  it("per-codebase eval metrics do not regress beyond tolerance", () => {
+    for (const [codebaseId, baselineMetrics] of Object.entries(baseline.codebases)) {
+      const currentMetrics = current.codebases[codebaseId];
+      expect(currentMetrics, `missing current metrics for ${codebaseId}`).toBeDefined();
+      if (!currentMetrics) continue;
+      expectNoRegression(currentMetrics, baselineMetrics, codebaseId);
+    }
   });
 });

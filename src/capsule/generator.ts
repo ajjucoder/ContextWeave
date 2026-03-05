@@ -18,6 +18,7 @@ import { fuzzyMatch } from "../utils/fuzzy.js";
 import { countTokens, estimateTokens } from "../utils/tokens.js";
 import { expandQueryWithSynonyms } from "../utils/synonyms.js";
 import { getDirectoryWeight } from "../utils/directory-weights.js";
+import { isFrameworkEntryPath } from "../utils/path-retrieval.js";
 import { scoreNode, assignCompressionLevel } from "./scorer.js";
 import { rankPivotsWithScores } from "./pivot-scorer.js";
 import { renderSymbol, type EdgeSummary } from "./compressor.js";
@@ -75,6 +76,21 @@ interface RankedCandidate {
   lexicalScore: number;
   degree: number;
 }
+
+const FRAMEWORK_QUERY_HINT_TERMS = new Set([
+  "next",
+  "nextjs",
+  "middleware",
+  "route",
+  "routes",
+  "handler",
+  "api",
+  "page",
+  "layout",
+  "auth",
+  "authentication",
+  "session",
+]);
 
 function getBfsDepth(budget: number): number {
   if (budget < 2000) return 3;
@@ -176,8 +192,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const exactQueryTermSet = new Set(exactQueryTerms);
   const queryLooksTestFocused = isTestQuery(allQueryTerms);
 
-  if (candidateFileIds && candidateFileIds.size > 0) {
-    const MAX_CANDIDATE_FILES = 100;
+  if (candidateFileIds && candidateFileIds.size > 0 && candidateFileIds.size <= 6) {
+    const MAX_CANDIDATE_FILES = 60;
     for (const fileId of [...candidateFileIds]) {
       if (candidateFileIds.size >= MAX_CANDIDATE_FILES) break;
       const clusterId = getFileClusterId(db, fileId);
@@ -190,11 +206,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
   }
 
-  if (candidateFileIds && subQueries.length > 0) {
+  if (candidateFileIds && subQueries.length > 0 && candidateFileIds.size <= 20) {
+    const MAX_SUBQUERY_CANDIDATE_FILES = 80;
     for (const subQuery of subQueries) {
       for (const clusterId of subQuery.targetClusterIds) {
         for (const fileId of getClusterFileIds(db, clusterId)) {
-          if (candidateFileIds.size >= 140) break;
+          if (candidateFileIds.size >= MAX_SUBQUERY_CANDIDATE_FILES) break;
           candidateFileIds.add(fileId);
         }
       }
@@ -204,6 +221,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const perTermSymbolCap =
     intent === "narrow" ? 15 : intent === "broad" ? 10 : 12;
   const perTermPathMatchCap = intent === "narrow" ? 3 : 1;
+  const pathFileSymbolCap = intent === "narrow" ? 10 : 6;
   const maxStageARaw =
     intent === "narrow"
       ? Number.POSITIVE_INFINITY
@@ -245,7 +263,32 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       const file = pathCandidateCache.get(match.name);
       if (!file) continue;
       const fileSymbols = symbols.getByFileIdLight(file.id);
-      for (const symbol of fileSymbols) {
+      for (const symbol of fileSymbols.slice(0, pathFileSymbolCap)) {
+        rawPivotIds.add(symbol.id);
+        if (rawPivotIds.size >= maxStageARaw) break;
+      }
+      if (rawPivotIds.size >= maxStageARaw) break;
+    }
+  }
+
+  if (
+    intent !== "narrow" &&
+    rawPivotIds.size < maxStageARaw &&
+    allQueryTerms.some((term) => FRAMEWORK_QUERY_HINT_TERMS.has(term))
+  ) {
+    const hintPaths = new Set<string>();
+    for (const hint of ["middleware", "route", "page", "layout"]) {
+      for (const filePath of getPathCandidates(hint)) {
+        hintPaths.add(filePath);
+      }
+    }
+
+    for (const filePath of hintPaths) {
+      if (!isFrameworkEntryPath(filePath)) continue;
+      const file = pathCandidateCache.get(filePath);
+      if (!file) continue;
+      if (candidateFileIds && !candidateFileIds.has(file.id)) continue;
+      for (const symbol of symbols.getByFileIdLight(file.id).slice(0, 6)) {
         rawPivotIds.add(symbol.id);
         if (rawPivotIds.size >= maxStageARaw) break;
       }
@@ -268,7 +311,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       if (coveredFileIds.has(file.id)) continue;
       if (!filePathMatchesQueryTerms(filePath, exactQueryTerms)) continue;
       const fileSymbols = symbols.getByFileIdLight(file.id);
-      for (const symbol of fileSymbols) {
+      for (const symbol of fileSymbols.slice(0, pathFileSymbolCap)) {
         rawPivotIds.add(symbol.id);
         if (rawPivotIds.size >= maxStageARaw) break;
       }
@@ -306,6 +349,10 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const sessionId = params.sessionId ?? "default";
   sessionQueries(db).ensureSession(sessionId, params.projectRoot ?? "");
   const sessionCtx = new SessionContext(db, sessionId);
+  const previousSameQueryTokens =
+    capsuleLogQueries(db)
+      .getBySessionAndQuery(sessionId, query)
+      ?.tokensUsed ?? null;
 
   const recentFileIds = new Set(sessionCtx.getRecentFileIds());
   if (recentFileIds.size > 0) {
@@ -505,6 +552,13 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   const ranked = [...candidates].sort((a, b) => b.score - a.score);
 
+  function hasStrongLocality(candidate: RankedCandidate): boolean {
+    if (pivotFileIds.has(candidate.file.id)) return true;
+    if (!rankingPivotDirs.has(dirname(candidate.file.path))) return false;
+    const dirDistanceCap = intent === "narrow" ? 2 : 1;
+    return candidate.distance <= dirDistanceCap;
+  }
+
   function selectCandidates(lexThreshold: number, maxDist: number, limit: number): RankedCandidate[] {
     const ids = new Set<number>();
     const result: RankedCandidate[] = [];
@@ -520,12 +574,64 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       if (ids.has(candidate.symbol.id)) continue;
       const hasLexical = candidate.lexicalScore >= lexThreshold;
       const isNearby = candidate.distance <= maxDist;
-      if (!hasLexical && !isNearby) continue;
+      if (intent === "narrow") {
+        if (!hasLexical && !isNearby) continue;
+      } else {
+        const strongLocality = hasStrongLocality(candidate);
+        if (!(strongLocality || (hasLexical && isNearby))) continue;
+      }
       result.push(candidate);
       ids.add(candidate.symbol.id);
     }
 
     return result;
+  }
+
+  function pruneByFileDiversity(selectedCandidates: RankedCandidate[]): RankedCandidate[] {
+    if (selectedCandidates.length === 0) {
+      return selectedCandidates;
+    }
+
+    const isNarrowMultiTerm = intent === "narrow" && exactQueryTerms.length >= 3;
+    const broadBudgetBoost = intent === "broad" && tokenBudget >= 9000;
+    if (intent === "narrow" && !isNarrowMultiTerm) {
+      return selectedCandidates;
+    }
+
+    const maxFiles = isNarrowMultiTerm ? 4 : intent === "broad" ? (broadBudgetBoost ? 8 : 6) : 7;
+    const maxPerFile = isNarrowMultiTerm ? 4 : intent === "broad" ? (broadBudgetBoost ? 4 : 3) : 4;
+    const maxTotal = isNarrowMultiTerm ? 20 : intent === "broad" ? (broadBudgetBoost ? 30 : 20) : 24;
+    const lexicalFloor = isNarrowMultiTerm ? 2 : intent === "broad" ? (broadBudgetBoost ? 1.2 : 1.5) : 1.2;
+    const ordered = [...selectedCandidates].sort((a, b) => {
+      if (a.isPivot !== b.isPivot) return a.isPivot ? -1 : 1;
+      return b.score - a.score;
+    });
+    const topScore = ordered[0]?.score ?? 0;
+    const scoreFloor = topScore * (isNarrowMultiTerm ? 0.7 : intent === "broad" ? (broadBudgetBoost ? 0.5 : 0.6) : 0.55);
+
+    const kept: RankedCandidate[] = [];
+    const includedFiles = new Set<number>();
+    const perFileCount = new Map<number, number>();
+
+    for (const candidate of ordered) {
+      if (kept.length >= maxTotal) break;
+      const fileId = candidate.file.id;
+      const existingCount = perFileCount.get(fileId) ?? 0;
+      const introducesFile = !includedFiles.has(fileId);
+      const strongLocality = hasStrongLocality(candidate);
+
+      if (!candidate.isPivot) {
+        if (introducesFile && includedFiles.size >= maxFiles) continue;
+        if (existingCount >= maxPerFile) continue;
+        if (!strongLocality && candidate.lexicalScore < lexicalFloor && candidate.score < scoreFloor) continue;
+      }
+
+      kept.push(candidate);
+      includedFiles.add(fileId);
+      perFileCount.set(fileId, existingCount + 1);
+    }
+
+    return kept;
   }
 
   function batchFetchOutgoingEdges(symbolIds: number[]): Map<number, EdgeSummary[]> {
@@ -588,15 +694,22 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   );
   const codeRatio = hasObservationPayload && intent === "narrow" ? 0.8 : 1.0;
 
-  const baseLexThreshold = exactQueryTerms.length === 0 ? 0 : 1;
+  const isSingleFocusNarrowQuery = intent === "narrow" && exactQueryTerms.length <= 3;
+  const baseLexThreshold =
+    exactQueryTerms.length === 0
+      ? 0
+      : isSingleFocusNarrowQuery
+        ? 2
+        : 1;
   const candidateLimitMultiplier =
-    intent === "narrow" ? 1 : intent === "broad" ? 0.8 : 0.9;
+    intent === "narrow" ? 0.85 : intent === "broad" ? 0.45 : 0.55;
   const dynamicLimit = Math.max(
-    60,
+    40,
     Math.floor((retrievalBudget / 10) * candidateLimitMultiplier)
   );
+  const narrowHardCap = isSingleFocusNarrowQuery ? 48 : 80;
   const hardCap =
-    intent === "narrow" ? 180 : intent === "broad" ? 200 : 220;
+    intent === "narrow" ? narrowHardCap : intent === "broad" ? 72 : 84;
   const baseCandidateLimit = Math.min(dynamicLimit, hardCap);
   const NARROW_MIN_UTILIZATION = 0.45;
   const BROAD_TASK_MIN = 0.6;
@@ -606,8 +719,10 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     ? new Set(sessionCtx.getRecentSymbolIds().filter((id): id is number => id !== null))
     : new Set();
 
-  const baseMaxDistance = intent === "task" ? 0 : intent === "broad" ? 2 : 1;
-  let selected = selectCandidates(baseLexThreshold, baseMaxDistance, baseCandidateLimit);
+  const baseMaxDistance = intent === "task" ? 0 : intent === "broad" ? 1 : isSingleFocusNarrowQuery ? 0 : 1;
+  let selected = pruneByFileDiversity(
+    selectCandidates(baseLexThreshold, baseMaxDistance, baseCandidateLimit)
+  );
   let scoredNodes = buildScoredNodes(selected);
   const buildClusterBySymbolId = (nodes: ScoredNode[]): Map<number, number> => {
     const map = new Map<number, number>();
@@ -689,6 +804,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   if (
     intent === "narrow" &&
+    !isSingleFocusNarrowQuery &&
     !skipPromotion &&
     tokenBudget >= 1000 &&
     tokensUsed < tokenBudget * NARROW_MIN_UTILIZATION &&
@@ -723,21 +839,26 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     tokensUsed < tokenBudget * BROAD_TASK_MIN &&
     candidates.length > selected.length
   ) {
-    const refillPasses = [
-      {
-        lexThreshold: Math.max(0, baseLexThreshold),
-        maxDist: intent === "task" ? 1 : 2,
-        limit: Math.min(candidates.length, baseCandidateLimit + 30),
-      },
-      {
-        lexThreshold: 0,
-        maxDist: 3,
-        limit: Math.min(candidates.length, baseCandidateLimit + 40),
-      },
-    ];
+    const refillPasses = intent === "task"
+      ? [
+          {
+            lexThreshold: Math.max(1, baseLexThreshold),
+            maxDist: 1,
+            limit: Math.min(candidates.length, baseCandidateLimit + 16),
+          },
+        ]
+      : [
+          {
+            lexThreshold: Math.max(1.1, baseLexThreshold),
+            maxDist: 1,
+            limit: Math.min(candidates.length, baseCandidateLimit + 12),
+          },
+        ];
 
     for (const pass of refillPasses) {
-      const expanded = selectCandidates(pass.lexThreshold, pass.maxDist, pass.limit);
+      const expanded = pruneByFileDiversity(
+        selectCandidates(pass.lexThreshold, pass.maxDist, pass.limit)
+      );
       if (expanded.length <= selected.length) continue;
 
       const expandedNodes = buildScoredNodes(expanded);
@@ -766,6 +887,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   }
 
   const relevanceLexicalThreshold = baseLexThreshold;
+  const canonicalFilePath = (node: ScoredNode): string =>
+    getFile(node.symbol.fileId)?.path ?? node.file.path;
 
   if (recentSymbolIds.size > 0) {
     let tokensDelta = 0;
@@ -774,6 +897,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       if ((node.compressionLevel === 0 || node.compressionLevel === 1) && recentSymbolIds.has(node.symbol.id)) {
         const dedupRendered = `[previously shown] ${node.symbol.signature}`;
         const dedupTokens = countTokens(dedupRendered);
+        if (dedupTokens >= node.tokenCount) {
+          continue;
+        }
         tokensDelta += dedupTokens - node.tokenCount;
         packed[i] = {
           ...node,
@@ -792,6 +918,39 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const enrichResult = enrichL2WithDeps(packed, tokensUsed, codeBudgetForEnrich);
   packed = enrichResult.packed;
   tokensUsed = enrichResult.tokensUsed;
+
+  if (previousSameQueryTokens !== null && previousSameQueryTokens > 0 && tokensUsed > previousSameQueryTokens) {
+    const byAscendingScore = packed
+      .map((node, index) => ({ node, index }))
+      .sort((a, b) => a.node.score - b.node.score);
+
+    for (const { node, index } of byAscendingScore) {
+      if (tokensUsed <= previousSameQueryTokens) break;
+      if (node.compressionLevel === 3) continue;
+
+      const rendered = renderSymbol(node.symbol, node.file, 3, node.outgoingEdges);
+      const tokenCount = countTokens(rendered);
+      if (tokenCount >= node.tokenCount) continue;
+
+      tokensUsed += tokenCount - node.tokenCount;
+      packed[index] = {
+        ...node,
+        compressionLevel: 3,
+        rendered,
+        tokenCount,
+      };
+    }
+
+    if (tokensUsed > previousSameQueryTokens && packed.length > 1) {
+      const ordered = [...packed].sort((a, b) => a.score - b.score);
+      while (tokensUsed > previousSameQueryTokens && ordered.length > 1) {
+        const removed = ordered.shift();
+        if (!removed) break;
+        tokensUsed -= removed.tokenCount;
+      }
+      packed = ordered;
+    }
+  }
 
   // Phase 7: Quality gate + format + return
   const compressionBreakdown: Record<CompressionLevel, number> = { 0: 0, 1: 0, 2: 0, 3: 0 };
@@ -831,7 +990,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     if (clusterId !== undefined) {
       packedClusters.add(clusterId);
     }
-    fileSymbolCounts.set(node.file.path, (fileSymbolCounts.get(node.file.path) ?? 0) + 1);
+    const filePath = canonicalFilePath(node);
+    fileSymbolCounts.set(filePath, (fileSymbolCounts.get(filePath) ?? 0) + 1);
   }
   const fileCounts = [...fileSymbolCounts.values()];
   const avgSymbolsPerFile =
@@ -870,7 +1030,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const tokenUtilization = tokenBudget > 0 ? tokensUsed / tokenBudget : 0;
   const uncertainty = buildUncertainty(uncertaintyFlag, reasons.length, coverageConfidence, tokenUtilization);
 
-  const uniqueFiles = new Set(packed.map((node) => node.file.path));
+  const uniqueFiles = new Set(packed.map((node) => canonicalFilePath(node)));
   const clusterGroupStats = new Map<number, { symbolCount: number; fileIds: Set<number> }>();
   for (const node of packed) {
     const clusterId = clusterBySymbolId.get(node.symbol.id);
@@ -888,7 +1048,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }))
     .sort((a, b) => b.symbolCount - a.symbolCount);
 
-  const timeLimited = skipBfs || skipPromotion;
+  const timeLimited = skipBfs || skipPromotion || elapsed() > maxQueryTimeMs;
 
   const baseMetadata: CapsuleMetadata = {
     query,

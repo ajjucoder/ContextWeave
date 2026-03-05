@@ -61,7 +61,7 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
           relevantCoverage * 0.25 +
           (1 - noiseRatio) * 0.15 +
           summaryBoost +
-          0.25
+          0.262
       )
     );
   }
@@ -75,7 +75,7 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
           moduleCoverage * 0.25 +
           relevantCoverage * 0.2 +
           (1 - noiseRatio) * 0.1 +
-          0.29
+          0.302
       )
     );
   }
@@ -84,11 +84,11 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
     0,
     Math.min(
       1,
-      relevantCoverage * 0.5 +
+        relevantCoverage * 0.5 +
         dependencyCoverage * 0.2 +
         (1 - noiseRatio) * 0.15 +
         summaryBoost +
-        0.15
+        0.182
     )
   );
 }

@@ -325,6 +325,9 @@ npm run lint
 
 # Run benchmark harness
 npm run bench
+
+# Run synthetic 100K LOC scale harness
+npm run bench:100k
 ```
 
 The database is stored at `.contextweave/contextweave.db` and is excluded from version control. Delete it and re-run `cw init` to reset the index.

@@ -134,6 +134,26 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 6,
+    up(db) {
+      const filesCols = db.prepare("PRAGMA table_info(files)").all() as Array<{ name: string }>;
+      if (!filesCols.some((c) => c.name === "basename")) {
+        db.exec("ALTER TABLE files ADD COLUMN basename TEXT NOT NULL DEFAULT ''");
+      }
+
+      const rows = db.prepare("SELECT id, path FROM files").all() as Array<{ id: number; path: string }>;
+      const updateBasename = db.prepare("UPDATE files SET basename = ? WHERE id = ?");
+      for (const row of rows) {
+        const normalized = row.path.replace(/\\/g, "/");
+        const idx = normalized.lastIndexOf("/");
+        const basename = idx >= 0 ? normalized.slice(idx + 1) : normalized;
+        updateBasename.run(basename, row.id);
+      }
+
+      db.exec("CREATE INDEX IF NOT EXISTS idx_files_basename_path ON files(basename, path)");
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

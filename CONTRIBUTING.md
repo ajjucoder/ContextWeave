@@ -20,6 +20,7 @@ npm run dev       # watch mode
 npm test          # run tests
 npm run lint      # type check
 npm run bench     # benchmark harness
+npm run bench:100k # synthetic 100K LOC harness
 ```
 
 ## Making Changes
@@ -38,7 +39,7 @@ npm run bench     # benchmark harness
 
 ## Tests
 
-Tests live in `tests/` mirroring the `src/` structure. Run the full suite with `npm test`. The benchmark harness (`npm run bench`) uses fixture data in `bench/scenarios/`.
+Tests live in `tests/` mirroring the `src/` structure. Run the full suite with `npm test`. The standard benchmark harness (`npm run bench`) uses fixture data in `bench/scenarios/`. The scale harness (`npm run bench:100k`) generates a deterministic synthetic 100K LOC project and validates retrieval/latency/token targets.
 
 ## Reporting Issues
 

@@ -166,6 +166,94 @@ function isFunctionScoped(node: Parser.SyntaxNode): boolean {
   return false;
 }
 
+function isModuleLevelDeclaration(node: Parser.SyntaxNode): boolean {
+  let current: Parser.SyntaxNode | null = node.parent;
+  while (current) {
+    if (
+      current.type === "function_definition" ||
+      current.type === "lambda" ||
+      current.type === "class_definition" ||
+      current.type === "block"
+    ) {
+      return false;
+    }
+    if (
+      current.type === "module" ||
+      current.type === "program" ||
+      current.type === "source_file" ||
+      current.type === "translation_unit" ||
+      current.type === "compilation_unit"
+    ) {
+      return true;
+    }
+    current = current.parent;
+  }
+  return false;
+}
+
+function stripStringQuotes(rawText: string): string {
+  let text = rawText.trim();
+  text = text.replace(/^[rubf]+/i, "");
+  if (
+    (text.startsWith("'''") && text.endsWith("'''")) ||
+    (text.startsWith(`"""`) && text.endsWith(`"""`))
+  ) {
+    return text.slice(3, -3);
+  }
+  if ((text.startsWith("'") && text.endsWith("'")) || (text.startsWith(`"`) && text.endsWith(`"`))) {
+    return text.slice(1, -1);
+  }
+  return text;
+}
+
+function collectPythonStringLiterals(node: Parser.SyntaxNode): string[] {
+  const out: string[] = [];
+  const stack = [node];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) continue;
+    if (current.type === "string") {
+      const value = stripStringQuotes(current.text);
+      if (value.length > 0) out.push(value);
+      continue;
+    }
+    for (const child of current.namedChildren) {
+      stack.push(child);
+    }
+  }
+  return out;
+}
+
+function parsePythonAllExports(tree: Parser.Tree): Set<string> | null {
+  const exports = new Set<string>();
+  let hasAllAssignment = false;
+  const stack = [tree.rootNode];
+
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!node) continue;
+
+    if (node.type === "assignment") {
+      const left = node.childForFieldName("left");
+      if (left?.type === "identifier" && left.text === "__all__") {
+        hasAllAssignment = true;
+        const right = node.childForFieldName("right");
+        if (right) {
+          for (const name of collectPythonStringLiterals(right)) {
+            exports.add(name);
+          }
+        }
+      }
+    }
+
+    for (const child of node.namedChildren) {
+      stack.push(child);
+    }
+  }
+
+  return hasAllAssignment ? exports : null;
+}
+
 function shouldSkipTrivialSymbol(
   node: Parser.SyntaxNode,
   kind: SymbolKind
@@ -178,9 +266,6 @@ function shouldSkipTrivialSymbol(
 }
 
 function languageOverrideExported(name: string, language: string): boolean | null {
-  if (language === "python") {
-    return !name.startsWith("_");
-  }
   if (language === "go") {
     return name.length > 0 && /^[A-Z]/.test(name);
   }
@@ -192,7 +277,8 @@ function nodeToSymbol(
   nameNode: Parser.SyntaxNode,
   kind: SymbolKind,
   content: string,
-  language: string
+  language: string,
+  exportedOverride?: boolean
 ): ParsedSymbol {
   const name = nameNode.text;
   const fullSource = node.text;
@@ -205,7 +291,7 @@ function nodeToSymbol(
     signature: buildSignature(node, content),
     fullSource,
     bodyHash: hashContent(fullSource),
-    isExported: override !== null ? override : isExported(node),
+    isExported: exportedOverride ?? (override !== null ? override : isExported(node)),
     docComment: extractDocComment(node),
   };
 }
@@ -224,6 +310,7 @@ function parseSymbols(
 
   const symbols: ParsedSymbol[] = [];
   const seen = new Set<number>();
+  const pythonAllExports = language === "python" ? parsePythonAllExports(tree) : null;
 
   const runQuery = (queryStr: string, kind: SymbolKind) => {
     try {
@@ -255,9 +342,25 @@ function parseSymbols(
           continue;
         }
 
-        symbols.push(
-          nodeToSymbol(defCapture.node, nameCapture.node, effectiveKind, content, language)
-        );
+        let exportedOverride: boolean | undefined;
+        if (language === "python") {
+          const symbolName = nameCapture.node.text;
+          const moduleLevel = isModuleLevelDeclaration(defCapture.node);
+          if (pythonAllExports) {
+            exportedOverride = moduleLevel && pythonAllExports.has(symbolName);
+          } else {
+            exportedOverride = moduleLevel && !symbolName.startsWith("_");
+          }
+        }
+
+        symbols.push(nodeToSymbol(
+          defCapture.node,
+          nameCapture.node,
+          effectiveKind,
+          content,
+          language,
+          exportedOverride
+        ));
       }
     } catch (err) {
       log.debug("query execution failed in parseSymbols", { kind, error: err instanceof Error ? err.message : String(err) });
@@ -287,6 +390,10 @@ function parseImports(
   tree: Parser.Tree,
   language: string
 ): ParsedImport[] {
+  if (language === "typescript" || language === "tsx" || language === "javascript" || language === "jsx") {
+    return parseJsLikeModuleImports(tree);
+  }
+
   const queries = getQueries(language);
   if (!queries) return [];
 
@@ -359,6 +466,124 @@ function parseImports(
     } catch (err) {
       log.debug("query execution failed in parseReExports", { language, error: err instanceof Error ? err.message : String(err) });
     }
+  }
+
+  return imports;
+}
+
+function unquoteJs(raw: string): string {
+  const text = raw.trim();
+  if ((text.startsWith("'") && text.endsWith("'")) || (text.startsWith(`"`) && text.endsWith(`"`))) {
+    return text.slice(1, -1);
+  }
+  return text;
+}
+
+function parseJsLikeModuleImports(tree: Parser.Tree): ParsedImport[] {
+  const imports: ParsedImport[] = [];
+
+  for (const node of tree.rootNode.namedChildren) {
+    if (node.type === "import_statement") {
+      const sourceNode = node.childForFieldName("source");
+      const source = sourceNode ? unquoteJs(sourceNode.text) : "";
+      if (!source) continue;
+
+      const importClause = node.childForFieldName("import_clause") ??
+        node.namedChildren.find((child) => child.type === "import_clause");
+      if (!importClause) continue;
+
+      const specifiers: Array<{ localName: string; importedName: string }> = [];
+      let kind: ParsedImport["kind"] = "named";
+
+      const defaultImport = importClause.namedChildren.find((child) => child.type === "identifier");
+      if (defaultImport) {
+        specifiers.push({
+          localName: defaultImport.text,
+          importedName: "default",
+        });
+      }
+
+      const namespaceImport = importClause.namedChildren.find((child) => child.type === "namespace_import");
+      if (namespaceImport) {
+        const nsIdentifier = namespaceImport.namedChildren.find((child) => child.type === "identifier");
+        if (nsIdentifier) {
+          kind = "namespace";
+          specifiers.push({
+            localName: nsIdentifier.text,
+            importedName: "*",
+          });
+        }
+      }
+
+      const namedImports = importClause.namedChildren.find((child) => child.type === "named_imports");
+      if (namedImports) {
+        kind = "named";
+        for (const child of namedImports.namedChildren) {
+          if (child.type !== "import_specifier") continue;
+          const importedNode = child.childForFieldName("name");
+          if (!importedNode) continue;
+          const aliasNode = child.childForFieldName("alias");
+          specifiers.push({
+            localName: aliasNode?.text ?? importedNode.text,
+            importedName: importedNode.text,
+          });
+        }
+      }
+
+      if (!defaultImport && !namedImports && namespaceImport) {
+        kind = "namespace";
+      } else if (defaultImport && !namedImports && !namespaceImport) {
+        kind = "default";
+      }
+
+      if (specifiers.length === 0) continue;
+      imports.push({
+        names: specifiers.map((specifier) => specifier.localName),
+        source,
+        kind,
+        specifiers,
+      });
+      continue;
+    }
+
+    if (node.type !== "export_statement") continue;
+    const sourceNode = node.childForFieldName("source");
+    const source = sourceNode ? unquoteJs(sourceNode.text) : "";
+    if (!source) continue;
+
+    const exportClause = node.childForFieldName("export_clause") ??
+      node.namedChildren.find((child) => child.type === "export_clause");
+    if (!exportClause) {
+      imports.push({
+        names: [],
+        source,
+        kind: "namespace",
+        isReExport: true,
+        exportAll: true,
+      });
+      continue;
+    }
+
+    const specifiers: Array<{ localName: string; importedName: string }> = [];
+    for (const child of exportClause.namedChildren) {
+      if (child.type !== "export_specifier") continue;
+      const importedNode = child.childForFieldName("name");
+      if (!importedNode) continue;
+      const aliasNode = child.childForFieldName("alias");
+      specifiers.push({
+        localName: aliasNode?.text ?? importedNode.text,
+        importedName: importedNode.text,
+      });
+    }
+
+    if (specifiers.length === 0) continue;
+    imports.push({
+      names: specifiers.map((specifier) => specifier.localName),
+      source,
+      kind: "named",
+      isReExport: true,
+      specifiers,
+    });
   }
 
   return imports;

@@ -7,6 +7,8 @@ import { runPageRankInBackground } from "../../core/graph.js";
 const DEFAULT_CONFIG = {
   version: 1,
   ignore: ["node_modules", "dist", "build", ".git", ".next", "coverage"],
+  exclude: [],
+  excludePatterns: [],
   tokenBudget: 4000,
   defaultMode: "feature",
   stalenessDepth: 2,
