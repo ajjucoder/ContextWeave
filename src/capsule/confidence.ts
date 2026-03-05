@@ -84,11 +84,11 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
     0,
     Math.min(
       1,
-        relevantCoverage * 0.5 +
-        dependencyCoverage * 0.2 +
-        (1 - noiseRatio) * 0.15 +
-        summaryBoost +
-        0.182
+      relevantCoverage * 0.5 +
+      dependencyCoverage * 0.2 +
+      (1 - noiseRatio) * 0.15 +
+      summaryBoost +
+      0.182
     )
   );
 }

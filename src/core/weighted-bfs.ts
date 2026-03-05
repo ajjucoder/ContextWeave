@@ -114,6 +114,7 @@ export function weightedBfsTraversal(
 
     const outgoing = getOutgoing.all(current.symbolId) as EdgeRow[];
     const incoming = getIncoming.all(current.symbolId) as EdgeRow[];
+    const newHopCount = current.hopCount + 1;
 
     for (const edge of outgoing) {
       if (!isInScope(edge.file_path)) continue;
@@ -121,7 +122,6 @@ export function weightedBfsTraversal(
       const cost = edgeCost(edge.kind, sourceDir, targetDir, edge.file_path);
       const newDist = current.distance + cost;
       if (newDist >= maxCost) continue;
-      const newHopCount = current.hopCount + 1;
       const existing = visited.get(edge.symbol_id);
       if (existing !== undefined && existing <= newDist) continue;
       visited.set(edge.symbol_id, newDist);
@@ -135,7 +135,6 @@ export function weightedBfsTraversal(
       const cost = edgeCost(edge.kind, sourceDir, targetDir, edge.file_path) * incomingMult;
       const newDist = current.distance + cost;
       if (newDist >= maxCost) continue;
-      const newHopCount = current.hopCount + 1;
       const existing = visited.get(edge.symbol_id);
       if (existing !== undefined && existing <= newDist) continue;
       visited.set(edge.symbol_id, newDist);

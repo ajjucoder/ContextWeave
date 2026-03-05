@@ -84,12 +84,8 @@ const FRAMEWORK_QUERY_HINT_TERMS = new Set([
   "route",
   "routes",
   "handler",
-  "api",
   "page",
   "layout",
-  "auth",
-  "authentication",
-  "session",
 ]);
 
 function getBfsDepth(budget: number): number {

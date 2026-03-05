@@ -78,8 +78,7 @@ describe("quality ratchet - no regression allowed", () => {
     for (const [codebaseId, baselineMetrics] of Object.entries(baseline.codebases)) {
       const currentMetrics = current.codebases[codebaseId];
       expect(currentMetrics, `missing current metrics for ${codebaseId}`).toBeDefined();
-      if (!currentMetrics) continue;
-      expectNoRegression(currentMetrics, baselineMetrics, codebaseId);
+      expectNoRegression(currentMetrics!, baselineMetrics, codebaseId);
     }
   });
 });

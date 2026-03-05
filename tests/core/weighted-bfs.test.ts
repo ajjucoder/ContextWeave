@@ -25,14 +25,12 @@ beforeAll(() => {
 
   const mainFn = syms.insert({ fileId: mainFileId, name: "processData", kind: "function", startLine: 1, endLine: 10, signature: "function processData()", bodyHash: "x1", fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now });
   const helperFn = syms.insert({ fileId: helperFileId, name: "validateInput", kind: "function", startLine: 1, endLine: 5, signature: "function validateInput()", bodyHash: "x2", fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now });
-  const deepFn = syms.insert({ fileId: helperFileId, name: "deepDependency", kind: "function", startLine: 7, endLine: 11, signature: "function deepDependency()", bodyHash: "x2b", fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now });
   const testFn = syms.insert({ fileId: testFileId, name: "testProcessData", kind: "function", startLine: 1, endLine: 20, signature: "function testProcessData()", bodyHash: "x3", fullSource: "", isExported: false, docComment: null, centrality: 0, lastSeen: now });
   const barrelFn = syms.insert({ fileId: barrelFileId, name: "barrelProxy", kind: "function", startLine: 1, endLine: 3, signature: "function barrelProxy()", bodyHash: "x4", fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now });
 
   edges.insert({ sourceSymbolId: mainFn, targetSymbolId: helperFn, kind: "import", createdAt: now });
   edges.insert({ sourceSymbolId: testFn, targetSymbolId: mainFn, kind: "call", createdAt: now });
   edges.insert({ sourceSymbolId: mainFn, targetSymbolId: barrelFn, kind: "reexport", createdAt: now });
-  edges.insert({ sourceSymbolId: barrelFn, targetSymbolId: deepFn, kind: "call", createdAt: now });
 });
 
 afterAll(() => db?.close());

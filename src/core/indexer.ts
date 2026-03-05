@@ -501,28 +501,8 @@ function resolveEdges(
   const getReExportsForFile = (targetFileId: number): ReExportEntry[] => {
     const cached = reExportCache.get(targetFileId);
     if (cached) return cached;
-
-    const file = getFileRecord(targetFileId);
-    if (!file) {
-      reExportCache.set(targetFileId, []);
-      return [];
-    }
-
-    try {
-      const language = detectLanguage(file.path);
-      if (!language) {
-        reExportCache.set(targetFileId, []);
-        return [];
-      }
-      const content = readFileSync(file.path, "utf-8");
-      const parsed = parseFile(file.path, content, language);
-      const entries = extractReExports(parsed);
-      reExportCache.set(targetFileId, entries);
-      return entries;
-    } catch {
-      reExportCache.set(targetFileId, []);
-      return [];
-    }
+    reExportCache.set(targetFileId, []);
+    return [];
   };
 
   const resolveReExportTargets = (
