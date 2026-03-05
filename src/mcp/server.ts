@@ -15,6 +15,7 @@ import { registerOverviewTool } from "./tools/overview.js";
 import { registerFilesTool } from "./tools/files.js";
 import { registerSearchTool } from "./tools/search.js";
 import { registerReadTool } from "./tools/read.js";
+import { registerStatsTool } from "./tools/stats.js";
 import { startWatcher, stopWatcher } from "../core/watcher.js";
 import { createLogger } from "../utils/logger.js";
 import type { ProjectConfig } from "../utils/config.js";
@@ -55,6 +56,7 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
   registerFilesTool(server, db, projectRoot);
   registerSearchTool(server, db, projectRoot);
   registerReadTool(server, db, projectRoot);
+  registerStatsTool(server, db, projectRoot, serverSessionId);
 
   if (isPrimary) {
     registerRememberTool(server, db, serverSessionId, projectRoot);
