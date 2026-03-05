@@ -44,6 +44,40 @@ function edgeCost(kind: string, sourceDir: string, targetDir: string, targetPath
   return base;
 }
 
+interface BfsStatements {
+  getOutgoing: ReturnType<Database.Database["prepare"]>;
+  getIncoming: ReturnType<Database.Database["prepare"]>;
+  getFilePath: ReturnType<Database.Database["prepare"]>;
+}
+
+const bfsStmtCache = new WeakMap<Database.Database, BfsStatements>();
+
+function getBfsStatements(db: Database.Database): BfsStatements {
+  const cached = bfsStmtCache.get(db);
+  if (cached) return cached;
+  const stmts: BfsStatements = {
+    getOutgoing: db.prepare(`
+      SELECT e.target_symbol_id as symbol_id, e.kind, f.path as file_path
+      FROM edges e
+      JOIN symbols s ON s.id = e.target_symbol_id
+      JOIN files f ON f.id = s.file_id
+      WHERE e.source_symbol_id = ?
+    `),
+    getIncoming: db.prepare(`
+      SELECT e.source_symbol_id as symbol_id, e.kind, f.path as file_path
+      FROM edges e
+      JOIN symbols s ON s.id = e.source_symbol_id
+      JOIN files f ON f.id = s.file_id
+      WHERE e.target_symbol_id = ?
+    `),
+    getFilePath: db.prepare(`
+      SELECT f.path FROM symbols s JOIN files f ON f.id = s.file_id WHERE s.id = ?
+    `),
+  };
+  bfsStmtCache.set(db, stmts);
+  return stmts;
+}
+
 export function weightedBfsTraversal(
   db: Database.Database,
   pivotIds: number[],
@@ -51,23 +85,7 @@ export function weightedBfsTraversal(
   scopeDirs?: string[] | null,
   options: BfsOptions = {}
 ): WeightedBfsNode[] {
-  const getOutgoing = db.prepare(`
-    SELECT e.target_symbol_id as symbol_id, e.kind, f.path as file_path
-    FROM edges e
-    JOIN symbols s ON s.id = e.target_symbol_id
-    JOIN files f ON f.id = s.file_id
-    WHERE e.source_symbol_id = ?
-  `);
-  const getIncoming = db.prepare(`
-    SELECT e.source_symbol_id as symbol_id, e.kind, f.path as file_path
-    FROM edges e
-    JOIN symbols s ON s.id = e.source_symbol_id
-    JOIN files f ON f.id = s.file_id
-    WHERE e.target_symbol_id = ?
-  `);
-  const getFilePath = db.prepare(`
-    SELECT f.path FROM symbols s JOIN files f ON f.id = s.file_id WHERE s.id = ?
-  `);
+  const { getOutgoing, getIncoming, getFilePath } = getBfsStatements(db);
 
   const isInScope = (filePath: string): boolean => {
     if (!scopeDirs || scopeDirs.length === 0) return true;

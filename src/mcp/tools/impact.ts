@@ -177,8 +177,9 @@ export function registerImpactTool(server: McpServer, db: Database.Database): vo
         }
 
         if (allImpacts.length === 0) {
+          const files = fileQueries(db);
           const locHint = pivotSymbols.length === 1
-            ? ` (${pivotSymbols[0]!.kind} in ${pivotSymbols[0]!.fileId})`
+            ? ` (${pivotSymbols[0]!.kind} in ${files.getById(pivotSymbols[0]!.fileId)?.path ?? "unknown"})`
             : ` (${pivotSymbols.length} definitions found)`;
           return {
             content: [{ type: "text" as const, text: `No dependents found for "${resolvedName}"${locHint}` }],

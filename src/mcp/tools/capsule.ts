@@ -16,7 +16,7 @@ export function registerCapsuleTool(
   const defaultMode = config?.defaultMode ?? "feature";
   const registerTool = (server.tool as (...args: any[]) => void).bind(server);
   const inputSchema: Record<string, z.ZodTypeAny> = {
-    query: z.string().describe("What you're working on or looking for"),
+    query: z.string().min(1).max(2000).describe("What you're working on or looking for"),
     token_budget: z.number().min(100).max(100000).optional().describe(`Max tokens for the capsule (default: ${defaultBudget})`),
     mode: z.enum(["debug", "refactor", "feature", "review"]).optional().describe(`Task mode affecting scoring weights (default: ${defaultMode})`),
     path: z.string().optional().describe("Restrict results to files within this directory (relative to project root)"),

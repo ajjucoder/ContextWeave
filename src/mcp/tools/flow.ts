@@ -93,10 +93,12 @@ function traceOutgoing(
   const edges = edgeQueries(db);
   const files = fileQueries(db);
 
+  const MAX_PATHS = 10;
   const paths: FlowStep[][] = [];
   const visited = new Set<number>();
 
   function dfs(currentId: number, path: FlowStep[], depth: number): void {
+    if (paths.length >= MAX_PATHS) return;
     if (depth > maxHops) {
       if (path.length > 1) paths.push([...path]);
       return;
@@ -109,6 +111,7 @@ function traceOutgoing(
     }
 
     for (const edge of outgoing) {
+      if (paths.length >= MAX_PATHS) return;
       if (visited.has(edge.targetSymbolId)) continue;
       visited.add(edge.targetSymbolId);
 
@@ -132,7 +135,7 @@ function traceOutgoing(
   }
 
   dfs(sourceId, [], 0);
-  return paths.slice(0, 10);
+  return paths;
 }
 
 function resolveSymbol(db: Database.Database, name: string): number | null {

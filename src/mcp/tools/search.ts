@@ -198,7 +198,7 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
         const files = fileQueries(db);
         const symbols = symbolQueries(db);
 
-        if (files.getAll().length === 0) {
+        if (files.count() === 0) {
           return {
             content: [{ type: "text" as const, text: "No indexed files available. Run cw_reindex first." }],
           };
@@ -209,6 +209,12 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
 
         if (useRipgrep) {
           const searchRoot = scopePath ? resolve(resolvedRoot, scopePath) : resolvedRoot;
+          if (!isSafeProjectPath(searchRoot, resolvedRoot) && searchRoot !== resolvedRoot) {
+            return {
+              content: [{ type: "text" as const, text: `Error: path "${path}" is outside the project root` }],
+              isError: true,
+            };
+          }
           const rgMatches = await runRipgrepSearch(query, searchRoot, {
             caseSensitive,
             glob: glob?.trim() || undefined,

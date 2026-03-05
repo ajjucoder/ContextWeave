@@ -1,7 +1,18 @@
 import type Database from "better-sqlite3";
 import type { CapsuleLogRecord, CapsuleMode } from "../../core/types.js";
 
-export function capsuleLogQueries(db: Database.Database) {
+type CapsuleLogQueriesResult = ReturnType<typeof capsuleLogQueriesImpl>;
+const capsuleLogQueriesCache = new WeakMap<Database.Database, CapsuleLogQueriesResult>();
+
+export function capsuleLogQueries(db: Database.Database): CapsuleLogQueriesResult {
+  const cached = capsuleLogQueriesCache.get(db);
+  if (cached) return cached;
+  const result = capsuleLogQueriesImpl(db);
+  capsuleLogQueriesCache.set(db, result);
+  return result;
+}
+
+function capsuleLogQueriesImpl(db: Database.Database) {
   const insert = db.prepare(`
     INSERT INTO capsule_log (session_id, query, mode, token_budget, tokens_used, symbols_included, files_included, timestamp, followed_up, miss_ratio, noise_ratio)
     VALUES (@sessionId, @query, @mode, @tokenBudget, @tokensUsed, @symbolsIncluded, @filesIncluded, @timestamp, @followedUp, @missRatio, @noiseRatio)

@@ -10,7 +10,7 @@ export function registerRecallTool(server: McpServer, db: Database.Database): vo
     "cw_recall",
     "Retrieve relevant prior observations from cross-session memory using BM25 search.",
     {
-      query: z.string().describe("What to search for in memory"),
+      query: z.string().min(1).max(2000).describe("What to search for in memory"),
       scope: z.string().optional().describe("Filter by scope category"),
       include_stale: z.boolean().optional().describe("Include stale observations (default: false)"),
       limit: z.number().min(1).max(500).optional().describe("Max results (default: 10)"),

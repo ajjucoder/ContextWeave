@@ -158,6 +158,13 @@ const migrations: Migration[] = [
   {
     version: 7,
     up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS bm25_doc_lengths (
+          observation_id INTEGER PRIMARY KEY,
+          dl INTEGER NOT NULL
+        )
+      `);
+
       const observations = db.prepare(
         "SELECT id, note, scope FROM observations"
       ).all() as Array<{ id: number; note: string; scope: string }>;
@@ -207,6 +214,15 @@ const migrations: Migration[] = [
 
       upsertStat.run({ key: "doc_count", value: String(docCount) });
       upsertStat.run({ key: "avg_dl", value: String(docCount > 0 ? totalDl / docCount : 0) });
+    },
+  },
+  {
+    version: 8,
+    up(db) {
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_observations_session ON observations(session_id);
+        CREATE INDEX IF NOT EXISTS idx_observations_scope ON observations(scope, archived);
+      `);
     },
   },
 ];

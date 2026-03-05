@@ -1,7 +1,18 @@
 import type Database from "better-sqlite3";
 import type { ObservationRecord } from "../../core/types.js";
 
-export function observationQueries(db: Database.Database) {
+type ObservationQueriesResult = ReturnType<typeof observationQueriesImpl>;
+const observationQueriesCache = new WeakMap<Database.Database, ObservationQueriesResult>();
+
+export function observationQueries(db: Database.Database): ObservationQueriesResult {
+  const cached = observationQueriesCache.get(db);
+  if (cached) return cached;
+  const result = observationQueriesImpl(db);
+  observationQueriesCache.set(db, result);
+  return result;
+}
+
+function observationQueriesImpl(db: Database.Database) {
   const insert = db.prepare(`
     INSERT INTO observations (session_id, agent_id, symbol_id, file_id, scope, note, confidence, created_at, updated_at, stale, stale_reason, archived)
     VALUES (@sessionId, @agentId, @symbolId, @fileId, @scope, @note, @confidence, @createdAt, @updatedAt, @stale, @staleReason, @archived)
@@ -16,8 +27,8 @@ export function observationQueries(db: Database.Database) {
   const getBySymbolId = db.prepare("SELECT * FROM observations WHERE symbol_id = ? AND archived = 0");
   const getByFileId = db.prepare("SELECT * FROM observations WHERE file_id = ? AND archived = 0");
   const getByScope = db.prepare("SELECT * FROM observations WHERE scope = ? AND archived = 0");
-  const getActive = db.prepare("SELECT * FROM observations WHERE stale = 0 AND archived = 0 ORDER BY confidence DESC");
-  const getStale = db.prepare("SELECT * FROM observations WHERE stale = 1 AND archived = 0");
+  const getActive = db.prepare("SELECT * FROM observations WHERE stale = 0 AND archived = 0 ORDER BY confidence DESC LIMIT 10000");
+  const getStale = db.prepare("SELECT * FROM observations WHERE stale = 1 AND archived = 0 LIMIT 10000");
   const getBySession = db.prepare("SELECT * FROM observations WHERE session_id = ? AND archived = 0");
   const markStale = db.prepare("UPDATE observations SET stale = 1, stale_reason = ?, updated_at = ? WHERE id = ?");
   const archive = db.prepare("UPDATE observations SET archived = 1, updated_at = ? WHERE id = ?");

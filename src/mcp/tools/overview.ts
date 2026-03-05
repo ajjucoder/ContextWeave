@@ -73,12 +73,28 @@ function approximateTokenTrim(text: string, maxTokens: number): string {
 }
 
 export function registerOverviewTool(server: McpServer, db: Database.Database, projectRoot: string): void {
+  let symbolStmt: ReturnType<Database.Database["prepare"]> | null = null;
+  const getSymbolStmt = () => {
+    if (!symbolStmt) {
+      symbolStmt = db.prepare(`
+        SELECT s.name, s.kind, f.path, s.start_line
+        FROM symbols s
+        JOIN files f ON f.id = s.file_id
+        WHERE s.name LIKE ? ESCAPE '\\'
+          AND f.id = ?
+        ORDER BY s.centrality DESC, s.name ASC
+        LIMIT 3
+      `);
+    }
+    return symbolStmt;
+  };
+
   const registerTool = (server.tool as (...args: any[]) => void).bind(server);
   const inputSchema: Record<string, z.ZodTypeAny> = {
     path: z.string().optional().describe("Directory scope inside project (default: project root)"),
     depth: z.number().min(1).max(8).optional().describe("Directory summary depth (default: 2)"),
     max_tokens: z.number().min(200).max(8000).optional().describe("Approx output token cap (default: 2000)"),
-    query: z.string().optional().describe("Optional query for a focused section"),
+    query: z.string().max(2000).optional().describe("Optional query for a focused section"),
   };
 
   registerTool(
@@ -147,21 +163,11 @@ export function registerOverviewTool(server: McpServer, db: Database.Database, p
           if (focusedFiles.length === 0) {
             lines.push("- No focused file matches found.");
           } else {
-            const symbolStmt = db.prepare(`
-              SELECT s.name, s.kind, f.path, s.start_line
-              FROM symbols s
-              JOIN files f ON f.id = s.file_id
-              WHERE s.name LIKE ? ESCAPE '\\'
-                AND f.id = ?
-              ORDER BY s.centrality DESC, s.name ASC
-              LIMIT 3
-            `);
-
             const escaped = queryTerm.replace(/[\\%_]/g, "\\$&");
             for (const file of focusedFiles) {
               lines.push(`- ${file.path}`);
 
-              const rows = symbolStmt.all(`%${escaped}%`, file.fileId) as QueryRow[];
+              const rows = getSymbolStmt().all(`%${escaped}%`, file.fileId) as QueryRow[];
               if (rows.length === 0) {
                 lines.push("  · no direct symbol name match");
                 continue;

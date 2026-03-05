@@ -26,29 +26,32 @@ export function registerRememberTool(
     async ({ scope, note, symbol, confidence }: { scope: string; note: string; symbol?: string; confidence?: number }) => {
       try {
         const store = new ObservationStore(db);
-        sessionQueries(db).ensureSession(sessionId, projectRoot);
 
-        let symbolId: number | undefined;
-        if (symbol) {
-          const symbols = symbolQueries(db);
-          const allNames = symbols.getAllNames();
-          const matches = fuzzyMatch(symbol, allNames, 0.6);
-          if (matches.length > 0) {
-            const syms = symbols.getByName(matches[0]!.name);
-            if (syms.length > 0) {
-              symbolId = syms[0]!.id;
+        const id = db.transaction(() => {
+          sessionQueries(db).ensureSession(sessionId, projectRoot);
+
+          let symbolId: number | undefined;
+          if (symbol) {
+            const symbols = symbolQueries(db);
+            const allNames = symbols.getAllNames();
+            const matches = fuzzyMatch(symbol, allNames, 0.6);
+            if (matches.length > 0) {
+              const syms = symbols.getByName(matches[0]!.name);
+              if (syms.length > 0) {
+                symbolId = syms[0]!.id;
+              }
             }
           }
-        }
 
-        const result = store.create({
-          sessionId,
-          scope,
-          note,
-          symbolId,
-          confidence,
-        });
-        const id = result.id;
+          const result = store.create({
+            sessionId,
+            scope,
+            note,
+            symbolId,
+            confidence,
+          });
+          return result.id;
+        })();
 
         const response = symbolId
           ? `Remembered observation #${id} [${scope}] linked to symbol`

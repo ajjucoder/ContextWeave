@@ -176,10 +176,14 @@ function symbolQueriesImpl(db: Database.Database) {
     },
 
     searchFTS(term: string, limit: number): SymbolRecord[] {
-      const escaped = term.replace(/["*]/g, "");
-      if (!escaped) return [];
-      const pattern = `"${escaped}"`;
-      return searchFTS.all(pattern, limit).map(mapRow).filter(Boolean) as SymbolRecord[];
+      const escaped = term.replace(/[^a-zA-Z0-9_.\-\s]/g, "");
+      if (!escaped.trim()) return [];
+      const pattern = `"${escaped.trim()}"`;
+      try {
+        return searchFTS.all(pattern, limit).map(mapRow).filter(Boolean) as SymbolRecord[];
+      } catch {
+        return [];
+      }
     },
 
     getAll(): SymbolRecord[] {

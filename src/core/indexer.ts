@@ -435,14 +435,11 @@ function resolveEdges(
     map.set(name, bucket);
   };
 
-  const resolveImportFileIds = (importSource: string): number[] => {
-    const cached = relativeImportCache.get(importSource);
-    if (cached) return cached;
-
+  const resolveImportFileIdsFrom = (importSource: string, fromPath: string): number[] => {
     const candidatePaths = new Set<string>();
 
     if (importSource.startsWith(".")) {
-      const basePath = resolve(dirname(filePath), importSource);
+      const basePath = resolve(dirname(fromPath), importSource);
       candidatePaths.add(basePath);
       for (const ext of IMPORT_RESOLVE_EXTENSIONS) {
         candidatePaths.add(`${basePath}${ext}`);
@@ -466,36 +463,19 @@ function resolveEdges(
       fileIds.push(candidateFile.id);
     }
 
+    return fileIds;
+  };
+
+  const resolveImportFileIds = (importSource: string): number[] => {
+    const cached = relativeImportCache.get(importSource);
+    if (cached) return cached;
+    const fileIds = resolveImportFileIdsFrom(importSource, filePath);
     relativeImportCache.set(importSource, fileIds);
     return fileIds;
   };
 
   const resolveSourceFileIds = (source: string, fromFilePath: string): number[] => {
-    const candidatePaths = new Set<string>();
-    if (source.startsWith(".")) {
-      const basePath = resolve(dirname(fromFilePath), source);
-      candidatePaths.add(basePath);
-      for (const ext of IMPORT_RESOLVE_EXTENSIONS) {
-        candidatePaths.add(`${basePath}${ext}`);
-        candidatePaths.add(join(basePath, `index${ext}`));
-      }
-    } else if (tsconfigPaths) {
-      const resolvedBases = resolveAliasedImport(source, tsconfigPaths);
-      for (const base of resolvedBases) {
-        candidatePaths.add(base);
-        for (const ext of IMPORT_RESOLVE_EXTENSIONS) {
-          candidatePaths.add(`${base}${ext}`);
-          candidatePaths.add(join(base, `index${ext}`));
-        }
-      }
-    }
-    const fileIds: number[] = [];
-    for (const candidatePath of candidatePaths) {
-      const candidateFile = files.getByPath(candidatePath);
-      if (!candidateFile) continue;
-      fileIds.push(candidateFile.id);
-    }
-    return fileIds;
+    return resolveImportFileIdsFrom(source, fromFilePath);
   };
 
   const getReExportsForFile = (targetFileId: number): ReExportEntry[] => {
@@ -1141,7 +1121,12 @@ export function indexSingleFile(
         return { symbolCount: 0, errors: [`Symlink "${filePath}" points outside project root`], diff: null };
       }
     }
-  } catch {
+  } catch (err) {
+    log.debug("symlink check failed, skipping file", {
+      path: filePath,
+      error: err instanceof Error ? err.message : String(err),
+    });
+    return { symbolCount: 0, errors: [`Failed to check symlink for "${filePath}"`], diff: null };
   }
 
   if (isAlwaysIgnored(resolvedPath)) {

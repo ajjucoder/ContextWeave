@@ -84,6 +84,11 @@ CREATE TABLE IF NOT EXISTS bm25_index (
   PRIMARY KEY (term, observation_id)
 );
 
+CREATE TABLE IF NOT EXISTS bm25_doc_lengths (
+  observation_id INTEGER PRIMARY KEY,
+  dl             INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS bm25_stats (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -154,6 +159,8 @@ CREATE INDEX IF NOT EXISTS idx_files_path_cov ON files(path, id, hash, mtime, sy
 CREATE INDEX IF NOT EXISTS idx_session_ctx_session ON session_context(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_ctx_symbol ON session_context(symbol_id);
 CREATE INDEX IF NOT EXISTS idx_file_clusters_cluster ON file_clusters(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_observations_session ON observations(session_id);
+CREATE INDEX IF NOT EXISTS idx_observations_scope ON observations(scope, archived);
 `;
 
 const FTS_SYNC = `
