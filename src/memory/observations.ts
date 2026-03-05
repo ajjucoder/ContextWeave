@@ -118,7 +118,7 @@ export class ObservationStore {
   search(query: string, options: SearchOptions = {}): ObservationRecord[] {
     const { scope, includeStale = false, limit = 20 } = options;
 
-    const bm25Results = this.bm25.search(query, limit * 3);
+    const bm25Results = this.bm25.searchWithFallback(query, limit * 3);
 
     const results: ObservationRecord[] = [];
 
@@ -139,7 +139,7 @@ export class ObservationStore {
     query: string,
     limit = 20
   ): Array<{ observation: ObservationRecord; bm25Score: number }> {
-    const bm25Results = this.bm25.search(query, limit);
+    const bm25Results = this.bm25.searchWithFallback(query, limit);
 
     const results: Array<{ observation: ObservationRecord; bm25Score: number }> = [];
 
