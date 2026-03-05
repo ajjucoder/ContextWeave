@@ -77,3 +77,70 @@ describe("BM25Index", () => {
     expect(authIds).toContain(3);
   });
 });
+
+describe("BM25 stemmed search", () => {
+  it("matches morphological variants via stemming", () => {
+    createObservation(db, 1);
+    createObservation(db, 2);
+
+    bm25.indexObservation(1, "caching strategy for database connections");
+    bm25.indexObservation(2, "logging configuration for production");
+
+    const results = bm25.search("cached connection");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0]!.observationId).toBe(1);
+  });
+
+  it("matches -tion/-ing variants", () => {
+    createObservation(db, 1);
+    bm25.indexObservation(1, "authentication middleware validates tokens");
+
+    const results = bm25.search("authenticating");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0]!.observationId).toBe(1);
+  });
+});
+
+describe("BM25 searchWithFallback", () => {
+  it("returns stemmed results without triggering fallback when enough matches exist", () => {
+    createObservation(db, 1);
+    createObservation(db, 2);
+    createObservation(db, 3);
+
+    bm25.indexObservation(1, "authentication middleware handler");
+    bm25.indexObservation(2, "authentication token refresh logic");
+    bm25.indexObservation(3, "database connection pooling setup");
+
+    const results = bm25.searchWithFallback("authentication", 10, 2);
+    expect(results.length).toBeGreaterThanOrEqual(2);
+    const ids = results.map((r) => r.observationId);
+    expect(ids).toContain(1);
+    expect(ids).toContain(2);
+  });
+
+  it("falls back to trigram matching on partial terms", () => {
+    createObservation(db, 1);
+    bm25.indexObservation(1, "kubernetes deployment configuration");
+
+    const results = bm25.searchWithFallback("kubernet", 10, 1);
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    expect(results[0]!.observationId).toBe(1);
+  });
+
+  it("falls back to Levenshtein correction on typos", () => {
+    createObservation(db, 1);
+    bm25.indexObservation(1, "kubernetes cluster management");
+
+    const results = bm25.searchWithFallback("kuberntes", 10, 1);
+    expect(results.length).toBeGreaterThanOrEqual(1);
+    expect(results[0]!.observationId).toBe(1);
+  });
+
+  it("returns empty for completely unrelated queries", () => {
+    createObservation(db, 1);
+    bm25.indexObservation(1, "authentication middleware");
+
+    const results = bm25.searchWithFallback("zzzznotfound", 10, 1);
+    expect(results).toHaveLength(0);
+  });
+});
