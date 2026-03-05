@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { createSchema } from "./schema.js";
 import { createLogger } from "../utils/logger.js";
+import { stem } from "../utils/stemmer.js";
 
 const log = createLogger("migrations");
 
@@ -152,6 +153,60 @@ const migrations: Migration[] = [
       }
 
       db.exec("CREATE INDEX IF NOT EXISTS idx_files_basename_path ON files(basename, path)");
+    },
+  },
+  {
+    version: 7,
+    up(db) {
+      const observations = db.prepare(
+        "SELECT id, note, scope FROM observations"
+      ).all() as Array<{ id: number; note: string; scope: string }>;
+
+      if (observations.length === 0) return;
+
+      const STOPWORDS = new Set([
+        "the", "a", "an", "is", "it", "and", "or", "of", "to", "in",
+        "for", "on", "at", "by", "with", "as", "this", "that", "from", "be",
+      ]);
+
+      function tokenize(text: string): string[] {
+        return text
+          .toLowerCase()
+          .split(/[\s\W]+/)
+          .filter((t) => t.length > 0 && !STOPWORDS.has(t))
+          .map((t) => stem(t));
+      }
+
+      const deleteTerm = db.prepare("DELETE FROM bm25_index WHERE observation_id = ?");
+      const deleteDocLen = db.prepare("DELETE FROM bm25_doc_lengths WHERE observation_id = ?");
+      const insertTerm = db.prepare("INSERT OR REPLACE INTO bm25_index (term, observation_id, tf) VALUES (@term, @observationId, @tf)");
+      const insertDocLen = db.prepare("INSERT OR REPLACE INTO bm25_doc_lengths (observation_id, dl) VALUES (?, ?)");
+      const upsertStat = db.prepare("INSERT OR REPLACE INTO bm25_stats (key, value) VALUES (@key, @value)");
+
+      let totalDl = 0;
+      let docCount = 0;
+
+      for (const obs of observations) {
+        const text = obs.note + " " + obs.scope;
+        const tokens = tokenize(text);
+        if (tokens.length === 0) continue;
+
+        deleteTerm.run(obs.id);
+        deleteDocLen.run(obs.id);
+
+        const tf = new Map<string, number>();
+        for (const t of tokens) tf.set(t, (tf.get(t) ?? 0) + 1);
+
+        for (const [term, count] of tf) {
+          insertTerm.run({ term, observationId: obs.id, tf: count });
+        }
+        insertDocLen.run(obs.id, tokens.length);
+        totalDl += tokens.length;
+        docCount++;
+      }
+
+      upsertStat.run({ key: "doc_count", value: String(docCount) });
+      upsertStat.run({ key: "avg_dl", value: String(docCount > 0 ? totalDl / docCount : 0) });
     },
   },
 ];
