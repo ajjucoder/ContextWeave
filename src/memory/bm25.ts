@@ -218,58 +218,40 @@ export class BM25Index {
     limit = 20,
     minResults = 3
   ): Array<{ observationId: number; score: number }> {
-    const results = this.search(query, limit);
-    if (results.length >= minResults) return results;
+    const layer1 = this.search(query, limit);
+    if (layer1.length >= minResults) return layer1;
 
     const queryTokens = tokenize(query);
-    if (queryTokens.length === 0) return results;
+    if (queryTokens.length === 0) return layer1;
 
     const knownTerms = this.getDistinctTerms();
-    if (knownTerms.length === 0) return results;
+    if (knownTerms.length === 0) return layer1;
 
-    const expandedTokens = new Set(queryTokens);
-
+    const trigramTokens = new Set(queryTokens);
     for (const qt of queryTokens) {
       for (const known of knownTerms) {
         if (trigramSimilarity(qt, known) >= 0.4) {
-          expandedTokens.add(known);
+          trigramTokens.add(known);
         }
       }
     }
 
-    if (expandedTokens.size > queryTokens.length) {
-      const expandedQuery = [...expandedTokens].join(" ");
-      const trigramResults = this.search(expandedQuery, limit);
-      if (trigramResults.length >= minResults) return trigramResults;
-      if (trigramResults.length > results.length) {
-        const correctedTokens = new Set(expandedTokens);
+    const layer2 = trigramTokens.size > queryTokens.length
+      ? this.search([...trigramTokens].join(" "), limit)
+      : layer1;
+    if (layer2.length >= minResults) return layer2;
 
-        for (const qt of queryTokens) {
-          const corrected = correctTerm(qt, knownTerms, 2);
-          if (corrected) correctedTokens.add(corrected);
-        }
-
-        if (correctedTokens.size > expandedTokens.size) {
-          return this.search([...correctedTokens].join(" "), limit);
-        }
-
-        return trigramResults;
-      }
-    }
-
-    const correctedTokens = new Set(expandedTokens);
-
+    const levenTokens = new Set(trigramTokens);
     for (const qt of queryTokens) {
       const corrected = correctTerm(qt, knownTerms, 2);
-      if (corrected) correctedTokens.add(corrected);
+      if (corrected) levenTokens.add(corrected);
     }
 
-    if (correctedTokens.size > expandedTokens.size) {
-      const correctedQuery = [...correctedTokens].join(" ");
-      return this.search(correctedQuery, limit);
-    }
+    const layer3 = levenTokens.size > trigramTokens.size
+      ? this.search([...levenTokens].join(" "), limit)
+      : layer2;
 
-    return results;
+    return layer3.length > 0 ? layer3 : layer1;
   }
 
   rebuildStats(): void {
@@ -291,24 +273,27 @@ export class BM25Index {
     const obsIds = docRows.map((r) => r.observation_id);
 
     let reindexed = 0;
-    for (const obsId of obsIds) {
-      const text = getObservationText(obsId);
-      if (!text) continue;
 
-      this.stmtDeleteTerm.run(obsId);
-      this.stmtDeleteDocLength.run(obsId);
+    this.db.transaction(() => {
+      for (const obsId of obsIds) {
+        const text = getObservationText(obsId);
+        if (!text) continue;
 
-      const tokens = tokenize(text);
-      const dl = tokens.length;
-      if (dl === 0) continue;
+        this.stmtDeleteTerm.run(obsId);
+        this.stmtDeleteDocLength.run(obsId);
 
-      const tf = computeTF(tokens);
-      for (const [term, count] of tf) {
-        this.stmtInsertTerm.run({ term, observationId: obsId, tf: count });
+        const tokens = tokenize(text);
+        const dl = tokens.length;
+        if (dl === 0) continue;
+
+        const tf = computeTF(tokens);
+        for (const [term, count] of tf) {
+          this.stmtInsertTerm.run({ term, observationId: obsId, tf: count });
+        }
+        this.stmtInsertDocLength.run(obsId, dl);
+        reindexed++;
       }
-      this.stmtInsertDocLength.run(obsId, dl);
-      reindexed++;
-    }
+    })();
 
     this.rebuildStats();
     this.distinctTermsCache = null;
