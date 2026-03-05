@@ -903,11 +903,11 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
   log.info(`discovered ${filePaths.length} files`);
 
   const files = fileQueries(db);
-  const existingFileRecords = files.getAll();
-  const existingByPath = new Map(existingFileRecords.map((record) => [record.path, record]));
+  const existingLightRecords = files.getAllPathsAndMtimes();
+  const existingByPath = new Map(existingLightRecords.map((record) => [record.path, record]));
   const discovered = new Set(filePaths);
   let prunedCount = 0;
-  for (const existing of existingFileRecords) {
+  for (const existing of existingLightRecords) {
     if (discovered.has(existing.path)) continue;
     files.deleteById(existing.id);
     prunedCount++;
@@ -1001,41 +1001,45 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
     }
   }
 
-  const resolveAllEdges = db.transaction(() => {
-    const filesDb = fileQueries(db);
-    const symbolsDb = symbolQueries(db);
+  const EDGE_CHUNK_SIZE = 500;
+  const filesDb = fileQueries(db);
+  const symbolsDb = symbolQueries(db);
 
-    const reExportsByFileId = new Map<number, ReExportEntry[]>();
-    for (const [filePath, reExports] of reExportsByPath) {
-      const fileRecord = filesDb.getByPath(filePath);
-      if (fileRecord) reExportsByFileId.set(fileRecord.id, reExports);
-    }
+  const reExportsByFileId = new Map<number, ReExportEntry[]>();
+  for (const [filePath, reExports] of reExportsByPath) {
+    const fileRecord = filesDb.getByPath(filePath);
+    if (fileRecord) reExportsByFileId.set(fileRecord.id, reExports);
+  }
 
-    for (const pending of pendingEdgeResolutions) {
-      const fileRecord = filesDb.getByPath(pending.filePath);
-      if (!fileRecord) continue;
+  for (let i = 0; i < pendingEdgeResolutions.length; i += EDGE_CHUNK_SIZE) {
+    const chunk = pendingEdgeResolutions.slice(i, i + EDGE_CHUNK_SIZE);
+    const resolveChunk = db.transaction(() => {
+      for (const pending of chunk) {
+        const fileRecord = filesDb.getByPath(pending.filePath);
+        if (!fileRecord) continue;
 
-      const symbolMap = new Map<string, number>();
-      for (const symbol of symbolsDb.getByFileId(fileRecord.id)) {
-        if (!symbolMap.has(symbol.name)) symbolMap.set(symbol.name, symbol.id);
+        const symbolMap = new Map<string, number>();
+        for (const symbol of symbolsDb.getByFileId(fileRecord.id)) {
+          if (!symbolMap.has(symbol.name)) symbolMap.set(symbol.name, symbol.id);
+        }
+
+        resolveEdges(db, fileRecord.id, pending.filePath, pending.parseResult, symbolMap, tsconfigPaths, reExportsByFileId);
       }
+    });
+    resolveChunk();
+  }
 
-      resolveEdges(db, fileRecord.id, pending.filePath, pending.parseResult, symbolMap, tsconfigPaths, reExportsByFileId);
-    }
-  });
-
-  resolveAllEdges();
-
-  const upsertSummaries = db.transaction(() => {
-    const filesDb = fileQueries(db);
-    for (const pending of pendingEdgeResolutions) {
-      const fileRecord = filesDb.getByPath(pending.filePath);
-      if (!fileRecord) continue;
-      upsertFileSummary(db, fileRecord.id);
-    }
-  });
-
-  upsertSummaries();
+  for (let i = 0; i < pendingEdgeResolutions.length; i += EDGE_CHUNK_SIZE) {
+    const chunk = pendingEdgeResolutions.slice(i, i + EDGE_CHUNK_SIZE);
+    const upsertChunk = db.transaction(() => {
+      for (const pending of chunk) {
+        const fileRecord = filesDb.getByPath(pending.filePath);
+        if (!fileRecord) continue;
+        upsertFileSummary(db, fileRecord.id);
+      }
+    });
+    upsertChunk();
+  }
 
   computeClusters(db, projectRoot);
 
@@ -1071,7 +1075,7 @@ export async function indexDirectory(
   const discoveredPaths = new Set(inDirectory.map((f) => f.path));
   const files = fileQueries(db);
   const dirPrefix = `${resolvedDirectory}${sep}`;
-  const existingInDir = files.getAll().filter((f) => f.path.startsWith(dirPrefix));
+  const existingInDir = files.searchByPath(resolvedDirectory, 100000);
   let prunedCount = 0;
   for (const existing of existingInDir) {
     if (!discoveredPaths.has(existing.path)) {

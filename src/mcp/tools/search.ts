@@ -248,9 +248,8 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
         } else {
           // Fallback: in-process file scan
           const regex = buildRegex(query, use_regex ?? false, caseSensitive);
-          const indexedFiles = files.getAll();
 
-          for (const file of indexedFiles) {
+          for (const file of files.iterateAll()) {
             if (results.length >= maxResults) break;
             const fullPath = resolve(resolvedRoot, file.path);
             if (!isSafeProjectPath(fullPath, resolvedRoot)) continue;

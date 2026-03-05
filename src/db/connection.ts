@@ -33,6 +33,8 @@ function openAndConfigure(dbPath: string): Database.Database {
   }
   instance.pragma("wal_autocheckpoint = 1000");
   instance.pragma(`journal_size_limit = ${64 * 1024 * 1024}`);
+  instance.pragma(`mmap_size = ${256 * 1024 * 1024}`);
+  instance.pragma("temp_store = MEMORY");
   return instance;
 }
 

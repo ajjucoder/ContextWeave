@@ -33,17 +33,14 @@ export function registerFilesTool(server: McpServer, db: Database.Database, proj
 
         const regex = pattern && pattern.trim().length > 0 ? globToRegExp(pattern.trim()) : null;
 
-        const filtered = filesApi
-          .getAll()
-          .map((file) => ({
-            file,
-            relPath: toProjectRelativePath(projectRoot, file.path),
-          }))
-          .filter(({ relPath }) => withinPath(relPath, basePath))
-          .filter(({ relPath }) => (regex ? regex.test(relPath) : true))
-          .map(({ file }) => file)
-          .sort((a, b) => a.path.localeCompare(b.path))
-          .slice(0, maxResults);
+        const filtered: ReturnType<typeof filesApi.getAll> = [];
+        for (const file of filesApi.iterateAll()) {
+          const relPath = toProjectRelativePath(projectRoot, file.path);
+          if (!withinPath(relPath, basePath)) continue;
+          if (regex && !regex.test(relPath)) continue;
+          filtered.push(file);
+          if (filtered.length >= maxResults) break;
+        }
 
         const lines: string[] = [
           "Indexed Files",

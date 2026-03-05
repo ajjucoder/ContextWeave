@@ -27,6 +27,8 @@ function fileQueriesImpl(db: Database.Database) {
   const getByPath = db.prepare("SELECT * FROM files WHERE path = ?");
   const getById = db.prepare("SELECT * FROM files WHERE id = ?");
   const getAll = db.prepare("SELECT * FROM files ORDER BY path");
+  const iterateAllStmt = db.prepare("SELECT * FROM files ORDER BY path");
+  const getAllPathsAndMtimes = db.prepare("SELECT id, path, mtime, symbol_count FROM files");
   const searchByPath = db.prepare(
     "SELECT * FROM files WHERE path LIKE ? ESCAPE '\\' ORDER BY last_indexed DESC LIMIT ?"
   );
@@ -106,6 +108,25 @@ function fileQueriesImpl(db: Database.Database) {
 
     getAll(): FileRecord[] {
       return getAll.all().map(mapRow).filter(Boolean) as FileRecord[];
+    },
+
+    *iterateAll(): IterableIterator<FileRecord> {
+      for (const row of iterateAllStmt.iterate()) {
+        const mapped = mapRow(row);
+        if (mapped) yield mapped;
+      }
+    },
+
+    getAllPathsAndMtimes(): Array<{ id: number; path: string; mtime: number; symbolCount: number }> {
+      return getAllPathsAndMtimes.all().map((row) => {
+        const r = row as Record<string, unknown>;
+        return {
+          id: r["id"] as number,
+          path: r["path"] as string,
+          mtime: r["mtime"] as number,
+          symbolCount: r["symbol_count"] as number,
+        };
+      });
     },
 
     searchByPath(term: string, limit = 100): FileRecord[] {
