@@ -90,13 +90,25 @@ export function bfsTraversal(
   return result;
 }
 
+const lazyBfsStmtCache = new WeakMap<Database.Database, { out: ReturnType<Database.Database["prepare"]>; inc: ReturnType<Database.Database["prepare"]> }>();
+
+function getLazyBfsStmts(db: Database.Database) {
+  const cached = lazyBfsStmtCache.get(db);
+  if (cached) return cached;
+  const stmts = {
+    out: db.prepare("SELECT target_symbol_id FROM edges WHERE source_symbol_id = ?"),
+    inc: db.prepare("SELECT source_symbol_id FROM edges WHERE target_symbol_id = ?"),
+  };
+  lazyBfsStmtCache.set(db, stmts);
+  return stmts;
+}
+
 export function lazyBfsTraversal(
   db: Database.Database,
   pivotIds: number[],
   maxDepth: number
 ): BfsNode[] {
-  const getOutgoing = db.prepare("SELECT target_symbol_id FROM edges WHERE source_symbol_id = ?");
-  const getIncoming = db.prepare("SELECT source_symbol_id FROM edges WHERE target_symbol_id = ?");
+  const { out: getOutgoing, inc: getIncoming } = getLazyBfsStmts(db);
 
   const visited = new Map<number, number>();
   const queue: BfsNode[] = [];
@@ -128,18 +140,30 @@ export function lazyBfsTraversal(
   return Array.from(visited.entries()).map(([symbolId, distance]) => ({ symbolId, distance }));
 }
 
+const scopedBfsStmtCache = new WeakMap<Database.Database, { out: ReturnType<Database.Database["prepare"]>; inc: ReturnType<Database.Database["prepare"]> }>();
+
+function getScopedBfsStmts(db: Database.Database) {
+  const cached = scopedBfsStmtCache.get(db);
+  if (cached) return cached;
+  const stmts = {
+    out: db.prepare(
+      "SELECT e.target_symbol_id, f.path FROM edges e JOIN symbols s ON s.id = e.target_symbol_id JOIN files f ON f.id = s.file_id WHERE e.source_symbol_id = ?"
+    ),
+    inc: db.prepare(
+      "SELECT e.source_symbol_id, f.path FROM edges e JOIN symbols s ON s.id = e.source_symbol_id JOIN files f ON f.id = s.file_id WHERE e.target_symbol_id = ?"
+    ),
+  };
+  scopedBfsStmtCache.set(db, stmts);
+  return stmts;
+}
+
 export function scopedLazyBfsTraversal(
   db: Database.Database,
   pivotIds: number[],
   maxDepth: number,
   scopeDirs: string[] | null
 ): BfsNode[] {
-  const getOutgoing = db.prepare(
-    "SELECT e.target_symbol_id, f.path FROM edges e JOIN symbols s ON s.id = e.target_symbol_id JOIN files f ON f.id = s.file_id WHERE e.source_symbol_id = ?"
-  );
-  const getIncoming = db.prepare(
-    "SELECT e.source_symbol_id, f.path FROM edges e JOIN symbols s ON s.id = e.source_symbol_id JOIN files f ON f.id = s.file_id WHERE e.target_symbol_id = ?"
-  );
+  const { out: getOutgoing, inc: getIncoming } = getScopedBfsStmts(db);
 
   const isInScope = (filePath: string): boolean => {
     if (!scopeDirs || scopeDirs.length === 0) return true;
