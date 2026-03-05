@@ -1,5 +1,8 @@
 import type Database from "better-sqlite3";
 import { createLogger } from "../utils/logger.js";
+import { stem } from "../utils/stemmer.js";
+import { trigramSimilarity } from "../utils/fuzzy.js";
+import { correctTerm } from "../utils/levenshtein.js";
 
 const logger = createLogger("BM25Index");
 
@@ -15,7 +18,8 @@ function tokenize(text: string): string[] {
   return text
     .toLowerCase()
     .split(/[\s\W]+/)
-    .filter((t) => t.length > 0 && !STOPWORDS.has(t));
+    .filter((t) => t.length > 0 && !STOPWORDS.has(t))
+    .map((t) => stem(t));
 }
 
 function computeTF(tokens: string[]): Map<string, number> {
@@ -37,6 +41,8 @@ export class BM25Index {
   private readonly stmtGetDocLength: Database.Statement;
   private readonly stmtInsertDocLength: Database.Statement;
   private readonly stmtDeleteDocLength: Database.Statement;
+  private readonly stmtGetDistinctTerms: Database.Statement;
+  private distinctTermsCache: string[] | null = null;
 
   constructor(db: Database.Database) {
     this.db = db;
@@ -84,6 +90,10 @@ export class BM25Index {
     this.stmtDeleteDocLength = db.prepare(
       "DELETE FROM bm25_doc_lengths WHERE observation_id = ?"
     );
+
+    this.stmtGetDistinctTerms = db.prepare(
+      "SELECT DISTINCT term FROM bm25_index"
+    );
   }
 
   private readStat(key: string): number {
@@ -122,6 +132,7 @@ export class BM25Index {
       this.writeStat("avg_dl", newAvgDl);
     })();
 
+    this.distinctTermsCache = null;
     logger.debug("Indexed observation", { observationId, terms: tf.size, dl });
   }
 
@@ -150,6 +161,7 @@ export class BM25Index {
       this.writeStat("avg_dl", Math.max(0, newAvgDl));
     })();
 
+    this.distinctTermsCache = null;
     logger.debug("Removed observation from index", { observationId });
   }
 
@@ -193,6 +205,73 @@ export class BM25Index {
       .slice(0, limit);
   }
 
+  getDistinctTerms(): string[] {
+    if (this.distinctTermsCache) return this.distinctTermsCache;
+    this.distinctTermsCache = (
+      this.stmtGetDistinctTerms.all() as Array<{ term: string }>
+    ).map((r) => r.term);
+    return this.distinctTermsCache;
+  }
+
+  searchWithFallback(
+    query: string,
+    limit = 20,
+    minResults = 3
+  ): Array<{ observationId: number; score: number }> {
+    const results = this.search(query, limit);
+    if (results.length >= minResults) return results;
+
+    const queryTokens = tokenize(query);
+    if (queryTokens.length === 0) return results;
+
+    const knownTerms = this.getDistinctTerms();
+    if (knownTerms.length === 0) return results;
+
+    const expandedTokens = new Set(queryTokens);
+
+    for (const qt of queryTokens) {
+      for (const known of knownTerms) {
+        if (trigramSimilarity(qt, known) >= 0.4) {
+          expandedTokens.add(known);
+        }
+      }
+    }
+
+    if (expandedTokens.size > queryTokens.length) {
+      const expandedQuery = [...expandedTokens].join(" ");
+      const trigramResults = this.search(expandedQuery, limit);
+      if (trigramResults.length >= minResults) return trigramResults;
+      if (trigramResults.length > results.length) {
+        const correctedTokens = new Set(expandedTokens);
+
+        for (const qt of queryTokens) {
+          const corrected = correctTerm(qt, knownTerms, 2);
+          if (corrected) correctedTokens.add(corrected);
+        }
+
+        if (correctedTokens.size > expandedTokens.size) {
+          return this.search([...correctedTokens].join(" "), limit);
+        }
+
+        return trigramResults;
+      }
+    }
+
+    const correctedTokens = new Set(expandedTokens);
+
+    for (const qt of queryTokens) {
+      const corrected = correctTerm(qt, knownTerms, 2);
+      if (corrected) correctedTokens.add(corrected);
+    }
+
+    if (correctedTokens.size > expandedTokens.size) {
+      const correctedQuery = [...correctedTokens].join(" ");
+      return this.search(correctedQuery, limit);
+    }
+
+    return results;
+  }
+
   rebuildStats(): void {
     const rows = this.stmtGetAllDocLengths.all() as Array<{ observation_id: number; dl: number }>;
     const docCount = rows.length;
@@ -203,5 +282,37 @@ export class BM25Index {
     this.writeStat("avg_dl", avgdl);
 
     logger.info("Rebuilt BM25 stats", { docCount, avgdl });
+  }
+
+  reindexAll(
+    getObservationText: (observationId: number) => string | null
+  ): number {
+    const docRows = this.stmtGetAllDocLengths.all() as Array<{ observation_id: number }>;
+    const obsIds = docRows.map((r) => r.observation_id);
+
+    let reindexed = 0;
+    for (const obsId of obsIds) {
+      const text = getObservationText(obsId);
+      if (!text) continue;
+
+      this.stmtDeleteTerm.run(obsId);
+      this.stmtDeleteDocLength.run(obsId);
+
+      const tokens = tokenize(text);
+      const dl = tokens.length;
+      if (dl === 0) continue;
+
+      const tf = computeTF(tokens);
+      for (const [term, count] of tf) {
+        this.stmtInsertTerm.run({ term, observationId: obsId, tf: count });
+      }
+      this.stmtInsertDocLength.run(obsId, dl);
+      reindexed++;
+    }
+
+    this.rebuildStats();
+    this.distinctTermsCache = null;
+    logger.info("Reindexed all observations with stemming", { reindexed });
+    return reindexed;
   }
 }
