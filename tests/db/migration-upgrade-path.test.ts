@@ -41,7 +41,7 @@ describe("DB migration upgrade path", () => {
       .all() as Array<{ version: number }>;
     const versions = applied.map((r) => r.version);
 
-    expect(versions).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7]);
 
     db.close();
   });
@@ -71,7 +71,7 @@ describe("DB migration upgrade path", () => {
         .get() as { cnt: number }
     ).cnt;
 
-    expect(count).toBe(6);
+    expect(count).toBe(7);
 
     db.close();
   });
