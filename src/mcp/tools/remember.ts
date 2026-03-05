@@ -5,6 +5,7 @@ import { ObservationStore } from "../../memory/observations.js";
 import { symbolQueries } from "../../db/queries/symbols.js";
 import { sessionQueries } from "../../db/queries/sessions.js";
 import { fuzzyMatch } from "../../utils/fuzzy.js";
+import { getRegisterTool } from "./register-helper.js";
 
 export function registerRememberTool(
   server: McpServer,
@@ -12,7 +13,7 @@ export function registerRememberTool(
   sessionId: string,
   projectRoot: string
 ): void {
-  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
+  const registerTool = getRegisterTool(server);
 
   registerTool(
     "cw_remember",

@@ -3,6 +3,7 @@ import { relative, resolve } from "node:path";
 import type Database from "better-sqlite3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod/v3";
+import { getRegisterTool } from "./register-helper.js";
 import { isPathWithinRoot } from "../../core/indexer.js";
 import { fileQueries } from "../../db/queries/files.js";
 import { symbolQueries } from "../../db/queries/symbols.js";
@@ -82,7 +83,7 @@ export function parseSymbolTarget(
 }
 
 export function registerReadTool(server: McpServer, db: Database.Database, projectRoot: string): void {
-  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
+  const registerTool = getRegisterTool(server);
   const inputSchema: Record<string, z.ZodTypeAny> = {
     path: z.string().optional().describe("File path to read (absolute or relative to project root)"),
     symbol: z.string().optional().describe("Optional indexed symbol name to resolve file/range"),

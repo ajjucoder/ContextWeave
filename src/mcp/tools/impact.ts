@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
 import { dirname } from "node:path";
 import { symbolQueries } from "../../db/queries/symbols.js";
+import { getRegisterTool } from "./register-helper.js";
 import { edgeQueries } from "../../db/queries/edges.js";
 import { fileQueries } from "../../db/queries/files.js";
 import { fuzzyMatch } from "../../utils/fuzzy.js";
@@ -140,7 +141,7 @@ function resolveTargetSymbols(
 }
 
 export function registerImpactTool(server: McpServer, db: Database.Database): void {
-  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
+  const registerTool = getRegisterTool(server);
 
   registerTool(
     "cw_impact",

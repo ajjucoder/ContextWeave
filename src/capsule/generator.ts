@@ -12,7 +12,7 @@ import type {
 } from "../core/types.js";
 import { symbolQueries } from "../db/queries/symbols.js";
 import { fileQueries } from "../db/queries/files.js";
-import { getBatchSymbolDegrees } from "../core/graph.js";
+import { getBatchSymbolDegrees, getDepthForBudget } from "../core/graph.js";
 import { weightedBfsTraversal } from "../core/weighted-bfs.js";
 import { fuzzyMatch } from "../utils/fuzzy.js";
 import { countTokens, estimateTokens } from "../utils/tokens.js";
@@ -77,6 +77,18 @@ interface RankedCandidate {
   degree: number;
 }
 
+const DEFAULT_TOKEN_BUDGET = 4000;
+const DEFAULT_MAX_QUERY_TIME_MS = 500;
+const NARROW_MIN_UTILIZATION = 0.45;
+const BROAD_TASK_MIN_UTILIZATION = 0.6;
+const BROAD_TASK_TARGET_UTILIZATION = 0.7;
+const OBSERVATION_BUDGET_FRACTION = 0.2;
+const MAX_BFS_VISITED_DIVISOR = 20;
+const MAX_BFS_VISITED_CAP = 300;
+const MAX_BFS_HOPS = 8;
+const EDGE_BATCH_CHUNK_SIZE = 400;
+const DEDUP_COMPRESSION_LEVEL = 2;
+
 const FRAMEWORK_QUERY_HINT_TERMS = new Set([
   "next",
   "nextjs",
@@ -88,18 +100,11 @@ const FRAMEWORK_QUERY_HINT_TERMS = new Set([
   "layout",
 ]);
 
-function getBfsDepth(budget: number): number {
-  if (budget < 2000) return 3;
-  if (budget < 5000) return 4;
-  if (budget < 10000) return 5;
-  return 6;
-}
-
 export function generateCapsule(db: Database.Database, params: CapsuleParams): CapsuleOutput {
-  const tokenBudget = params.tokenBudget ?? 4000;
+  const tokenBudget = params.tokenBudget ?? DEFAULT_TOKEN_BUDGET;
   const mode = params.mode ?? "feature";
   const { query } = params;
-  const maxQueryTimeMs = params.maxQueryTimeMs ?? 500;
+  const maxQueryTimeMs = params.maxQueryTimeMs ?? DEFAULT_MAX_QUERY_TIME_MS;
   const startTime = Date.now();
   const elapsed = () => Date.now() - startTime;
   const isOverBudget = (fraction: number) => elapsed() > maxQueryTimeMs * fraction;
@@ -389,7 +394,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   logger.debug("pivot symbols after ranking", { raw: rawPivotIds.size, ranked: pivotSymbolIds.size, relevant: relevantPivotIds.size });
 
   const memorySearch = new MemorySearch(db);
-  const observationBudget = Math.floor(tokenBudget * 0.2);
+  const observationBudget = Math.floor(tokenBudget * OBSERVATION_BUDGET_FRACTION);
   const { observations } = memorySearch.getRelevantForCapsule(query, observationBudget);
 
   // Build symbol → observation count map so scoreNode can use memory signal
@@ -423,7 +428,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   // Phase 2: Lazy BFS traversal keeps memory stable on large graphs.
   const skipBfs = isOverBudget(0.5);
-  const baseDepth = getBfsDepth(retrievalBudget);
+  const baseDepth = getDepthForBudget(retrievalBudget);
   const maxDepth =
     intent === "broad"
       ? Math.max(2, baseDepth - 1)
@@ -441,9 +446,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
   }
   const scopeDirs = scopeDirSet.size > 0 ? [...scopeDirSet] : null;
-  const maxVisitedNodes = Math.min(300, Math.floor(retrievalBudget / 20));
+  const maxVisitedNodes = Math.min(MAX_BFS_VISITED_CAP, Math.floor(retrievalBudget / MAX_BFS_VISITED_DIVISOR));
   const effectiveBfsDepth = skipBfs ? 1 : maxDepth;
-  const bfsNodes = weightedBfsTraversal(db, [...pivotSymbolIds], effectiveBfsDepth, scopeDirs, { maxVisitedNodes, maxHops: 8 });
+  const bfsNodes = weightedBfsTraversal(db, [...pivotSymbolIds], effectiveBfsDepth, scopeDirs, { maxVisitedNodes, maxHops: MAX_BFS_HOPS });
   const visited = new Map<number, number>(bfsNodes.map((n) => [n.symbolId, n.distance]));
 
   logger.debug("bfs traversal complete", { nodesVisited: visited.size });
@@ -634,9 +639,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     const result = new Map<number, EdgeSummary[]>();
     if (symbolIds.length === 0) return result;
 
-    const CHUNK = 400;
-    for (let i = 0; i < symbolIds.length; i += CHUNK) {
-      const chunk = symbolIds.slice(i, i + CHUNK);
+    for (let i = 0; i < symbolIds.length; i += EDGE_BATCH_CHUNK_SIZE) {
+      const chunk = symbolIds.slice(i, i + EDGE_BATCH_CHUNK_SIZE);
       const placeholders = chunk.map(() => "?").join(",");
       const rows = db
         .prepare(
@@ -707,9 +711,6 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const hardCap =
     intent === "narrow" ? narrowHardCap : intent === "broad" ? 72 : 84;
   const baseCandidateLimit = Math.min(dynamicLimit, hardCap);
-  const NARROW_MIN_UTILIZATION = 0.45;
-  const BROAD_TASK_MIN = 0.6;
-  const BROAD_TASK_TARGET = 0.7;
 
   const recentSymbolIds: Set<number> = params.sessionId
     ? new Set(sessionCtx.getRecentSymbolIds().filter((id): id is number => id !== null))
@@ -832,7 +833,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     (intent === "broad" || intent === "task") &&
     !skipPromotion &&
     tokenBudget >= 2000 &&
-    tokensUsed < tokenBudget * BROAD_TASK_MIN &&
+    tokensUsed < tokenBudget * BROAD_TASK_MIN_UTILIZATION &&
     candidates.length > selected.length
   ) {
     const refillPasses = intent === "task"
@@ -876,7 +877,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         logger.debug("refill", { n: selected.length, tokensUsed });
       }
 
-      if (tokensUsed >= tokenBudget * BROAD_TASK_TARGET) {
+      if (tokensUsed >= tokenBudget * BROAD_TASK_TARGET_UTILIZATION) {
         break;
       }
     }
@@ -899,7 +900,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         tokensDelta += dedupTokens - node.tokenCount;
         packed[i] = {
           ...node,
-          compressionLevel: 2,
+          compressionLevel: DEDUP_COMPRESSION_LEVEL as CompressionLevel,
           rendered: dedupRendered,
           tokenCount: dedupTokens,
         };
@@ -1083,7 +1084,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   const metadata: CapsuleMetadata = {
     ...baseMetadata,
-    diagnostics: diagnose(baseMetadata, pivotScores),
+    diagnostics: diagnose(baseMetadata, pivotScores, intent),
   };
 
   const content = formatCapsule(packed, observations, metadata, fileSummaries);

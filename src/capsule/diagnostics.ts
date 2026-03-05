@@ -74,9 +74,10 @@ export function classifyQuery(
 
 export function diagnose(
   metadata: DiagnosticMetadataSnapshot,
-  pivotScores: number[]
+  pivotScores: number[],
+  preClassifiedIntent?: "narrow" | "broad" | "task"
 ): CapsuleDiagnostic {
-  const queryClass = classifyQuery(metadata.query, metadata.quality.pivotCount);
+  const queryClass = preClassifiedIntent ?? classifyQuery(metadata.query, metadata.quality.pivotCount);
 
   const sortedScores = [...pivotScores].sort((a, b) => b - a);
   const topPivotScores = sortedScores.slice(0, 5);

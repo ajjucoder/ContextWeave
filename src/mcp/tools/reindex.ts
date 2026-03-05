@@ -7,11 +7,12 @@ import { indexDirectory, indexProject, indexSingleFile, isPathWithinRoot } from 
 import { runPageRankInBackground } from "../../core/graph.js";
 import { createLogger } from "../../utils/logger.js";
 import type { ProjectConfig } from "../../utils/config.js";
+import { getRegisterTool } from "./register-helper.js";
 
 const log = createLogger("reindex-tool");
 
 export function registerReindexTool(server: McpServer, db: Database.Database, projectRoot: string, config?: ProjectConfig): void {
-  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
+  const registerTool = getRegisterTool(server);
 
   registerTool(
     "cw_reindex",

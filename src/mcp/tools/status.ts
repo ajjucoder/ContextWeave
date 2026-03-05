@@ -6,9 +6,10 @@ import { symbolQueries } from "../../db/queries/symbols.js";
 import { edgeQueries } from "../../db/queries/edges.js";
 import { observationQueries } from "../../db/queries/observations.js";
 import { capsuleLogQueries } from "../../db/queries/capsule-log.js";
+import { getRegisterTool } from "./register-helper.js";
 
 export function registerStatusTool(server: McpServer, db: Database.Database, projectRoot: string): void {
-  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
+  const registerTool = getRegisterTool(server);
 
   registerTool(
     "cw_status",

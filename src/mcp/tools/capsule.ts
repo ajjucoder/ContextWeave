@@ -4,6 +4,7 @@ import type Database from "better-sqlite3";
 import { generateCapsule } from "../../capsule/generator.js";
 import type { CapsuleMode } from "../../core/types.js";
 import type { ProjectConfig } from "../../utils/config.js";
+import { getRegisterTool } from "./register-helper.js";
 
 export function registerCapsuleTool(
   server: McpServer,
@@ -14,7 +15,7 @@ export function registerCapsuleTool(
 ): void {
   const defaultBudget = config?.tokenBudget ?? 4000;
   const defaultMode = config?.defaultMode ?? "feature";
-  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
+  const registerTool = getRegisterTool(server);
   const inputSchema: Record<string, z.ZodTypeAny> = {
     query: z.string().min(1).max(2000).describe("What you're working on or looking for"),
     token_budget: z.number().min(100).max(100000).optional().describe(`Max tokens for the capsule (default: ${defaultBudget})`),

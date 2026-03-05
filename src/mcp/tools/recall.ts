@@ -2,9 +2,10 @@ import { z } from "zod/v3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
 import { MemorySearch } from "../../memory/search.js";
+import { getRegisterTool } from "./register-helper.js";
 
 export function registerRecallTool(server: McpServer, db: Database.Database): void {
-  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
+  const registerTool = getRegisterTool(server);
 
   registerTool(
     "cw_recall",

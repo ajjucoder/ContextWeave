@@ -142,4 +142,16 @@ describe("diagnose", () => {
     expect(result.bottlenecks).toContain("budget_exhaustion");
     expect(result.bottleneck).toBe("pivot_flood");
   });
+
+  it("uses preClassifiedIntent when provided instead of re-classifying", () => {
+    const metadata = buildMetadata({ query: "generateCapsule" });
+    const withoutOverride = diagnose(metadata, [5, 4, 3]);
+    expect(withoutOverride.queryClass).toBe("narrow");
+
+    const withOverride = diagnose(metadata, [5, 4, 3], "broad");
+    expect(withOverride.queryClass).toBe("broad");
+
+    const taskOverride = diagnose(metadata, [5, 4, 3], "task");
+    expect(taskOverride.queryClass).toBe("task");
+  });
 });

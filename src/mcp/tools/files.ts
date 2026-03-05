@@ -5,6 +5,7 @@ import { statSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileQueries } from "../../db/queries/files.js";
 import { globToRegExp, toProjectRelativePath, withinPath } from "./path-filters.js";
+import { getRegisterTool } from "./register-helper.js";
 
 function formatBytes(bytes: number | null): string {
   if (bytes === null || Number.isNaN(bytes)) return "n/a";
@@ -14,7 +15,7 @@ function formatBytes(bytes: number | null): string {
 }
 
 export function registerFilesTool(server: McpServer, db: Database.Database, projectRoot: string): void {
-  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
+  const registerTool = getRegisterTool(server);
   const inputSchema: Record<string, z.ZodTypeAny> = {
     pattern: z.string().optional().describe("Glob-like file pattern, e.g. **/*.ts or src/**/*.test.ts"),
     path: z.string().optional().describe("Directory scope inside project"),

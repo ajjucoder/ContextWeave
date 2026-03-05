@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
 import { symbolQueries } from "../../db/queries/symbols.js";
 import { edgeQueries } from "../../db/queries/edges.js";
+import { getRegisterTool } from "./register-helper.js";
 import { fileQueries } from "../../db/queries/files.js";
 import { fuzzyMatch } from "../../utils/fuzzy.js";
 
@@ -240,7 +241,7 @@ export function buildFlowResult(
 }
 
 export function registerFlowTool(server: McpServer, db: Database.Database): void {
-  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
+  const registerTool = getRegisterTool(server);
   const inputSchema: Record<string, z.ZodTypeAny> = {
     source: z.string().describe("Source symbol name"),
     target: z.string().optional().describe("Target symbol name (omit to trace all outgoing flows)"),

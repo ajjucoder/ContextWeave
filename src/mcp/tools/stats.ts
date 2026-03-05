@@ -3,6 +3,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
 import { capsuleLogQueries } from "../../db/queries/capsule-log.js";
 import { statSync } from "node:fs";
+import { getRegisterTool } from "./register-helper.js";
 import { resolve } from "node:path";
 
 const AVG_FILE_TOKENS_FALLBACK = 3000;
@@ -109,7 +110,7 @@ export function registerStatsTool(
   projectRoot: string,
   serverSessionId: string
 ): void {
-  const registerTool = (server.tool as (...args: unknown[]) => void).bind(server);
+  const registerTool = getRegisterTool(server);
 
   registerTool(
     "cw_stats",

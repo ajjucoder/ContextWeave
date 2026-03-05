@@ -6,6 +6,7 @@ import { symbolQueries } from "../../db/queries/symbols.js";
 import { edgeQueries } from "../../db/queries/edges.js";
 import { searchFilesByQuery } from "../../core/file-summaries.js";
 import { toProjectRelativePath, withinPath } from "./path-filters.js";
+import { getRegisterTool } from "./register-helper.js";
 
 interface OverviewFile {
   id: number;
@@ -89,7 +90,7 @@ export function registerOverviewTool(server: McpServer, db: Database.Database, p
     return symbolStmt;
   };
 
-  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
+  const registerTool = getRegisterTool(server);
   const inputSchema: Record<string, z.ZodTypeAny> = {
     path: z.string().optional().describe("Directory scope inside project (default: project root)"),
     depth: z.number().min(1).max(8).optional().describe("Directory summary depth (default: 2)"),

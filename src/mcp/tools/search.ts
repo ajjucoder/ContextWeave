@@ -8,6 +8,7 @@ import { fileQueries } from "../../db/queries/files.js";
 import { symbolQueries } from "../../db/queries/symbols.js";
 import { globToRegExp, toProjectRelativePath, withinPath } from "./path-filters.js";
 import { runRipgrepSearch, isRipgrepAvailable } from "./ripgrep.js";
+import { getRegisterTool } from "./register-helper.js";
 
 interface MatchSpan {
   start: number;
@@ -155,7 +156,7 @@ function renderSnippet(lines: string[], lineNumber: number, contextLines: number
 }
 
 export function registerSearchTool(server: McpServer, db: Database.Database, projectRoot: string): void {
-  const registerTool = (server.tool as (...args: any[]) => void).bind(server);
+  const registerTool = getRegisterTool(server);
   const inputSchema: Record<string, z.ZodTypeAny> = {
     query: z.string().min(1).max(500).describe("Text query or regex-style pattern to search for"),
     path: z.string().optional().describe("Optional directory scope inside project root"),
