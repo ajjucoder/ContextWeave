@@ -5,8 +5,18 @@ const FRAMEWORK_ENTRY_RE = new RegExp(
 const NEXT_ROUTE_FILE_RE = new RegExp(`/app/api/.+/route${FRAMEWORK_ENTRY_EXT}`);
 const REQUEST_DYNAMIC_SEGMENT = "__cw_dynamic__";
 
+export function normalizeRetrievalPath(filePath: string, maxSegments = 4): string {
+  const normalized = filePath.replace(/\\/g, "/");
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.length === 0) return normalized;
+  if (segments.length <= maxSegments) {
+    return normalized.replace(/^\/+/, "");
+  }
+  return segments.slice(-maxSegments).join("/");
+}
+
 export function isFrameworkEntryPath(filePath: string): boolean {
-  return FRAMEWORK_ENTRY_RE.test(filePath.replace(/\\/g, "/").toLowerCase());
+  return FRAMEWORK_ENTRY_RE.test(normalizeRetrievalPath(filePath, 6).toLowerCase());
 }
 
 export function sanitizeFrameworkRequestPath(rawPath: string): string {
@@ -61,7 +71,7 @@ export function matchesNextApiRouteFile(filePath: string, requestPath: string): 
 
 export function extractPathTerms(filePath: string): string[] {
   // Strip extension, then split on path separators and common delimiters
-  const withoutExt = filePath.replace(/\.[^.]+$/, "");
+  const withoutExt = normalizeRetrievalPath(filePath, 6).replace(/\.[^.]+$/, "");
   return withoutExt
     .split(/[/\\\-_.]+/)
     .flatMap((segment) =>

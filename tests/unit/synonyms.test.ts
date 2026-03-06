@@ -74,4 +74,40 @@ describe("expandQueryWithSynonyms", () => {
     expect(groups).toContainEqual(expect.arrayContaining(["capture", "submit", "create"]));
     expect(groups).toContainEqual(expect.arrayContaining(["lifecycle", "flow", "route"]));
   });
+
+  it("expands architecture-language route registration prompts into runtime wiring terms", () => {
+    const result = expandQueryWithSynonyms(["route", "registration", "dispatch", "chain"]);
+    expect(result).toContain("router");
+    expect(result).toContain("register");
+    expect(result).toContain("use");
+    expect(result).toContain("handle");
+    expect(result).toContain("pipeline");
+  });
+
+  it("expands schema compiler prompts into request-validation runtime terms", () => {
+    const result = expandQueryWithSynonyms(["schema", "compiler", "validation"]);
+    expect(result).toContain("schema");
+    expect(result).toContain("validator");
+    expect(result).toContain("compile");
+    expect(result).toContain("validate");
+  });
+
+  it("expands capsule pipeline prompts into implementation-surface terms", () => {
+    const result = expandQueryWithSynonyms(["capsule", "generation", "scoring", "compression"]);
+    expect(result).toContain("generator");
+    expect(result).toContain("generate");
+    expect(result).toContain("score");
+    expect(result).toContain("scorer");
+    expect(result).toContain("compress");
+    expect(result).toContain("compressor");
+    expect(result).toContain("formatter");
+  });
+
+  it("expands indexing pipeline prompts into concrete indexer and parser symbols", () => {
+    const result = expandQueryWithSynonyms(["index", "parser"]);
+    expect(result).toContain("indexer");
+    expect(result).toContain("indexproject");
+    expect(result).toContain("parse");
+    expect(result).toContain("parsefile");
+  });
 });

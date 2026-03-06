@@ -84,6 +84,14 @@ describe("query quality by class", () => {
     }
   });
 
+  it("keeps indexing pipeline task queries focused on indexProject and parseFile on the first pass", () => {
+    const content = renderQuery("index project parser pipeline", TASK_TOKEN_BUDGET);
+    expect(content).toContain("indexProject");
+    expect(content).toContain("parseFile");
+    expect(content).toContain("core/indexer.ts");
+    expect(content).toContain("core/parser.ts");
+  });
+
   it("overall average confidence > threshold (per-class budgets)", () => {
     let total = 0;
     let count = 0;

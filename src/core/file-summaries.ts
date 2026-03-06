@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import { splitIdentifier } from "../utils/camel-split.js";
 import { getDirectoryWeight } from "../utils/directory-weights.js";
 import { expandQueryWithSynonyms } from "../utils/synonyms.js";
+import { normalizeRetrievalPath } from "../utils/path-retrieval.js";
 
 interface SymbolRow {
   name: string;
@@ -48,8 +49,84 @@ const TEST_QUERY_TERMS = new Set([
   "vitest",
 ]);
 
+const CONFIG_QUERY_TERMS = new Set([
+  "config",
+  "configuration",
+  "settings",
+  "workflow",
+  "workflows",
+  "github",
+  "actions",
+  "action",
+  "ci",
+  "build",
+  "lint",
+  "release",
+  "deploy",
+  "deployment",
+  "package",
+  "manifest",
+  "tsconfig",
+  "eslint",
+  "prettier",
+  "tailwind",
+  "postcss",
+  "vite",
+  "vitest",
+  "jest",
+]);
+
+const TYPE_QUERY_TERMS = new Set([
+  "type",
+  "types",
+  "typing",
+  "interface",
+  "interfaces",
+  "generic",
+  "generics",
+  "declaration",
+  "declarations",
+  "typedef",
+  "typedefs",
+  "signature",
+  "signatures",
+  "dts",
+]);
+
+const RUNTIME_QUERY_TERMS = new Set([
+  "api",
+  "auth",
+  "callback",
+  "compiler",
+  "controller",
+  "dispatch",
+  "endpoint",
+  "fetch",
+  "flow",
+  "handler",
+  "hook",
+  "hooks",
+  "http",
+  "lifecycle",
+  "middleware",
+  "pipeline",
+  "request",
+  "response",
+  "route",
+  "router",
+  "routing",
+  "runtime",
+  "schema",
+  "server",
+  "service",
+  "session",
+  "stack",
+  "validation",
+  "validator",
+]);
+
 function isTestLikePath(path: string): boolean {
-  const lower = path.toLowerCase().replaceAll("\\", "/");
+  const lower = normalizeRetrievalPath(path, 6).toLowerCase();
   return (
     lower.startsWith("test/") ||
     lower.startsWith("tests/") ||
@@ -61,8 +138,66 @@ function isTestLikePath(path: string): boolean {
   );
 }
 
+function isConfigLikePath(path: string): boolean {
+  const lower = normalizeRetrievalPath(path, 6).toLowerCase();
+  return (
+    lower.startsWith(".github/") ||
+    lower.includes("/.github/") ||
+    lower.startsWith(".circleci/") ||
+    lower.includes("/.circleci/") ||
+    lower.startsWith(".vscode/") ||
+    lower.includes("/.vscode/") ||
+    lower.startsWith(".husky/") ||
+    lower.includes("/.husky/") ||
+    lower.endsWith("/package.json") ||
+    lower === "package.json" ||
+    lower.endsWith("/tsconfig.json") ||
+    lower === "tsconfig.json" ||
+    lower.includes("/eslint.config.") ||
+    lower.includes("/vite.config.") ||
+    lower.includes("/vitest.config.") ||
+    lower.includes("/jest.config.") ||
+    lower.includes("/tailwind.config.") ||
+    lower.includes("/postcss.config.") ||
+    lower.includes("/.eslintrc") ||
+    lower.endsWith("/pnpm-lock.yaml") ||
+    lower.endsWith("/package-lock.json") ||
+    lower.endsWith("/yarn.lock")
+  );
+}
+
+function isTypeLikePath(path: string): boolean {
+  const lower = normalizeRetrievalPath(path, 6).toLowerCase();
+  return lower.endsWith(".d.ts") || lower.startsWith("types/") || lower.includes("/types/");
+}
+
+function isRuntimeLikePath(path: string): boolean {
+  const lower = normalizeRetrievalPath(path, 6).toLowerCase();
+  return (
+    lower.startsWith("src/") ||
+    lower.startsWith("lib/") ||
+    lower.startsWith("app/") ||
+    lower.startsWith("server/") ||
+    lower.startsWith("api/") ||
+    lower.includes("/src/") ||
+    lower.includes("/lib/") ||
+    lower.includes("/app/") ||
+    lower.includes("/server/") ||
+    lower.includes("/api/") ||
+    lower.includes("/routes/") ||
+    lower.includes("/controllers/") ||
+    lower.includes("/services/")
+  );
+}
+
 function buildSummaryText(filePath: string, symbols: SymbolRow[]): string {
-  const pathTokens = filePath
+  const tokenizeSummaryFragment = (value: string): string[] =>
+    value
+      .split(/[^A-Za-z0-9]+/)
+      .flatMap((segment) => [segment.toLowerCase(), ...splitIdentifier(segment)])
+      .filter((t, i, arr) => t.length >= 2 && arr.indexOf(t) === i);
+
+  const pathTokens = normalizeRetrievalPath(filePath, 6)
     .split(/[/\\.]/)
     .flatMap((segment) => [segment.toLowerCase(), ...splitIdentifier(segment)])
     .filter((t, i, arr) => t.length >= 2 && arr.indexOf(t) === i)
@@ -72,7 +207,7 @@ function buildSummaryText(filePath: string, symbols: SymbolRow[]): string {
     .filter((t, i, arr) => arr.indexOf(t) === i)
     .join(" ");
   const signatureTokens = symbols
-    .flatMap((s) => splitIdentifier(s.signature))
+    .flatMap((s) => tokenizeSummaryFragment(s.signature))
     .filter((t, i, arr) => arr.indexOf(t) === i)
     .join(" ");
   const kinds = [...new Set(symbols.map((s) => s.kind))].join(" ");
@@ -175,6 +310,9 @@ export function searchFilesByQuery(
   const expandedWords = expandQueryWithSynonyms(rawWords).filter((w) => w.length >= 2);
   const exactWordSet = new Set(rawWords);
   const testFocusedQuery = rawWords.some((word) => TEST_QUERY_TERMS.has(word));
+  const configFocusedQuery = rawWords.some((word) => CONFIG_QUERY_TERMS.has(word));
+  const typeFocusedQuery = rawWords.some((word) => TYPE_QUERY_TERMS.has(word));
+  const runtimeFocusedQuery = expandedWords.some((word) => RUNTIME_QUERY_TERMS.has(word));
   const scored = new Map<number, SearchRow>();
   const hitCounts = new Map<number, { exactHits: number; expandedHits: number }>();
 
@@ -203,15 +341,27 @@ export function searchFilesByQuery(
 
     for (const row of rows) {
       const hits = hitCounts.get(row.file_id) ?? { exactHits: 0, expandedHits: 0 };
-      const directoryWeight = getDirectoryWeight(row.path);
-      const testPenalty = !testFocusedQuery && isTestLikePath(row.path) ? 0.35 : 1;
+      const retrievalPath = normalizeRetrievalPath(row.path, 6);
+      const directoryWeight = getDirectoryWeight(retrievalPath);
+      const testPenalty = !testFocusedQuery && isTestLikePath(retrievalPath) ? 0.35 : 1;
+      const configPenalty = !configFocusedQuery && isConfigLikePath(retrievalPath) ? 0.18 : 1;
+      const runtimeBoost = runtimeFocusedQuery && isRuntimeLikePath(retrievalPath) ? 1.35 : 1;
+      const typePenalty =
+        !typeFocusedQuery && isTypeLikePath(retrievalPath)
+          ? runtimeFocusedQuery
+            ? 0.06
+            : 0.25
+          : 1;
       const centralityBoost = 1 + Math.log1p(Math.max(0, row.avg_centrality));
       const edgeBoost = 1 + Math.log1p(Math.max(0, row.edge_count)) * 0.2;
       const lexicalHits = hits.exactHits * 2 + hits.expandedHits * 1.1;
       const score =
         Math.max(1, lexicalHits || 1) *
         directoryWeight *
+        runtimeBoost *
         testPenalty *
+        configPenalty *
+        typePenalty *
         centralityBoost *
         edgeBoost;
       const existing = ranked.get(row.file_id);

@@ -43,7 +43,7 @@ import { mergeSubCapsules, type SubCapsuleResult } from "./merger.js";
 import { searchFilesByQuery } from "../core/file-summaries.js";
 import { getFileClusterId, getClusterFileIds } from "../core/clusters.js";
 import { buildUncertainty, computeCoverageConfidence } from "./confidence.js";
-import { extractPathTerms, filePathMatchesQueryTerms } from "../utils/path-retrieval.js";
+import { extractPathTerms, filePathMatchesQueryTerms, normalizeRetrievalPath } from "../utils/path-retrieval.js";
 import { contentFallbackSearch } from "./content-fallback.js";
 import {
   getCommonDisplayRoot,
@@ -131,19 +131,49 @@ const TYPE_FOCUSED_TERMS = new Set([
   "types",
   "interface",
   "interfaces",
-  "schema",
-  "schemas",
-  "model",
-  "models",
   "dto",
   "dtos",
   "props",
-  "payload",
+  "declaration",
+  "declarations",
+  "generic",
+  "generics",
+  "typedef",
+  "typedefs",
+  "dts",
+]);
+const RUNTIME_QUERY_TERMS = new Set([
+  "api",
+  "auth",
+  "callback",
+  "compiler",
+  "controller",
+  "dispatch",
+  "endpoint",
+  "fetch",
+  "flow",
+  "handler",
+  "hook",
+  "hooks",
+  "http",
+  "lifecycle",
+  "middleware",
+  "pipeline",
   "request",
   "response",
-  "config",
-  "shape",
+  "route",
+  "router",
+  "routing",
+  "runtime",
+  "server",
+  "service",
+  "session",
+  "stack",
+  "validation",
+  "validator",
 ]);
+const TYPE_DECLARATION_PATH_RE = /(^|\/)types?(\/|$)|\.d\.ts$/i;
+const RUNTIME_CODE_PATH_RE = /(^|\/)(src|lib|server|app|api|routes?|controllers?|services?)(\/|$)/i;
 
 function getRuntimeKindWeight(
   kind: string,
@@ -192,6 +222,14 @@ function hasActionSignal(name: string, signature: string): boolean {
     .filter(Boolean);
 
   return tokens.some((token) => ACTION_SIGNAL_TERMS.has(token));
+}
+
+function isTypeDeclarationPath(path: string): boolean {
+  return TYPE_DECLARATION_PATH_RE.test(normalizeRetrievalPath(path, 6));
+}
+
+function isRuntimeCodePath(path: string): boolean {
+  return RUNTIME_CODE_PATH_RE.test(normalizeRetrievalPath(path, 6));
 }
 
 function tokenizeCoverageTerms(text: string): string[] {
@@ -266,18 +304,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const seededPivotIdsByFile = new Map<number, number[]>();
 
   const FILE_SEARCH_LIMIT = intent === "narrow" ? 50 : 80;
-  const candidateFiles = searchFilesByQuery(db, query, FILE_SEARCH_LIMIT);
+  let candidateFiles = searchFilesByQuery(db, query, FILE_SEARCH_LIMIT);
   const candidateFileBoostById = new Map<number, number>();
-  for (const [index, candidate] of candidateFiles.slice(0, intent === "broad" ? 12 : 16).entries()) {
-    const boost = Math.max(1, 1.38 - index * 0.05);
-    candidateFileBoostById.set(candidate.fileId, boost);
-  }
-  let candidateFileIds = candidateFiles.length > 0
-    ? new Set(candidateFiles.map((f) => f.fileId))
-    : null;
-  if ((intent === "broad" || intent === "task") && candidateFileIds && candidateFileIds.size < 12) {
-    candidateFileIds = null;
-  }
   const clusterHintMap = new Map<number, { id: number; terms: Set<string>; relevance: number }>();
 
   for (const candidate of candidateFiles) {
@@ -323,12 +351,33 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       ? exactQueryTerms
       : expandedQueryTerms;
   const typeFocusedQuery = allQueryTerms.some((term) => TYPE_FOCUSED_TERMS.has(term));
+  const runtimeFocusedQuery = pivotQueryTerms.some((term) => RUNTIME_QUERY_TERMS.has(term));
+  const hasRuntimeCandidateFile = candidateFiles.some((candidate) => isRuntimeCodePath(candidate.path));
+  let suppressTypeDeclarations =
+    intent !== "narrow" &&
+    runtimeFocusedQuery &&
+    !typeFocusedQuery &&
+    hasRuntimeCandidateFile;
+  if (suppressTypeDeclarations) {
+    candidateFiles = candidateFiles.filter((candidate) => !isTypeDeclarationPath(candidate.path));
+  }
+  for (const [index, candidate] of candidateFiles.slice(0, intent === "broad" ? 12 : 16).entries()) {
+    const boost = Math.max(1, 1.38 - index * 0.05);
+    candidateFileBoostById.set(candidate.fileId, boost);
+  }
+  let candidateFileIds = candidateFiles.length > 0
+    ? new Set(candidateFiles.map((f) => f.fileId))
+    : null;
+  if ((intent === "broad" || intent === "task") && candidateFileIds && candidateFileIds.size < 12) {
+    candidateFileIds = null;
+  }
   const preferRuntimeKinds = intent === "task" && candidateFiles.length > 0 && candidateFiles.length <= 6 && !typeFocusedQuery;
   const semanticRerankEnabled =
     (params.semanticRerank ?? false) ||
     process.env["CW_ENABLE_SEMANTIC_RERANK"] === "1";
   const exactQueryTermSet = new Set(exactQueryTerms);
   const queryLooksTestFocused = isTestQuery(allQueryTerms);
+  const explicitTypeQuery = classified.normalizedTerms.some((term) => TYPE_FOCUSED_TERMS.has(term));
 
   if (candidateFileIds && candidateFileIds.size > 0 && candidateFileIds.size <= 6) {
     const MAX_CANDIDATE_FILES = 60;
@@ -502,6 +551,13 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     const contentMatches = contentFallbackSearch(db, expandedQueryTerms);
     let added = 0;
     for (const match of contentMatches) {
+      if (suppressTypeDeclarations) {
+        const symbol = symbols.getByIdLight(match.symbolId);
+        const file = symbol ? files.getById(symbol.fileId) : null;
+        if (file && isTypeDeclarationPath(file.path)) {
+          continue;
+        }
+      }
       if (!rawPivotIds.has(match.symbolId)) {
         rawPivotIds.add(match.symbolId);
         added++;
@@ -520,7 +576,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       : intent === "broad"
         ? Math.max(40, Math.min(100, Math.floor(retrievalBudget / 160)))
         : Math.max(50, Math.min(120, Math.floor(retrievalBudget / 150)));
-  const pivotCandidates: Array<{ id: number; name: string; signature: string; kind: string; filePath: string }> = [];
+  let pivotCandidates: Array<{ id: number; name: string; signature: string; kind: string; filePath: string }> = [];
   const pivotFileCache = new Map<number, string>();
   for (const id of rawPivotIds) {
     const sym = symbols.getByIdLight(id);
@@ -531,7 +587,20 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       filePath = file?.path ?? "";
       pivotFileCache.set(sym.fileId, filePath);
     }
+    if (suppressTypeDeclarations && isTypeDeclarationPath(filePath)) {
+      continue;
+    }
     pivotCandidates.push({ id, name: sym.name, signature: sym.signature ?? "", kind: sym.kind, filePath });
+  }
+  if (
+    !suppressTypeDeclarations &&
+    intent !== "narrow" &&
+    runtimeFocusedQuery &&
+    !typeFocusedQuery &&
+    pivotCandidates.some((candidate) => isRuntimeCodePath(candidate.filePath))
+  ) {
+    suppressTypeDeclarations = true;
+    pivotCandidates = pivotCandidates.filter((candidate) => !isTypeDeclarationPath(candidate.filePath));
   }
 
   const pivotRanking = rankPivotsWithScores(
@@ -669,10 +738,11 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     if (!symbol) continue;
     const file = getFile(symbol.fileId);
     if (!file) continue;
+    const normalizedPath = normalizeRetrievalPath(file.path, 6);
     pivotFileIds.add(file.id);
-    pivotDirs.add(dirname(file.path));
+    pivotDirs.add(dirname(normalizedPath));
     if (topLocalityPivotIds.has(id)) {
-      localityPivotDirs.add(dirname(file.path));
+      localityPivotDirs.add(dirname(normalizedPath));
     }
   }
 
@@ -725,6 +795,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     if (!symbol) continue;
     const file = getFile(symbol.fileId);
     if (!file) continue;
+    if (suppressTypeDeclarations && isTypeDeclarationPath(file.path)) continue;
 
     if (hasPathRestriction) {
       const relPath = resolvedProjectRoot ? toProjectRelativePath(resolvedProjectRoot, file.path) : file.path;
@@ -754,8 +825,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   for (const candidate of candidates) {
     const sameFileAsPivot = pivotFileIds.has(candidate.file.id);
-    const sameDirAsPivot = rankingPivotDirs.has(dirname(candidate.file.path));
-    const directoryWeight = getDirectoryWeight(candidate.file.path);
+    const normalizedPath = normalizeRetrievalPath(candidate.file.path, 6);
+    const sameDirAsPivot = rankingPivotDirs.has(dirname(normalizedPath));
+    const directoryWeight = getDirectoryWeight(normalizedPath);
     const fileSearchBoost = candidateFileBoostById.get(candidate.file.id) ?? 1;
     const testFilePenalty =
       !queryLooksTestFocused && isTestFile(candidate.file.path) ? 0.5 : 1;
@@ -842,7 +914,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   function hasStrongLocality(candidate: RankedCandidate): boolean {
     if (pivotFileIds.has(candidate.file.id)) return true;
-    if (!rankingPivotDirs.has(dirname(candidate.file.path))) return false;
+    if (!rankingPivotDirs.has(dirname(normalizeRetrievalPath(candidate.file.path, 6)))) return false;
     const dirDistanceCap = intent === "narrow" ? 2 : 1;
     return candidate.distance <= dirDistanceCap;
   }
@@ -1183,6 +1255,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const canonicalFilePath = (node: ScoredNode): string =>
     getFile(node.symbol.fileId)?.path ?? node.file.path;
 
+  const shouldStripTypeDeclarationsFromPacked = (): boolean =>
+    intent !== "narrow" &&
+    !explicitTypeQuery &&
+    packed.some((node) => isRuntimeCodePath(canonicalFilePath(node))) &&
+    packed.some((node) => isTypeDeclarationPath(canonicalFilePath(node)));
+
   if (recentSymbolIds.size > 0) {
     let tokensDelta = 0;
     for (let i = 0; i < packed.length; i++) {
@@ -1211,6 +1289,14 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const enrichResult = enrichL2WithDeps(packed, tokensUsed, codeBudgetForEnrich);
   packed = enrichResult.packed;
   tokensUsed = enrichResult.tokensUsed;
+
+  if (shouldStripTypeDeclarationsFromPacked()) {
+    packed = packed.filter((node) => !isTypeDeclarationPath(canonicalFilePath(node)));
+    fileSummaries = fileSummaries.filter(
+      (summary) => !summary.includes("types/") && !summary.includes(".d.ts")
+    );
+    tokensUsed = packed.reduce((sum, node) => sum + node.tokenCount, 0);
+  }
 
   if (previousSameQueryTokens !== null && previousSameQueryTokens > 0 && tokensUsed > previousSameQueryTokens) {
     const byAscendingScore = packed
@@ -1378,7 +1464,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   const timeLimited = skipBfs || skipPromotion || elapsed() > maxQueryTimeMs;
 
-  const baseMetadata: CapsuleMetadata = {
+  const baseMetadata: Omit<CapsuleMetadata, "filesIncluded" | "diagnostics"> = {
     query,
     mode,
     tokenBudget,
@@ -1416,6 +1502,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   const metadata: CapsuleMetadata = {
     ...baseMetadata,
+    filesIncluded: [...uniqueFiles],
     diagnostics: diagnose(baseMetadata, pivotScores, intent),
   };
 

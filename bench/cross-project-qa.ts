@@ -1,12 +1,7 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import Database from "better-sqlite3";
-import { createSchema } from "../src/db/schema.js";
-import { indexProject } from "../src/core/indexer.js";
-import { updateCentralityScores } from "../src/core/graph.js";
-import { generateCapsule } from "../src/capsule/generator.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const QA_DIR = resolve(__dirname, "../.qa-temp");
@@ -21,6 +16,8 @@ interface QaProject {
     attempts: Array<{
       query: string;
       expectedFiles: string[];
+      expectedSnippets?: string[];
+      forbiddenFiles?: string[];
       tokenBudget?: number;
     }>;
   }>;
@@ -40,6 +37,38 @@ const PROJECTS: QaProject[] = [
           { query: "request lifecycle", expectedFiles: ["lib/express.js"] },
         ],
       },
+      {
+        id: "express-request-lifecycle",
+        goal: "Find the Express request lifecycle without drifting into repo automation/config files.",
+        attempts: [
+          {
+            query: "request lifecycle middleware dispatch",
+            expectedFiles: ["lib/express.js", "lib/application.js"],
+            forbiddenFiles: [".github/workflows/ci.yml"],
+          },
+          {
+            query: "express request routing pipeline",
+            expectedFiles: ["lib/express.js", "lib/application.js"],
+            forbiddenFiles: [".github/workflows/ci.yml"],
+          },
+        ],
+      },
+      {
+        id: "express-route-registration-chain",
+        goal: "Find the Express route registration and middleware dispatch chain on the first pass without drifting into acceptance examples.",
+        attempts: [
+          {
+            query: "route registration middleware dispatch chain",
+            expectedFiles: ["lib/express.js", "lib/application.js"],
+            forbiddenFiles: ["test/acceptance/multi-router.js"],
+          },
+          {
+            query: "express router middleware registration",
+            expectedFiles: ["lib/express.js", "lib/application.js"],
+            forbiddenFiles: ["test/acceptance/multi-router.js"],
+          },
+        ],
+      },
     ],
   },
   {
@@ -51,8 +80,36 @@ const PROJECTS: QaProject[] = [
         id: "fastify-hook-lifecycle",
         goal: "Find Fastify hook and validation flow with a realistic first-shot architecture query and a narrower fallback.",
         attempts: [
-          { query: "fastify hook validation lifecycle", expectedFiles: ["lib/hooks.js", "lib/route.js"] },
-          { query: "hook lifecycle request validation pipeline", expectedFiles: ["lib/hooks.js", "lib/route.js"] },
+          {
+            query: "fastify hook validation lifecycle",
+            expectedFiles: ["lib/hooks.js", "lib/route.js"],
+            expectedSnippets: ["onSendHookRunner"],
+            forbiddenFiles: ["types/hooks.d.ts", "types/route.d.ts"],
+          },
+          {
+            query: "hook lifecycle request validation pipeline",
+            expectedFiles: ["lib/hooks.js", "lib/route.js"],
+            expectedSnippets: ["onSendHookRunner"],
+            forbiddenFiles: ["types/hooks.d.ts", "types/route.d.ts"],
+          },
+        ],
+      },
+      {
+        id: "fastify-schema-compiler-flow",
+        goal: "Find the schema compiler to request-validation runtime flow without drifting into type declarations.",
+        attempts: [
+          {
+            query: "schema compiler to request validation flow",
+            expectedFiles: ["lib/schema-controller.js", "lib/route.js"],
+            expectedSnippets: ["setValidatorCompiler"],
+            forbiddenFiles: ["types/request.d.ts"],
+          },
+          {
+            query: "schema controller request validation pipeline",
+            expectedFiles: ["lib/schema-controller.js", "lib/route.js"],
+            expectedSnippets: ["setValidatorCompiler"],
+            forbiddenFiles: ["types/request.d.ts"],
+          },
         ],
       },
     ],
@@ -106,59 +163,30 @@ async function runProject(project: QaProject, projectDir: string): Promise<TaskS
     return null;
   }
 
-  const db = new Database(":memory:");
-  db.pragma("foreign_keys = ON");
-  createSchema(db);
-
-  process.stdout.write("  Indexing...\n");
-  const indexResult = await indexProject(db, projectDir);
-  updateCentralityScores(db);
-  process.stdout.write(`  ${indexResult.filesIndexed} files, ${indexResult.symbolsFound} symbols\n`);
-
-  const sessionId = `qa-session-${project.name}-${Date.now()}`;
-  const summaries: TaskSummary[] = [];
-
-  for (const task of project.tasks) {
-    let tokensToSuccess = 0;
-    let success = false;
-    let correction = false;
-    const confidences: number[] = [];
-
-    for (let attemptIndex = 0; attemptIndex < task.attempts.length; attemptIndex++) {
-      const attempt = task.attempts[attemptIndex]!;
-      const capsule = generateCapsule(db, {
-        query: attempt.query,
-        tokenBudget: attempt.tokenBudget ?? 4000,
-        sessionId,
-      });
-      confidences.push(capsule.metadata.quality.coverageConfidence);
-      tokensToSuccess += capsule.metadata.tokensUsed;
-
-      const expectedCount = attempt.expectedFiles.filter((fragment) => capsule.content.includes(fragment)).length;
-      const successNow = expectedCount === attempt.expectedFiles.length;
-
-      process.stdout.write(
-        `  ${task.id} / attempt ${attemptIndex + 1}: "${attempt.query}" -> ${successNow ? "success" : "miss"}, confidence ${(capsule.metadata.quality.coverageConfidence * 100).toFixed(1)}%, tokens ${capsule.metadata.tokensUsed}\n`
-      );
-
-      if (successNow) {
-        success = true;
-        correction = attemptIndex > 0;
-        break;
+  try {
+    const payload = Buffer.from(JSON.stringify({ name: project.name, tasks: project.tasks }), "utf8").toString("base64");
+    const helperOutput = execFileSync(
+      process.execPath,
+      ["--import", "tsx/esm", resolve(__dirname, "run-project-qa.ts"), projectDir, payload],
+      {
+        cwd: resolve(__dirname, ".."),
+        encoding: "utf8",
+        timeout: 300000,
+        maxBuffer: 16 * 1024 * 1024,
       }
+    );
+    process.stdout.write(helperOutput.replace(/__CW_JSON__.*\n?$/, ""));
+    const jsonLine = helperOutput
+      .split("\n")
+      .find((line) => line.startsWith("__CW_JSON__"));
+    if (!jsonLine) {
+      throw new Error(`missing summary payload for ${project.name}`);
     }
-
-    summaries.push({
-      success,
-      firstPassSuccess: success && !correction,
-      correction,
-      tokensToSuccess,
-      avgConfidence: confidences.reduce((sum, value) => sum + value, 0) / Math.max(1, confidences.length),
-    });
+    return JSON.parse(jsonLine.slice("__CW_JSON__".length)) as TaskSummary[];
+  } catch {
+    process.stdout.write(`  SKIP: failed to run isolated QA for ${project.name}\n`);
+    return null;
   }
-
-  db.close();
-  return summaries;
 }
 
 async function main(): Promise<void> {

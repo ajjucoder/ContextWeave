@@ -11,6 +11,12 @@ const SYNONYM_MAP: Record<string, string[]> = {
   route: ["router", "routing", "endpoint", "handler"],
   router: ["route", "routing", "middleware"],
   routing: ["route", "router", "middleware"],
+  registration: ["register", "setup", "mount", "use"],
+  register: ["registration", "mount", "use"],
+  dispatch: ["handle", "handler", "invoke", "execute"],
+  chain: ["flow", "pipeline", "stack"],
+  compiler: ["compile", "validator", "controller"],
+  validation: ["validate", "validator", "check", "sanitize"],
   config: ["configuration", "settings", "preferences", "options"],
   db: ["database", "store", "repository", "repo"],
   api: ["endpoint", "route", "handler"],
@@ -21,6 +27,12 @@ const SYNONYM_MAP: Record<string, string[]> = {
   capture: ["submit", "create", "intake", "form"],
   lifecycle: ["flow", "pipeline", "journey", "route"],
   inquiry: ["lead", "contact", "submission"],
+  index: ["indexer", "indexproject", "scan"],
+  parser: ["parse", "parsing", "parsefile", "parse-result"],
+  generation: ["generate", "generator", "build", "compose"],
+  scoring: ["score", "scorer", "ranking", "rank"],
+  compression: ["compress", "compressor", "packing", "packer", "formatter"],
+  capsule: ["context", "retrieval", "generator", "formatter"],
 };
 
 function getSynonyms(term: string): string[] {

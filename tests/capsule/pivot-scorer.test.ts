@@ -112,4 +112,119 @@ describe("scorePivotRelevance", () => {
 
     expect(runtimeScore).toBeGreaterThan(componentScore);
   });
+
+  it("penalizes CI workflow config files for runtime middleware lifecycle queries", () => {
+    const runtimeScore = scorePivotRelevance(
+      {
+        name: "routerHandle",
+        signature: "function routerHandle(req, res, next) middleware request dispatch lifecycle",
+        kind: "function",
+        filePath: "lib/application.js",
+      },
+      ["request", "lifecycle", "middleware", "dispatch"]
+    );
+    const workflowScore = scorePivotRelevance(
+      {
+        name: "workflow dispatch request pipeline",
+        signature: "workflow_dispatch request lifecycle ci pipeline",
+        kind: "variable",
+        filePath: ".github/workflows/ci.yml",
+      },
+      ["request", "lifecycle", "middleware", "dispatch"]
+    );
+
+    expect(runtimeScore).toBeGreaterThan(workflowScore);
+  });
+
+  it("penalizes type declarations for runtime schema compiler flow queries", () => {
+    const runtimeScore = scorePivotRelevance(
+      {
+        name: "buildSchemaController",
+        signature: "function buildSchemaController(setValidatorCompiler, setupValidator)",
+        kind: "function",
+        filePath: "lib/schema-controller.js",
+      },
+      ["schema", "compiler", "request", "validation", "flow"]
+    );
+    const typeScore = scorePivotRelevance(
+      {
+        name: "FastifyRequest",
+        signature: "interface FastifyRequest<RouteGeneric, SchemaCompiler>",
+        kind: "interface",
+        filePath: "types/request.d.ts",
+      },
+      ["schema", "compiler", "request", "validation", "flow"]
+    );
+
+    expect(runtimeScore).toBeGreaterThan(typeScore);
+  });
+
+  it("boosts hook runtime files over adjacent route files for hook lifecycle queries", () => {
+    const hooksScore = scorePivotRelevance(
+      {
+        name: "onSendHookRunner",
+        signature: "function onSendHookRunner (functions, request, reply, payload, cb)",
+        kind: "function",
+        filePath: "lib/hooks.js",
+      },
+      ["hook", "validation", "lifecycle"]
+    );
+    const routeScore = scorePivotRelevance(
+      {
+        name: "validateHandlerTimeoutOption",
+        signature: "function validateHandlerTimeoutOption (handlerTimeout)",
+        kind: "function",
+        filePath: "lib/route.js",
+      },
+      ["hook", "validation", "lifecycle"]
+    );
+
+    expect(hooksScore).toBeGreaterThan(routeScore);
+  });
+
+  it("penalizes hook type declarations for runtime hook lifecycle queries", () => {
+    const hooksScore = scorePivotRelevance(
+      {
+        name: "onSendHookRunner",
+        signature: "function onSendHookRunner (functions, request, reply, payload, cb)",
+        kind: "function",
+        filePath: "lib/hooks.js",
+      },
+      ["fastify", "hook", "validation", "lifecycle"]
+    );
+    const typeScore = scorePivotRelevance(
+      {
+        name: "onSendHookHandler",
+        signature: "interface onSendHookHandler<Request, Reply>",
+        kind: "interface",
+        filePath: "types/hooks.d.ts",
+      },
+      ["fastify", "hook", "validation", "lifecycle"]
+    );
+
+    expect(hooksScore).toBeGreaterThan(typeScore);
+  });
+
+  it("normalizes absolute workspace paths before ranking runtime hook pivots", () => {
+    const hooksScore = scorePivotRelevance(
+      {
+        name: "onSendHookRunner",
+        signature: "function onSendHookRunner (functions, request, reply, payload, cb)",
+        kind: "function",
+        filePath: "/Users/tester/workspaces/contextweave/.qa-temp/fastify/lib/hooks.js",
+      },
+      ["fastify", "hook", "validation", "lifecycle"]
+    );
+    const typeScore = scorePivotRelevance(
+      {
+        name: "onSendHookHandler",
+        signature: "interface onSendHookHandler<Request, Reply, Context>",
+        kind: "interface",
+        filePath: "/Users/tester/workspaces/contextweave/.qa-temp/fastify/types/hooks.d.ts",
+      },
+      ["fastify", "hook", "validation", "lifecycle"]
+    );
+
+    expect(hooksScore).toBeGreaterThan(typeScore);
+  });
 });

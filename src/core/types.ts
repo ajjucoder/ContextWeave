@@ -205,6 +205,7 @@ export interface CapsuleMetadata {
   tokensUsed: number;
   symbolCount: number;
   fileCount: number;
+  filesIncluded: string[];
   compressionBreakdown: Record<CompressionLevel, number>;
   observationCount: number;
   quality: CapsuleQuality;
