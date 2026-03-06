@@ -22,6 +22,20 @@ const TASK_PATTERN_BUNDLES: Record<string, string[][]> = {
   refactor: [["interfaces", "types", "contracts"], ["modules", "boundaries", "dependencies"], ["tests", "coverage", "safety"]],
   review: [["tests", "coverage", "assertions"], ["interfaces", "types", "contracts"], ["error", "handling", "validation"]],
   test: [["tests", "coverage", "assertions"], ["fixtures", "mocks", "setup"], ["edge", "cases", "regression"]],
+  fix: [["error", "handling", "validation"], ["edge", "cases", "guards"], ["pipeline", "flow", "output"]],
+  remove: [["usages", "references", "imports"], ["cleanup", "orphaned", "unused"], ["tests", "coverage", "safety"]],
+  delete: [["usages", "references", "imports"], ["cleanup", "orphaned", "unused"], ["tests", "coverage", "safety"]],
+  replace: [["interfaces", "types", "contracts"], ["modules", "boundaries", "dependencies"], ["tests", "coverage", "safety"]],
+  extract: [["interfaces", "types", "contracts"], ["modules", "boundaries", "dependencies"], ["tests", "coverage", "safety"]],
+};
+
+const DOMAIN_BUNDLES: Record<string, string[][]> = {
+  auth: [["login", "session", "token"], ["password", "credential", "hash"], ["middleware", "guard", "permission"]],
+  api: [["route", "handler", "controller"], ["endpoint", "middleware", "request"], ["response", "schema", "validation"]],
+  db: [["query", "schema", "migration"], ["model", "table", "index"], ["connection", "pool", "transaction"]],
+  ui: [["component", "props", "state"], ["render", "layout", "style"], ["event", "handler", "hook"]],
+  test: [["fixture", "mock", "setup"], ["assertion", "expect", "coverage"], ["integration", "regression", "snapshot"]],
+  capsule: [["generator", "packer", "formatter"], ["compression", "scoring", "budget"], ["pivot", "search", "retrieval"]],
 };
 
 export interface SubQuery {
@@ -61,7 +75,22 @@ function normalizeFractions(subQueries: Array<Omit<SubQuery, "budgetFraction"> &
   }));
 }
 
-function deriveTaskBundles(actionVerbs: string[]): string[][] {
+function deriveTaskBundles(actionVerbs: string[], impliedModules: string[] = []): string[][] {
+  if (impliedModules.length > 0) {
+    const domainBundles: string[][] = [];
+    for (const mod of impliedModules) {
+      const modBundles = DOMAIN_BUNDLES[mod];
+      if (!modBundles) continue;
+      for (const bundle of modBundles) {
+        const key = bundle.join("|");
+        if (domainBundles.some((existing) => existing.join("|") === key)) continue;
+        domainBundles.push(bundle);
+        if (domainBundles.length >= MAX_SMART_SUB_QUERIES) return domainBundles;
+      }
+    }
+    if (domainBundles.length > 0) return domainBundles;
+  }
+
   const bundles: string[][] = [];
 
   for (const verb of actionVerbs) {
@@ -167,7 +196,7 @@ export function decomposeForTask(
   clusterHints: ClusterHint[] = []
 ): SubQuery[] {
   const baseTerms = buildBaseTerms(classified, query);
-  const bundles = deriveTaskBundles(classified.actionVerbs).slice(0, MAX_SMART_SUB_QUERIES);
+  const bundles = deriveTaskBundles(classified.actionVerbs, classified.impliedModules).slice(0, MAX_SMART_SUB_QUERIES);
   const rankedClusters = rankClusters(clusterHints);
   const subQueryCount = Math.max(2, Math.min(MAX_SMART_SUB_QUERIES, Math.max(bundles.length, rankedClusters.length || 0)));
 

@@ -31,7 +31,10 @@ describe("smart query decomposition", () => {
 
     expect(subQueries.length).toBeGreaterThanOrEqual(2);
     expect(subQueries[0]!.terms).toContain("capsule");
-    expect(subQueries.some((q) => q.terms.includes("validation") || q.terms.includes("error"))).toBe(true);
+    expect(subQueries.some((q) =>
+      q.terms.includes("validation") || q.terms.includes("error") ||
+      q.terms.includes("generator") || q.terms.includes("packer") || q.terms.includes("scoring")
+    )).toBe(true);
     expect(subQueries[0]!.priority).toBe(1);
   });
 
