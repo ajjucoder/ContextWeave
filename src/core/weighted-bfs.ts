@@ -10,6 +10,7 @@ export interface BfsOptions {
   maxVisitedNodes?: number;
   incomingEdgeCostMultiplier?: number;
   maxHops?: number;
+  direction?: "outgoing" | "incoming" | "both";
 }
 
 interface EdgeRow {
@@ -116,6 +117,7 @@ export function weightedBfsTraversal(
   const maxNodes = options.maxVisitedNodes ?? 300;
   const incomingMult = options.incomingEdgeCostMultiplier ?? 1.5;
   const maxHops = options.maxHops;
+  const direction = options.direction ?? "both";
 
   while (queue.length > 0) {
     if (visited.size >= maxNodes) break;
@@ -130,8 +132,8 @@ export function weightedBfsTraversal(
     const sourcePathRow = getFilePath.get(current.symbolId) as { path: string } | undefined;
     const sourceDir = sourcePathRow ? dirname(sourcePathRow.path) : "";
 
-    const outgoing = getOutgoing.all(current.symbolId) as EdgeRow[];
-    const incoming = getIncoming.all(current.symbolId) as EdgeRow[];
+    const outgoing = direction !== "incoming" ? getOutgoing.all(current.symbolId) as EdgeRow[] : [];
+    const incoming = direction !== "outgoing" ? getIncoming.all(current.symbolId) as EdgeRow[] : [];
     const newHopCount = current.hopCount + 1;
 
     for (const edge of outgoing) {
