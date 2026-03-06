@@ -16,7 +16,7 @@ import { getBatchSymbolDegrees, getDepthForBudget } from "../core/graph.js";
 import { weightedBfsTraversal } from "../core/weighted-bfs.js";
 import { fuzzyMatch } from "../utils/fuzzy.js";
 import { countTokens, estimateTokens } from "../utils/tokens.js";
-import { expandQueryWithSynonyms } from "../utils/synonyms.js";
+import { buildQueryCoverageGroups, expandQueryWithSynonyms } from "../utils/synonyms.js";
 import { getDirectoryWeight } from "../utils/directory-weights.js";
 import { isFrameworkEntryPath } from "../utils/path-retrieval.js";
 import { scoreNode, assignCompressionLevel } from "./scorer.js";
@@ -318,6 +318,10 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     : baseQueryTerms;
   const exactQueryTerms = baseQueryTerms;
   const expandedQueryTerms = expandQueryWithSynonyms(allQueryTerms);
+  const pivotQueryTerms =
+    intent === "narrow"
+      ? exactQueryTerms
+      : expandedQueryTerms;
   const typeFocusedQuery = allQueryTerms.some((term) => TYPE_FOCUSED_TERMS.has(term));
   const preferRuntimeKinds = intent === "task" && candidateFiles.length > 0 && candidateFiles.length <= 6 && !typeFocusedQuery;
   const semanticRerankEnabled =
@@ -379,7 +383,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
               kind: symbol.kind,
               filePath: files.getById(candidate.fileId)?.path ?? "",
             },
-            exactQueryTerms
+            pivotQueryTerms
           ),
         }))
         .sort((a, b) => {
@@ -532,7 +536,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   const pivotRanking = rankPivotsWithScores(
     pivotCandidates,
-    exactQueryTerms,
+    pivotQueryTerms,
     MAX_PIVOTS
   );
   let rankedPivots = pivotRanking.ranked;
@@ -1287,7 +1291,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     fileCounts.length === 0 ? 0 : fileCounts.reduce((sum, value) => sum + value, 0) / fileCounts.length;
   const maxSymbolsPerFile = fileCounts.length === 0 ? 0 : Math.max(...fileCounts);
   const uniqueFiles = new Set(packed.map((node) => canonicalFilePath(node)));
-  const queryTermsForCoverage = baseQueryTerms.filter((term) => term.length > 2);
+  const queryCoverageGroups = buildQueryCoverageGroups(baseQueryTerms)
+    .map((group) => group.filter((term) => term.length > 2))
+    .filter((group) => group.length > 0);
   const packedCoverageTerms = new Set<string>();
   for (const node of packed) {
     for (const term of extractPathTerms(canonicalFilePath(node))) {
@@ -1297,11 +1303,13 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       packedCoverageTerms.add(term);
     }
   }
-  const matchedQueryTerms = queryTermsForCoverage.filter((term) =>
-    [...packedCoverageTerms].some((candidate) => coverageTermsMatch(term, candidate))
+  const matchedQueryTerms = queryCoverageGroups.filter((group) =>
+    group.some((term) =>
+      [...packedCoverageTerms].some((candidate) => coverageTermsMatch(term, candidate))
+    )
   );
   const queryTermCoverage =
-    queryTermsForCoverage.length === 0 ? 1 : matchedQueryTerms.length / queryTermsForCoverage.length;
+    queryCoverageGroups.length === 0 ? 1 : matchedQueryTerms.length / queryCoverageGroups.length;
   const retrievalSurfaceScore =
     intent === "narrow"
       ? 1

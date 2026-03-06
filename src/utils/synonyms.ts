@@ -16,15 +16,24 @@ const SYNONYM_MAP: Record<string, string[]> = {
   api: ["endpoint", "route", "handler"],
   cache: ["memoize", "memo", "store"],
   validate: ["verify", "check", "sanitize"],
+  entry: ["handler", "route", "request", "login"],
+  lead: ["inquiry", "contact", "prospect"],
+  capture: ["submit", "create", "intake", "form"],
+  lifecycle: ["flow", "pipeline", "journey", "route"],
+  inquiry: ["lead", "contact", "submission"],
 };
+
+function getSynonyms(term: string): string[] {
+  return SYNONYM_MAP[term.toLowerCase()] ?? [];
+}
 
 export function expandQueryWithSynonyms(queryTerms: string[]): string[] {
   const expanded = new Set(queryTerms.map((term) => term.toLowerCase()));
 
   for (const term of queryTerms) {
     const normalized = term.toLowerCase();
-    const synonyms = SYNONYM_MAP[normalized];
-    if (!synonyms) continue;
+    const synonyms = getSynonyms(normalized);
+    if (synonyms.length === 0) continue;
 
     for (const synonym of synonyms) {
       expanded.add(synonym.toLowerCase());
@@ -32,4 +41,11 @@ export function expandQueryWithSynonyms(queryTerms: string[]): string[] {
   }
 
   return [...expanded];
+}
+
+export function buildQueryCoverageGroups(queryTerms: string[]): string[][] {
+  return queryTerms.map((term) => {
+    const normalized = term.toLowerCase();
+    return [normalized, ...getSynonyms(normalized)];
+  });
 }

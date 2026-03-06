@@ -89,4 +89,27 @@ describe("scorePivotRelevance", () => {
 
     expect(routeScore).toBeGreaterThan(viewScore);
   });
+
+  it("can rank business-language inquiry flow prompts through synonym-expanded terms", () => {
+    const runtimeScore = scorePivotRelevance(
+      {
+        name: "createInquiry",
+        signature: "async function createInquiry(input)",
+        kind: "function",
+        filePath: "app/api/inquiries/route.ts",
+      },
+      ["lead", "capture", "lifecycle", "inquiry", "submit", "create", "flow", "route"]
+    );
+    const componentScore = scorePivotRelevance(
+      {
+        name: "InquiryHeroCard",
+        signature: "function InquiryHeroCard()",
+        kind: "function",
+        filePath: "components/InquiryHeroCard.tsx",
+      },
+      ["lead", "capture", "lifecycle", "inquiry", "submit", "create", "flow", "route"]
+    );
+
+    expect(runtimeScore).toBeGreaterThan(componentScore);
+  });
 });

@@ -50,7 +50,7 @@ export const SMALL_PROJECT_FIXTURE: EvalCodebaseFixture = {
       attempts: [
         {
           id: "sp-task-login-stack-a1",
-          query: "login session flow",
+          query: "session entry lifecycle",
           expectedFiles: ["handler.ts", "service.ts"],
           expectedSymbols: ["handleLogin", "AuthService"],
         },

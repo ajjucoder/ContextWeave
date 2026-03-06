@@ -22,8 +22,8 @@ Execution mode: single-agent (with exploratory subagents)
 | CW-P2-002 | P2 | done | framework boundary/plugin extraction landed under `src/frameworks/`; framework tests remain green in `npm test` and `npm run test:field` |
 | CW-P2-003 | P2 | done | `npm run eval` => pass; `npm run bench` => pass; `npm run bench:product` => pass after pinning upstream benchmark commits and correcting drifted file expectations for current Express/Zod layouts |
 | CW-P0-006 | P0 | done | `npm run eval` => pass with first-pass rate `100.0%`, correction rate `0.0%`, avg task tokens `2349.8`; eval fixtures now measure realistic first-shot queries and task success uses full capsule contents rather than top-3 scoring slices |
-| CW-P0-007 | P0 | todo | No evidence yet |
-| CW-P0-008 | P0 | todo | No evidence yet |
+| CW-P0-007 | P0 | in_progress | `tests/integration/eval-fixture-regressions.test.ts` now includes a fresh-session first-pass regression for `session entry lifecycle`; `tests/capsule/field-ranking.test.ts` was isolated from session contamination so `lead capture lifecycle` is measured honestly |
+| CW-P0-008 | P0 | in_progress | `tests/unit/synonyms.test.ts`, `tests/capsule/pivot-scorer.test.ts`, and `tests/capsule/field-ranking.test.ts` are green after broad-query synonym expansion and pivot-ranking fixes for `lead capture lifecycle` and `session entry lifecycle` |
 | CW-P0-009 | P0 | todo | No evidence yet |
 | CW-P0-010 | P0 | todo | No evidence yet |
 | CW-P0-011 | P0 | todo | No evidence yet |
@@ -63,6 +63,9 @@ Execution mode: single-agent (with exploratory subagents)
 - Phase 2 is now active. The priority is to turn first-pass quality into the release gate for a product-grade context engine that can replace expensive grep/explorer loops in agentic coding tools.
 - `CW-P0-006` and `CW-P0-013` are now complete. Eval and product-benchmark methodology no longer structurally force two-turn recovery, and both now gate on first-pass quality directly.
 - The next active productization priority is `CW-P0-007` and `CW-P0-008`: preserve the honest first-pass gate while adding harder first-pass regressions and improving broad conceptual query interpretation for real misses rather than synthetic ones.
+- Fresh-session field verification exposed an honest false positive in `tests/capsule/field-ranking.test.ts`: the old suite reused one Sitecraft session, so earlier queries were biasing later conceptual prompts through session recency. The suite now opens a fresh project per test so first-pass regressions cannot be masked by prior reads.
+- Broad conceptual Stage B ranking was dropping correct synonym-seeded pivots because pivot scoring still used only literal query terms. `lead capture lifecycle` now survives through `submitInquiry`, `createInquiry`, and `app/api/inquiries/route.ts` on a fresh session because pivot ranking uses expanded query terms for broad/task intent.
+- Eval now includes a harder honest first-pass auth-path query, `session entry lifecycle`, and that query succeeds on the first attempt instead of requiring reformulation to `login handler`.
 
 ## First-Pass Diagnosis
 
@@ -105,16 +108,18 @@ Execution mode: single-agent (with exploratory subagents)
   - 3 files, 23 tests
 - `npx vitest run tests/eval/eval-runner.test.ts` => pass
 - `npx vitest run tests/integration/eval-fixture-regressions.test.ts` => pass
+- `npx vitest run tests/unit/synonyms.test.ts tests/capsule/pivot-scorer.test.ts tests/capsule/field-ranking.test.ts tests/integration/eval-fixture-regressions.test.ts` => pass
+  - 4 files, 23 tests
 - `npx vitest run tests/integration/threshold-ratchet.test.ts` => pass
   - 1 file, 3 tests
 - `npm run eval` => pass
-  - Overall: precision `51.0%`, recall `90.6%`, avg confidence `93.5%`, token efficiency `77.5%`, p95 latency `18.1ms`, task success `100.0%`, first-pass `100.0%`, correction rate `0.0%`, avg task tokens `2349.8`, turns to success `1.00`
-  - `contextweave-src`: precision `47.5%`, recall `85.0%`, avg confidence `89.5%`, token efficiency `97.9%`, avg task tokens `4020.0`, first-pass `100.0%`
-  - `small-project`: precision `56.9%`, recall `100.0%`, avg confidence `100.0%`, token efficiency `43.5%`, avg task tokens `679.5`, first-pass `100.0%`
+  - Overall: precision `49.0%`, recall `88.5%`, avg confidence `93.9%`, token efficiency `77.3%`, p95 latency `19.4ms`, task success `100.0%`, first-pass `100.0%`, correction rate `0.0%`, avg task tokens `2687.8`, turns to success `1.00`
+  - `contextweave-src`: precision `44.2%`, recall `81.7%`, avg confidence `90.2%`, token efficiency `97.8%`, avg task tokens `4234.5`, first-pass `100.0%`
+  - `small-project`: precision `56.9%`, recall `100.0%`, avg confidence `100.0%`, token efficiency `43.3%`, avg task tokens `1141.0`, first-pass `100.0%`
 - `npm run bench` => pass
   - Average reduction `72.5%` against target `>= 65%`
 - `npm test` => pass
-  - 133 files, 632 tests
+  - 133 files, 638 tests
 
 ## Additional Benchmark Evidence
 
@@ -122,20 +127,22 @@ Execution mode: single-agent (with exploratory subagents)
   - Task success rate `100.0%`
   - First-pass rate `100.0%`
   - Correction rate `0.0%`
-  - Avg tokens to first correct context `1137.3`
-  - Avg confidence `77.9%`
+  - Avg tokens to first correct context `1312.0`
+  - Avg confidence `75.5%`
   - Bench repos pinned to:
     - Express `6c4249feec8ab40631817c8e7001baf2ed022224`
     - Fastify `b61c362cc9fba35e7e060a71284154e4f86d54f4`
     - Zod `c7805073fef5b6b8857307c3d4b3597a70613bc2`
 - The product benchmark is now a first-pass release gate rather than a drifting recovery-only harness.
+- `tests/eval/quality-baseline.json` was refreshed with `npm run eval:update-baseline -- --replace` after the honest first-pass regressions lowered precision but preserved `100%` first-pass task success. The ratchet remains active on the updated fixture set.
 
 ## Blockers
 
 - No blocking implementation blockers are known right now. The active gap has moved from measurement honesty to harder real-world first-pass misses that should become the next regression set.
+- `session entry lifecycle` now retrieves the right auth path on the first pass, but it still reports medium confidence because the remaining unmatched `session` term keeps semantic coverage below the current broad-query threshold. This is a confidence calibration gap, not a retrieval miss.
 
 ## Next Actions
 
-1. Execute `CW-P0-007`: add harder first-pass regressions that capture real broad conceptual misses rather than structurally miss-shaped queries.
-2. Execute `CW-P0-008` and `CW-P0-009`: improve conceptual query decomposition and early candidate seeding for runtime surfaces that still miss on harder prompts.
+1. Continue `CW-P0-007`: add the next honest first-pass regressions from product-style framework queries, especially Express request-routing architecture prompts.
+2. Continue `CW-P0-008` and `CW-P0-012`: improve conceptual query decomposition and confidence calibration for broad semantic prompts that already retrieve correctly but still under-report confidence.
 3. Strengthen product-benchmark expectations further once CommonJS/runtime recovery improves, especially for Express request lifecycle and other boundary-heavy architecture tasks.

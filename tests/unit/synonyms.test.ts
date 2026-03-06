@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { expandQueryWithSynonyms } from "../../src/utils/synonyms.js";
+import { buildQueryCoverageGroups, expandQueryWithSynonyms } from "../../src/utils/synonyms.js";
 
 describe("expandQueryWithSynonyms", () => {
   it("returns original terms when no synonyms match", () => {
@@ -48,5 +48,30 @@ describe("expandQueryWithSynonyms", () => {
     expect(result).toContain("service");
     expect(result).toContain("auth");
     expect(result).toContain("login");
+  });
+
+  it("expands business-language lead capture prompts into inquiry flow terms", () => {
+    const result = expandQueryWithSynonyms(["lead", "capture", "lifecycle"]);
+    expect(result).toContain("inquiry");
+    expect(result).toContain("contact");
+    expect(result).toContain("submit");
+    expect(result).toContain("form");
+    expect(result).toContain("flow");
+    expect(result).toContain("route");
+  });
+
+  it("expands entry prompts into runtime handler terms", () => {
+    const result = expandQueryWithSynonyms(["entry"]);
+    expect(result).toContain("handler");
+    expect(result).toContain("route");
+    expect(result).toContain("request");
+    expect(result).toContain("login");
+  });
+
+  it("builds coverage groups that preserve semantic concept families", () => {
+    const groups = buildQueryCoverageGroups(["lead", "capture", "lifecycle"]);
+    expect(groups).toContainEqual(expect.arrayContaining(["lead", "inquiry", "contact"]));
+    expect(groups).toContainEqual(expect.arrayContaining(["capture", "submit", "create"]));
+    expect(groups).toContainEqual(expect.arrayContaining(["lifecycle", "flow", "route"]));
   });
 });

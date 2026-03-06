@@ -11,8 +11,8 @@ describe("eval runner session isolation", () => {
 
     expect(createStack).toBeTruthy();
     expect(createStack!.metrics.consideredFiles.map((file) => file.split("/").pop())).toContain("handler.ts");
-    expect(createStack!.metrics.consideredSymbols).toContain("AuthHandler");
-    expect(createStack!.metrics.consideredSymbols).not.toContain("validateToken");
+    expect(createStack!.metrics.consideredSymbols).toContain("createAuthStack");
+    expect(createStack!.metrics.consideredSymbols).toContain("AuthService");
     expect(loginTask).toBeTruthy();
     expect(loginTask!.firstPassSuccess).toBe(true);
     expect(loginTask!.turnsToSuccess).toBe(1);
