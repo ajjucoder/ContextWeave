@@ -1,4 +1,5 @@
 import type Database from "better-sqlite3";
+import { splitIdentifier } from "../utils/camel-split.js";
 
 interface SymbolRow {
   name: string;
@@ -17,8 +18,15 @@ export interface FileSummarySearchResult {
 }
 
 function buildSummaryText(filePath: string, symbols: SymbolRow[]): string {
-  const pathTokens = filePath.replace(/[/\\.]/g, " ").replace(/-/g, " ");
-  const symbolNames = symbols.map((s) => s.name).join(" ");
+  const pathTokens = filePath
+    .split(/[/\\.]/)
+    .flatMap((segment) => [segment.toLowerCase(), ...splitIdentifier(segment)])
+    .filter((t, i, arr) => t.length >= 2 && arr.indexOf(t) === i)
+    .join(" ");
+  const symbolNames = symbols
+    .flatMap((s) => [s.name.toLowerCase(), ...splitIdentifier(s.name)])
+    .filter((t, i, arr) => arr.indexOf(t) === i)
+    .join(" ");
   const kinds = [...new Set(symbols.map((s) => s.kind))].join(" ");
   return `${pathTokens} ${symbolNames} ${kinds}`.toLowerCase();
 }

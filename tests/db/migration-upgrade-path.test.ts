@@ -41,7 +41,7 @@ describe("DB migration upgrade path", () => {
       .all() as Array<{ version: number }>;
     const versions = applied.map((r) => r.version);
 
-    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
 
     db.close();
   });
@@ -71,7 +71,7 @@ describe("DB migration upgrade path", () => {
         .get() as { cnt: number }
     ).cnt;
 
-    expect(count).toBe(9);
+    expect(count).toBe(10);
 
     db.close();
   });
@@ -157,6 +157,35 @@ describe("DB migration upgrade path", () => {
       .all() as Array<{ name: string }>;
 
     expect(indexes.some((idx) => idx.name === "idx_file_clusters_cluster")).toBe(true);
+
+    db.close();
+  });
+
+  it("v10 clears file_summaries so backfill re-runs with updated buildSummaryText", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+
+    runMigrations(db);
+
+    const now = Date.now();
+    db.prepare(
+      "INSERT INTO files (path, hash, last_indexed, mtime, language, symbol_count, error) VALUES (?, ?, ?, ?, ?, ?, ?)"
+    ).run("src/test.ts", "abc", now, now, "typescript", 0, null);
+    db.prepare(
+      "INSERT INTO file_summaries (file_id, export_names, symbol_count, edge_count, avg_centrality, summary_text, computed_at) VALUES (1, '', 0, 0, 0.0, 'old summary', ?)"
+    ).run(now);
+
+    const countBefore = (
+      db.prepare("SELECT COUNT(*) as c FROM file_summaries").get() as { c: number }
+    ).c;
+    expect(countBefore).toBe(1);
+
+    db.exec("DELETE FROM file_summaries");
+
+    const countAfter = (
+      db.prepare("SELECT COUNT(*) as c FROM file_summaries").get() as { c: number }
+    ).c;
+    expect(countAfter).toBe(0);
 
     db.close();
   });
