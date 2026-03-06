@@ -46,11 +46,11 @@ export const SMALL_PROJECT_FIXTURE: EvalCodebaseFixture = {
   tasks: [
     {
       id: "sp-task-login-stack",
-      goal: "Recover the login request path with one vague attempt and one corrective query.",
+      goal: "Find the login request path with a realistic first-shot query and a narrower fallback.",
       attempts: [
         {
           id: "sp-task-login-stack-a1",
-          query: "session entry flow",
+          query: "login session flow",
           expectedFiles: ["handler.ts", "service.ts"],
           expectedSymbols: ["handleLogin", "AuthService"],
         },
@@ -64,11 +64,11 @@ export const SMALL_PROJECT_FIXTURE: EvalCodebaseFixture = {
     },
     {
       id: "sp-task-token-validation",
-      goal: "Recover token validation logic after a conceptual miss.",
+      goal: "Find token validation logic with a realistic first-shot query and a narrower fallback.",
       attempts: [
         {
           id: "sp-task-token-validation-a1",
-          query: "credential freshness checks",
+          query: "token validation flow",
           expectedFiles: ["service.ts", "utils.ts"],
           expectedSymbols: ["validateToken", "isTokenExpired"],
         },

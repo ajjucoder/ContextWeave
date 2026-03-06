@@ -68,10 +68,14 @@ export function getLexicalScore(
 }
 
 export function isTestFile(path: string): boolean {
-  const lower = path.toLowerCase();
+  const lower = path.toLowerCase().replaceAll("\\", "/");
   return (
     lower.includes(".test.") ||
     lower.includes(".spec.") ||
+    lower.startsWith("test/") ||
+    lower.startsWith("tests/") ||
+    lower.includes("/test/") ||
+    lower.includes("/tests/") ||
     lower.includes("/__tests__/") ||
     lower.endsWith("_test.ts") ||
     lower.endsWith("_spec.ts")

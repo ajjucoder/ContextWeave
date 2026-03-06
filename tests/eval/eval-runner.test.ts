@@ -7,10 +7,14 @@ describe("eval runner session isolation", () => {
     const result = await runEvalSuite({ fixtures: [SMALL_PROJECT_FIXTURE] });
     const codebase = result.codebases.find((entry) => entry.id === SMALL_PROJECT_FIXTURE.id);
     const createStack = codebase?.queries.find((query) => query.id === "sp-create-stack");
+    const loginTask = codebase?.tasks.find((task) => task.id === "sp-task-login-stack");
 
     expect(createStack).toBeTruthy();
     expect(createStack!.metrics.consideredFiles.map((file) => file.split("/").pop())).toContain("handler.ts");
     expect(createStack!.metrics.consideredSymbols).toContain("AuthHandler");
     expect(createStack!.metrics.consideredSymbols).not.toContain("validateToken");
+    expect(loginTask).toBeTruthy();
+    expect(loginTask!.firstPassSuccess).toBe(true);
+    expect(loginTask!.turnsToSuccess).toBe(1);
   });
 });

@@ -263,6 +263,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       : classified.normalizedTerms;
   const baseQueryTerms = intentTerms.length > 0 ? intentTerms : fallbackTerms;
   const rawPivotIds = new Set<number>();
+  const seededPivotIdsByFile = new Map<number, number[]>();
 
   const FILE_SEARCH_LIMIT = intent === "narrow" ? 50 : 80;
   const candidateFiles = searchFilesByQuery(db, query, FILE_SEARCH_LIMIT);
@@ -318,7 +319,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const exactQueryTerms = baseQueryTerms;
   const expandedQueryTerms = expandQueryWithSynonyms(allQueryTerms);
   const typeFocusedQuery = allQueryTerms.some((term) => TYPE_FOCUSED_TERMS.has(term));
-  const preferRuntimeKinds = intent === "task" && candidateFiles.length > 0 && candidateFiles.length <= 3 && !typeFocusedQuery;
+  const preferRuntimeKinds = intent === "task" && candidateFiles.length > 0 && candidateFiles.length <= 6 && !typeFocusedQuery;
   const semanticRerankEnabled =
     (params.semanticRerank ?? false) ||
     process.env["CW_ENABLE_SEMANTIC_RERANK"] === "1";
@@ -396,6 +397,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         .slice(0, seedSymbolsPerFile);
       for (const entry of fileSymbols) {
         rawPivotIds.add(entry.symbol.id);
+        const existing = seededPivotIdsByFile.get(candidate.fileId) ?? [];
+        existing.push(entry.symbol.id);
+        seededPivotIdsByFile.set(candidate.fileId, existing);
         if (rawPivotIds.size >= maxStageARaw) break;
       }
     }
@@ -544,6 +548,28 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       .sort((a, b) => b[1] - a[1]);
     rankedPivots = new Map(adjustedEntries);
     pivotScores = adjustedEntries.map(([, score]) => score);
+  }
+
+  if (intent !== "narrow" && candidateFiles.length > 0) {
+    const rankedEntries = [...rankedPivots.entries()].sort((a, b) => b[1] - a[1]);
+    const topScore = rankedEntries[0]?.[1] ?? 1;
+    const fallbackSeedScore = Math.max(0.75, topScore * 0.32);
+    const maxSeedFiles = intent === "broad" ? 3 : 4;
+    let injected = 0;
+
+    for (const candidate of candidateFiles) {
+      if (injected >= maxSeedFiles) break;
+      if (isTestFile(candidate.path)) continue;
+
+      const seedIds = seededPivotIdsByFile.get(candidate.fileId) ?? [];
+      const seedId = seedIds.find((id) => !rankedPivots.has(id));
+      if (seedId === undefined) continue;
+
+      const boost = candidateFileBoostById.get(candidate.fileId) ?? 1;
+      rankedPivots.set(seedId, fallbackSeedScore * Math.min(boost, 1.35));
+      injected += 1;
+    }
+    pivotScores = [...rankedPivots.values()].sort((a, b) => b - a);
   }
 
   if (intent !== "narrow" && rankedPivots.size > 0) {

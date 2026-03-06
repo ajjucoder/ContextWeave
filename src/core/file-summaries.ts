@@ -1,5 +1,7 @@
 import type Database from "better-sqlite3";
 import { splitIdentifier } from "../utils/camel-split.js";
+import { getDirectoryWeight } from "../utils/directory-weights.js";
+import { expandQueryWithSynonyms } from "../utils/synonyms.js";
 
 interface SymbolRow {
   name: string;
@@ -16,6 +18,47 @@ interface EdgeCountRow {
 export interface FileSummarySearchResult {
   fileId: number;
   path: string;
+}
+
+interface SearchRow {
+  file_id: number;
+  path: string;
+  edge_count: number;
+  avg_centrality: number;
+}
+
+interface RankedSearchResult extends FileSummarySearchResult {
+  exactHits: number;
+  expandedHits: number;
+  score: number;
+}
+
+const TEST_QUERY_TERMS = new Set([
+  "test",
+  "tests",
+  "spec",
+  "specs",
+  "fixture",
+  "fixtures",
+  "mock",
+  "mocks",
+  "assert",
+  "assertion",
+  "jest",
+  "vitest",
+]);
+
+function isTestLikePath(path: string): boolean {
+  const lower = path.toLowerCase().replaceAll("\\", "/");
+  return (
+    lower.startsWith("test/") ||
+    lower.startsWith("tests/") ||
+    lower.includes("/test/") ||
+    lower.includes("/tests/") ||
+    lower.includes("/__tests__/") ||
+    lower.includes(".test.") ||
+    lower.includes(".spec.")
+  );
 }
 
 function buildSummaryText(filePath: string, symbols: SymbolRow[]): string {
@@ -128,49 +171,104 @@ export function searchFilesByQuery(
 ): Array<{ fileId: number; path: string }> {
   const terms = query.toLowerCase().replace(/[^a-z0-9\s]/g, " ").trim();
   if (!terms) return [];
+  const rawWords = terms.split(/\s+/).filter((w) => w.length >= 2);
+  const expandedWords = expandQueryWithSynonyms(rawWords).filter((w) => w.length >= 2);
+  const exactWordSet = new Set(rawWords);
+  const testFocusedQuery = rawWords.some((word) => TEST_QUERY_TERMS.has(word));
+  const scored = new Map<number, SearchRow>();
+  const hitCounts = new Map<number, { exactHits: number; expandedHits: number }>();
 
-  const doSearch = (pattern: string): Array<{ fileId: number; path: string }> => {
+  const doSearch = (pattern: string): SearchRow[] => {
     try {
       const rows = db.prepare(`
-        SELECT fs.file_id, f.path
+        SELECT fs.file_id, f.path, fs.edge_count, fs.avg_centrality
         FROM file_summaries_fts fts
         JOIN file_summaries fs ON fs.file_id = fts.rowid
         JOIN files f ON f.id = fs.file_id
         WHERE file_summaries_fts MATCH ?
         ORDER BY rank
         LIMIT ?
-      `).all(pattern, limit) as Array<{ file_id: number; path: string }>;
-      return rows.map((r) => ({ fileId: r.file_id, path: r.path }));
+      `).all(pattern, limit) as SearchRow[];
+      return rows;
     } catch {
       return [];
     }
   };
 
+  const rankResults = (
+    rows: SearchRow[],
+    hitCounts: Map<number, { exactHits: number; expandedHits: number }> = new Map()
+  ): RankedSearchResult[] => {
+    const ranked = new Map<number, RankedSearchResult>();
+
+    for (const row of rows) {
+      const hits = hitCounts.get(row.file_id) ?? { exactHits: 0, expandedHits: 0 };
+      const directoryWeight = getDirectoryWeight(row.path);
+      const testPenalty = !testFocusedQuery && isTestLikePath(row.path) ? 0.35 : 1;
+      const centralityBoost = 1 + Math.log1p(Math.max(0, row.avg_centrality));
+      const edgeBoost = 1 + Math.log1p(Math.max(0, row.edge_count)) * 0.2;
+      const lexicalHits = hits.exactHits * 2 + hits.expandedHits * 1.1;
+      const score =
+        Math.max(1, lexicalHits || 1) *
+        directoryWeight *
+        testPenalty *
+        centralityBoost *
+        edgeBoost;
+      const existing = ranked.get(row.file_id);
+
+      if (!existing || score > existing.score) {
+        ranked.set(row.file_id, {
+          fileId: row.file_id,
+          path: row.path,
+          exactHits: hits.exactHits,
+          expandedHits: hits.expandedHits,
+          score,
+        });
+      }
+    }
+
+    return [...ranked.values()]
+      .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
+        if (b.exactHits !== a.exactHits) return b.exactHits - a.exactHits;
+        if (b.expandedHits !== a.expandedHits) return b.expandedHits - a.expandedHits;
+        return a.path.localeCompare(b.path);
+      })
+      .slice(0, limit);
+  };
+
   const andResults = doSearch(terms);
-  if (andResults.length > 0) return andResults;
+  for (const row of andResults) {
+    scored.set(row.file_id, row);
+    hitCounts.set(row.file_id, {
+      exactHits: Math.max(rawWords.length, 1),
+      expandedHits: 0,
+    });
+  }
 
-  const words = terms.split(/\s+/).filter((w) => w.length >= 2);
-  if (words.length <= 1) return andResults;
-
-  const orPattern = words.map((w) => `"${w}"`).join(" OR ");
+  if (rawWords.length <= 1) {
+    return rankResults([...scored.values()], hitCounts).map(({ fileId, path }) => ({ fileId, path }));
+  }
+  const orPattern = expandedWords.map((w) => `"${w}"`).join(" OR ");
   const orResults = doSearch(orPattern);
-  if (orResults.length > 0) return orResults;
-
-  const scored = new Map<number, { fileId: number; path: string; hits: number }>();
-  for (const word of words) {
+  for (const row of orResults) {
+    scored.set(row.file_id, row);
+    const existing = hitCounts.get(row.file_id) ?? { exactHits: 0, expandedHits: 0 };
+    hitCounts.set(row.file_id, existing);
+  }
+  for (const word of expandedWords) {
     const wordResults = doSearch(`"${word}"`);
     for (const result of wordResults) {
-      const existing = scored.get(result.fileId);
-      if (existing) {
-        existing.hits++;
+      scored.set(result.file_id, result);
+      const existing = hitCounts.get(result.file_id) ?? { exactHits: 0, expandedHits: 0 };
+      if (exactWordSet.has(word)) {
+        existing.exactHits += 1;
       } else {
-        scored.set(result.fileId, { ...result, hits: 1 });
+        existing.expandedHits += 1;
       }
+      hitCounts.set(result.file_id, existing);
     }
   }
 
-  return [...scored.values()]
-    .sort((a, b) => b.hits - a.hits)
-    .slice(0, limit)
-    .map(({ fileId, path }) => ({ fileId, path }));
+  return rankResults([...scored.values()], hitCounts).map(({ fileId, path }) => ({ fileId, path }));
 }

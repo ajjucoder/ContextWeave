@@ -82,4 +82,83 @@ describe("file summaries", () => {
     const paths = results.map((r) => r.path);
     expect(paths).toContain("docs/partner-policy.md");
   });
+
+  it("prefers runtime files over test files for broad non-test queries", () => {
+    const now = Date.now();
+    const files = fileQueries(db);
+    const syms = symbolQueries(db);
+
+    const runtimeFileId = files.insert({
+      path: "lib/application.js",
+      hash: "runtime-a",
+      lastIndexed: now,
+      mtime: now,
+      language: "javascript",
+      symbolCount: 2,
+      error: null,
+    });
+    syms.insert({
+      fileId: runtimeFileId,
+      name: "createApplication",
+      kind: "function",
+      startLine: 1,
+      endLine: 40,
+      signature: "function createApplication() router middleware request handling",
+      bodyHash: "runtime-x1",
+      fullSource: "",
+      isExported: true,
+      docComment: null,
+      centrality: 9,
+      lastSeen: now,
+    });
+    syms.insert({
+      fileId: runtimeFileId,
+      name: "routerHandle",
+      kind: "function",
+      startLine: 41,
+      endLine: 80,
+      signature: "function routerHandle(router, done)",
+      bodyHash: "runtime-x2",
+      fullSource: "",
+      isExported: false,
+      docComment: null,
+      centrality: 7,
+      lastSeen: now,
+    });
+
+    const testFileId = files.insert({
+      path: "test/middleware.basic.js",
+      hash: "test-a",
+      lastIndexed: now,
+      mtime: now,
+      language: "javascript",
+      symbolCount: 1,
+      error: null,
+    });
+    syms.insert({
+      fileId: testFileId,
+      name: "middlewareLifecycleSpec",
+      kind: "function",
+      startLine: 1,
+      endLine: 30,
+      signature: "function middlewareLifecycleSpec() request response pipeline routing assertions",
+      bodyHash: "test-x1",
+      fullSource: "",
+      isExported: false,
+      docComment: null,
+      centrality: 2,
+      lastSeen: now,
+    });
+
+    upsertFileSummary(db, runtimeFileId);
+    upsertFileSummary(db, testFileId);
+
+    const results = searchFilesByQuery(db, "middleware routing request response pipeline", 10);
+    const runtimeIndex = results.findIndex((row) => row.path === "lib/application.js");
+    const testIndex = results.findIndex((row) => row.path === "test/middleware.basic.js");
+
+    expect(runtimeIndex).toBeGreaterThanOrEqual(0);
+    expect(testIndex).toBeGreaterThanOrEqual(0);
+    expect(runtimeIndex).toBeLessThan(testIndex);
+  });
 });

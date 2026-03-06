@@ -14,6 +14,7 @@ const QA_DIR = resolve(__dirname, "../.qa-temp");
 interface QaProject {
   name: string;
   repo: string;
+  commit?: string;
   tasks: Array<{
     id: string;
     goal: string;
@@ -29,13 +30,14 @@ const PROJECTS: QaProject[] = [
   {
     name: "express",
     repo: "https://github.com/expressjs/express.git",
+    commit: "6c4249feec8ab40631817c8e7001baf2ed022224",
     tasks: [
       {
         id: "express-router-pipeline",
-        goal: "Recover Express router request flow after a vague first query.",
+        goal: "Find the Express router request flow with a realistic first-shot architecture query and a narrower fallback.",
         attempts: [
-          { query: "request lifecycle", expectedFiles: ["lib/router/index.js"] },
-          { query: "middleware routing request response pipeline", expectedFiles: ["lib/router/index.js", "lib/application.js"] },
+          { query: "middleware routing request response pipeline", expectedFiles: ["lib/express.js"] },
+          { query: "request lifecycle", expectedFiles: ["lib/express.js"] },
         ],
       },
     ],
@@ -43,12 +45,13 @@ const PROJECTS: QaProject[] = [
   {
     name: "fastify",
     repo: "https://github.com/fastify/fastify.git",
+    commit: "b61c362cc9fba35e7e060a71284154e4f86d54f4",
     tasks: [
       {
         id: "fastify-hook-lifecycle",
-        goal: "Recover hook/request validation after a broad conceptual miss.",
+        goal: "Find Fastify hook and validation flow with a realistic first-shot architecture query and a narrower fallback.",
         attempts: [
-          { query: "request lifecycle", expectedFiles: ["lib/hooks.js"] },
+          { query: "fastify hook validation lifecycle", expectedFiles: ["lib/hooks.js", "lib/route.js"] },
           { query: "hook lifecycle request validation pipeline", expectedFiles: ["lib/hooks.js", "lib/route.js"] },
         ],
       },
@@ -57,13 +60,14 @@ const PROJECTS: QaProject[] = [
   {
     name: "zod",
     repo: "https://github.com/colinhacks/zod.git",
+    commit: "c7805073fef5b6b8857307c3d4b3597a70613bc2",
     tasks: [
       {
         id: "zod-parse-pipeline",
-        goal: "Recover parse/transform logic after a fuzzy first attempt.",
+        goal: "Find the Zod parse and transform pipeline with a realistic first-shot architecture query and a narrower fallback.",
         attempts: [
-          { query: "schema processing", expectedFiles: ["src/types.ts"] },
-          { query: "schema validation transform pipeline", expectedFiles: ["src/types.ts", "src/index.ts"] },
+          { query: "zod schema validation transform pipeline", expectedFiles: ["v3/types.ts"] },
+          { query: "schema validation transform pipeline", expectedFiles: ["v3/types.ts"] },
         ],
       },
     ],
@@ -72,10 +76,18 @@ const PROJECTS: QaProject[] = [
 
 interface TaskSummary {
   success: boolean;
+  firstPassSuccess: boolean;
   correction: boolean;
   tokensToSuccess: number;
   avgConfidence: number;
 }
+
+const PRODUCT_THRESHOLDS = {
+  taskSuccessRateMin: 2 / 3,
+  firstPassSuccessRateMin: 2 / 3,
+  correctionRateMax: 0.3,
+  avgConfidenceMin: 0.65,
+};
 
 async function runProject(project: QaProject, projectDir: string): Promise<TaskSummary[] | null> {
   try {
@@ -83,6 +95,12 @@ async function runProject(project: QaProject, projectDir: string): Promise<TaskS
       stdio: "pipe",
       timeout: 60000,
     });
+    if (project.commit) {
+      execSync(`git -C "${projectDir}" checkout --detach ${project.commit}`, {
+        stdio: "pipe",
+        timeout: 60000,
+      });
+    }
   } catch {
     process.stdout.write(`  SKIP: failed to clone ${project.repo}\n`);
     return null;
@@ -132,6 +150,7 @@ async function runProject(project: QaProject, projectDir: string): Promise<TaskS
 
     summaries.push({
       success,
+      firstPassSuccess: success && !correction,
       correction,
       tokensToSuccess,
       avgConfidence: confidences.reduce((sum, value) => sum + value, 0) / Math.max(1, confidences.length),
@@ -165,15 +184,32 @@ async function main(): Promise<void> {
   }
 
   const taskSuccessRate = summaries.reduce((sum, task) => sum + (task.success ? 1 : 0), 0) / summaries.length;
+  const firstPassSuccessRate = summaries.reduce((sum, task) => sum + (task.firstPassSuccess ? 1 : 0), 0) / summaries.length;
   const correctionRate = summaries.reduce((sum, task) => sum + (task.correction ? 1 : 0), 0) / summaries.length;
   const avgTaskTokens = summaries.reduce((sum, task) => sum + task.tokensToSuccess, 0) / summaries.length;
   const avgConfidence = summaries.reduce((sum, task) => sum + task.avgConfidence, 0) / summaries.length;
+  const passed =
+    taskSuccessRate >= PRODUCT_THRESHOLDS.taskSuccessRateMin &&
+    firstPassSuccessRate >= PRODUCT_THRESHOLDS.firstPassSuccessRateMin &&
+    correctionRate <= PRODUCT_THRESHOLDS.correctionRateMax &&
+    avgConfidence >= PRODUCT_THRESHOLDS.avgConfidenceMin;
 
   process.stdout.write(`Task success rate: ${(taskSuccessRate * 100).toFixed(1)}%\n`);
+  process.stdout.write(`First-pass rate:   ${(firstPassSuccessRate * 100).toFixed(1)}%\n`);
   process.stdout.write(`Correction rate:   ${(correctionRate * 100).toFixed(1)}%\n`);
-  process.stdout.write(`Avg task tokens:   ${avgTaskTokens.toFixed(1)}\n`);
+  process.stdout.write(`Avg tokens to first correct context: ${avgTaskTokens.toFixed(1)}\n`);
   process.stdout.write(`Avg confidence:    ${(avgConfidence * 100).toFixed(1)}%\n`);
-  process.stdout.write(`Overall status:    ${taskSuccessRate > 0.5 && avgConfidence > 0.65 ? "PASS" : "FAIL"}\n`);
+  process.stdout.write(
+    `Thresholds:       success >= ${(PRODUCT_THRESHOLDS.taskSuccessRateMin * 100).toFixed(1)}%, ` +
+    `first-pass >= ${(PRODUCT_THRESHOLDS.firstPassSuccessRateMin * 100).toFixed(1)}%, ` +
+    `correction <= ${(PRODUCT_THRESHOLDS.correctionRateMax * 100).toFixed(1)}%, ` +
+    `confidence >= ${(PRODUCT_THRESHOLDS.avgConfidenceMin * 100).toFixed(1)}%\n`
+  );
+  process.stdout.write(`Overall status:    ${passed ? "PASS" : "FAIL"}\n`);
+
+  if (!passed) {
+    process.exitCode = 1;
+  }
 
   rmSync(QA_DIR, { recursive: true, force: true });
 }

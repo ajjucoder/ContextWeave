@@ -110,7 +110,7 @@ export interface EvalBaseline {
   updatedAt: string;
 }
 
-export const EVAL_BASELINE_VERSION = 2;
+export const EVAL_BASELINE_VERSION = 3;
 
 export const DEFAULT_EVAL_THRESHOLDS: EvalThresholds = {
   precisionMin: 0.15,
@@ -119,8 +119,8 @@ export const DEFAULT_EVAL_THRESHOLDS: EvalThresholds = {
   tokenEfficiencyMin: 0.6,
   p95LatencyMax: 75,
   taskSuccessRateMin: 0.5,
-  firstPassSuccessRateMin: 0,
-  avgTurnsToSuccessMax: 2.5,
+  firstPassSuccessRateMin: 0.7,
+  avgTurnsToSuccessMax: 1.3,
 };
 
 export const DEFAULT_BASELINE: EvalBaseline = {
@@ -199,9 +199,33 @@ function queryToResult(
   };
 }
 
-function isSuccessfulAttempt(attempt: EvalTaskAttemptFixture, metrics: QueryMetricOutput): boolean {
-  if (attempt.expectedFiles.length > 0 && metrics.fileRecall < 1) return false;
-  if ((attempt.expectedSymbols?.length ?? 0) > 0 && metrics.symbolRecall < 1) return false;
+function fileMatchesExpected(expectedSuffix: string, actualPath: string): boolean {
+  const normalizedExpected = expectedSuffix.replaceAll("\\", "/").trim().toLowerCase();
+  const normalizedActual = actualPath.replaceAll("\\", "/").trim().toLowerCase();
+  return normalizedActual === normalizedExpected || normalizedActual.endsWith(`/${normalizedExpected}`);
+}
+
+function symbolMatchesExpected(expectedName: string, actualName: string): boolean {
+  return actualName.trim().toLowerCase() === expectedName.trim().toLowerCase();
+}
+
+function isSuccessfulAttempt(attempt: EvalTaskAttemptFixture, result: EvalQueryResult): boolean {
+  if (
+    attempt.expectedFiles.length > 0 &&
+    !attempt.expectedFiles.every((expected) =>
+      result.actualFiles.some((actual) => fileMatchesExpected(expected, actual))
+    )
+  ) {
+    return false;
+  }
+  if (
+    (attempt.expectedSymbols?.length ?? 0) > 0 &&
+    !attempt.expectedSymbols!.every((expected) =>
+      result.actualSymbols.some((actual) => symbolMatchesExpected(expected, actual))
+    )
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -287,7 +311,7 @@ async function runCodebaseEval(
         capsule.metadata.tokensUsed,
         metricOptions
       );
-      const success = isSuccessfulAttempt(attempt, result.metrics);
+      const success = isSuccessfulAttempt(attempt, result);
       attempts.push({
         id: attempt.id,
         query: attempt.query,

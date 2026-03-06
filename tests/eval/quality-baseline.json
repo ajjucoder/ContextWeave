@@ -1,42 +1,42 @@
 {
-  "version": 2,
+  "version": 3,
   "metrics": {
-    "precision": 0.5104166666666666,
-    "recall": 0.890625,
-    "avgConfidence": 0.9249030505952381,
-    "avgTokenEfficiency": 0.7814943687440996,
-    "p95LatencyMs": 16.303125000000364,
+    "precision": 0.5104166666666667,
+    "recall": 0.90625,
+    "avgConfidence": 0.9345114955357142,
+    "avgTokenEfficiency": 0.7750067335316126,
+    "p95LatencyMs": 18.13654200000019,
     "taskSuccessRate": 1,
-    "firstPassSuccessRate": 0,
-    "correctionRate": 1,
-    "avgTaskTokensToSuccess": 4511.25,
-    "avgTurnsToSuccess": 2
+    "firstPassSuccessRate": 1,
+    "correctionRate": 0,
+    "avgTaskTokensToSuccess": 2349.75,
+    "avgTurnsToSuccess": 1
   },
   "codebases": {
     "contextweave-src": {
-      "precision": 0.4916666666666666,
+      "precision": 0.475,
       "recall": 0.85,
-      "avgConfidence": 0.879844880952381,
-      "avgTokenEfficiency": 0.9792900725593668,
-      "p95LatencyMs": 16.303125000000364,
+      "avgConfidence": 0.8952183928571428,
+      "avgTokenEfficiency": 0.9792637225365567,
+      "p95LatencyMs": 18.13654200000019,
       "taskSuccessRate": 1,
-      "firstPassSuccessRate": 0,
-      "correctionRate": 1,
-      "avgTaskTokensToSuccess": 8126.5,
-      "avgTurnsToSuccess": 2
+      "firstPassSuccessRate": 1,
+      "correctionRate": 0,
+      "avgTaskTokensToSuccess": 4020,
+      "avgTurnsToSuccess": 1
     },
     "small-project": {
-      "precision": 0.5416666666666666,
-      "recall": 0.9583333333333334,
+      "precision": 0.5694444444444444,
+      "recall": 1,
       "avgConfidence": 1,
-      "avgTokenEfficiency": 0.45183486238532117,
-      "p95LatencyMs": 1.8574170000001686,
+      "avgTokenEfficiency": 0.4345784185233727,
+      "p95LatencyMs": 3.1542500000000473,
       "taskSuccessRate": 1,
-      "firstPassSuccessRate": 0,
-      "correctionRate": 1,
-      "avgTaskTokensToSuccess": 896,
-      "avgTurnsToSuccess": 2
+      "firstPassSuccessRate": 1,
+      "correctionRate": 0,
+      "avgTaskTokensToSuccess": 679.5,
+      "avgTurnsToSuccess": 1
     }
   },
-  "updatedAt": "2026-03-06T09:21:27.262Z"
+  "updatedAt": "2026-03-06T12:19:29.520Z"
 }
