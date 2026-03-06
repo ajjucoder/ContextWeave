@@ -64,7 +64,7 @@ const STOP_WORDS = new Set([
 
 // Question words signal exploration intent, not task intent.
 // "how does auth work" should classify as narrow/broad, not task.
-export const QUESTION_WORDS = new Set(["how", "what", "why", "where", "when"]);
+const QUESTION_WORDS = new Set(["how", "what", "why", "where", "when"]);
 
 export const TASK_VERBS = new Set([
   "find",
@@ -89,7 +89,7 @@ export const TASK_VERBS = new Set([
   "extract",
 ]);
 
-export const MODULE_SYNONYMS: Record<string, string[]> = {
+const MODULE_SYNONYMS: Record<string, string[]> = {
   auth: ["authentication", "login", "session", "token", "jwt", "password", "credential"],
   db: ["database", "query", "sql", "schema", "migration", "table", "index"],
   api: ["endpoint", "route", "handler", "request", "response", "middleware", "controller"],

@@ -4,7 +4,7 @@ function cleanSlashes(value: string): string {
   return value.replace(/\\/g, "/").replace(/\/+/g, "/").trim();
 }
 
-export function normalizePath(value: string): string {
+function normalizePath(value: string): string {
   const cleaned = cleanSlashes(value)
     .replace(/^\.\//, "")
     .replace(/^\/+/, "")

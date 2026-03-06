@@ -25,7 +25,7 @@ const log = createLogger("mcp-server");
 
 let serverDb: Database.Database | null = null;
 
-export function getServerDb(projectRoot: string): Database.Database {
+function getServerDb(projectRoot: string): Database.Database {
   if (serverDb) return serverDb;
   const dbPath = `${projectRoot}/.contextweave/contextweave.db`;
   serverDb = getDb(dbPath);
