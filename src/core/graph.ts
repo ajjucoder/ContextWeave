@@ -255,9 +255,51 @@ const DAMPING = 0.85;
 const MAX_ITERATIONS = 50;
 const CONVERGENCE_THRESHOLD = 1e-6;
 
+interface CompactAdjacency {
+  targets: Int32Array;
+  offsets: Int32Array;
+  outDegree: Int32Array;
+}
+
+function buildCompactAdjacency(
+  db: Database.Database,
+  idToIndex: Map<number, number>,
+  n: number
+): CompactAdjacency {
+  const edges = edgeQueries(db);
+  const tempLists: number[][] = new Array(n);
+  for (let i = 0; i < n; i++) tempLists[i] = [];
+
+  for (const edge of edges.iterateAll()) {
+    const sourceIdx = idToIndex.get(edge.sourceSymbolId);
+    const targetIdx = idToIndex.get(edge.targetSymbolId);
+    if (sourceIdx === undefined || targetIdx === undefined) continue;
+    tempLists[sourceIdx]!.push(targetIdx);
+  }
+
+  const outDegree = new Int32Array(n);
+  const offsets = new Int32Array(n + 1);
+  let totalEdges = 0;
+  for (let i = 0; i < n; i++) {
+    outDegree[i] = tempLists[i]!.length;
+    offsets[i] = totalEdges;
+    totalEdges += outDegree[i]!;
+  }
+  offsets[n] = totalEdges;
+
+  const targets = new Int32Array(totalEdges);
+  let pos = 0;
+  for (let i = 0; i < n; i++) {
+    for (const t of tempLists[i]!) {
+      targets[pos++] = t;
+    }
+  }
+
+  return { targets, offsets, outDegree };
+}
+
 export function computePageRank(db: Database.Database): Map<number, number> {
   const symbols = symbolQueries(db);
-  const edges = edgeQueries(db);
 
   const symbolIds = symbols.getAllIds();
 
@@ -266,16 +308,7 @@ export function computePageRank(db: Database.Database): Map<number, number> {
   const n = symbolIds.length;
   const idToIndex = new Map(symbolIds.map((id, i) => [id, i]));
 
-  const outLinks = new Map<number, number[]>();
-  for (const edge of edges.iterateAll()) {
-    const sourceIdx = idToIndex.get(edge.sourceSymbolId);
-    const targetIdx = idToIndex.get(edge.targetSymbolId);
-    if (sourceIdx === undefined || targetIdx === undefined) continue;
-
-    const existing = outLinks.get(sourceIdx) ?? [];
-    existing.push(targetIdx);
-    outLinks.set(sourceIdx, existing);
-  }
+  const { targets, offsets, outDegree } = buildCompactAdjacency(db, idToIndex, n);
 
   let ranks = new Float64Array(n).fill(1 / n);
   let newRanks = new Float64Array(n);
@@ -283,8 +316,7 @@ export function computePageRank(db: Database.Database): Map<number, number> {
   for (let iter = 0; iter < MAX_ITERATIONS; iter++) {
     let danglingSum = 0;
     for (let i = 0; i < n; i++) {
-      const links = outLinks.get(i);
-      if (!links || links.length === 0) {
+      if (outDegree[i] === 0) {
         danglingSum += ranks[i]!;
       }
     }
@@ -293,13 +325,14 @@ export function computePageRank(db: Database.Database): Map<number, number> {
     newRanks.fill((1 - DAMPING) / n + danglingContribution);
 
     for (let i = 0; i < n; i++) {
-      const links = outLinks.get(i);
-      if (!links || links.length === 0) {
-        continue;
-      }
+      const deg = outDegree[i]!;
+      if (deg === 0) continue;
 
-      const share = ranks[i]! / links.length;
-      for (const target of links) {
+      const share = ranks[i]! / deg;
+      const start = offsets[i]!;
+      const end = offsets[i + 1]!;
+      for (let j = start; j < end; j++) {
+        const target = targets[j]!;
         newRanks[target] = newRanks[target]! + DAMPING * share;
       }
     }
@@ -326,19 +359,34 @@ export function computePageRank(db: Database.Database): Map<number, number> {
   return result;
 }
 
+const CENTRALITY_UPDATE_BATCH_SIZE = 5000;
+
 export function updateCentralityScores(db: Database.Database): void {
   const symbolsQ = symbolQueries(db);
   const ranks = computePageRank(db);
 
   log.info(`updating centrality for ${ranks.size} symbols`);
 
-  const applyUpdates = db.transaction(() => {
-    for (const [symbolId, rank] of ranks) {
-      symbolsQ.updateCentrality(symbolId, rank);
-    }
-  });
+  if (ranks.size <= CENTRALITY_UPDATE_BATCH_SIZE) {
+    const applyUpdates = db.transaction(() => {
+      for (const [symbolId, rank] of ranks) {
+        symbolsQ.updateCentrality(symbolId, rank);
+      }
+    });
+    applyUpdates();
+    return;
+  }
 
-  applyUpdates();
+  const entries = [...ranks.entries()];
+  for (let i = 0; i < entries.length; i += CENTRALITY_UPDATE_BATCH_SIZE) {
+    const batch = entries.slice(i, i + CENTRALITY_UPDATE_BATCH_SIZE);
+    const applyBatch = db.transaction(() => {
+      for (const [symbolId, rank] of batch) {
+        symbolsQ.updateCentrality(symbolId, rank);
+      }
+    });
+    applyBatch();
+  }
 }
 
 export function runPageRankInBackground(dbPath: string): void {
