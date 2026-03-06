@@ -1,0 +1,3 @@
+requireDistrictApproval: true
+escalationWindowHours: 48
+approvalSource: district-reviewer

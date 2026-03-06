@@ -22,6 +22,7 @@ export function registerRecallTool(server: McpServer, db: Database.Database): vo
         const results = search.search(query, {
           scope,
           includeStale: include_stale,
+          includePassive: scope === "passive",
           limit: limit ?? 10,
         });
 

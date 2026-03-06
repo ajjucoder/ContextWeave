@@ -136,6 +136,15 @@ describe("packNodesStoryMode", () => {
     expect(pivot?.compressionLevel).toBe(0);
     expect(pivot?.tokenCount).toBeGreaterThan(0);
   });
+
+  it("respects preassigned compression levels for broad-query UI entrypoints", () => {
+    const file = makeFile(9, "app/sessions/[sessionId]/page.tsx");
+    const node = makeNode(901, file, 9.5, 0);
+    node.compressionLevel = 1;
+
+    const result = packNodesStoryMode([node], 1200, 0.9);
+    expect(result.packed[0]?.compressionLevel).toBe(1);
+  });
 });
 
 describe("enrichL2WithDeps", () => {

@@ -74,10 +74,10 @@ function approximateTokenTrim(text: string, maxTokens: number): string {
 }
 
 export function registerOverviewTool(server: McpServer, db: Database.Database, projectRoot: string): void {
-  let symbolStmt: ReturnType<Database.Database["prepare"]> | null = null;
+  let symbolStmt: Database.Statement<[string, number], QueryRow> | null = null;
   const getSymbolStmt = () => {
     if (!symbolStmt) {
-      symbolStmt = db.prepare(`
+      symbolStmt = db.prepare<[string, number], QueryRow>(`
         SELECT s.name, s.kind, f.path, s.start_line
         FROM symbols s
         JOIN files f ON f.id = s.file_id
@@ -168,7 +168,7 @@ export function registerOverviewTool(server: McpServer, db: Database.Database, p
             for (const file of focusedFiles) {
               lines.push(`- ${file.path}`);
 
-              const rows = getSymbolStmt().all(`%${escaped}%`, file.fileId) as QueryRow[];
+              const rows = getSymbolStmt().all(`%${escaped}%`, file.fileId);
               if (rows.length === 0) {
                 lines.push("  · no direct symbol name match");
                 continue;

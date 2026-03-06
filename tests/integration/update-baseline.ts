@@ -27,6 +27,11 @@ function ratchetMetrics(
     avgConfidence: Math.max(existing.avgConfidence, current.avgConfidence),
     avgTokenEfficiency: Math.max(existing.avgTokenEfficiency, current.avgTokenEfficiency),
     p95LatencyMs: Math.max(existing.p95LatencyMs, current.p95LatencyMs),
+    taskSuccessRate: Math.max(existing.taskSuccessRate, current.taskSuccessRate),
+    firstPassSuccessRate: Math.max(existing.firstPassSuccessRate, current.firstPassSuccessRate),
+    correctionRate: Math.max(existing.correctionRate, current.correctionRate),
+    avgTaskTokensToSuccess: Math.max(existing.avgTaskTokensToSuccess, current.avgTaskTokensToSuccess),
+    avgTurnsToSuccess: Math.max(existing.avgTurnsToSuccess, current.avgTurnsToSuccess),
   };
 }
 
@@ -34,6 +39,28 @@ async function main(): Promise<void> {
   const run = await runEvalSuite();
   const current = toBaseline(run);
   const existing = loadExistingBaseline() ?? DEFAULT_BASELINE;
+  const sameVersion = existing.version === current.version;
+  const replace = process.argv.includes("--replace");
+
+  if (!sameVersion || replace) {
+    mkdirSync(dirname(BASELINE_PATH), { recursive: true });
+    writeFileSync(BASELINE_PATH, JSON.stringify(current, null, 2) + "\n");
+
+    const reason = !sameVersion ? "version change" : "--replace";
+    console.log(`Replaced baseline due to ${reason}: ${BASELINE_PATH}`);
+    console.log(
+      JSON.stringify(
+        {
+          existing,
+          current,
+          next: current,
+        },
+        null,
+        2
+      )
+    );
+    return;
+  }
 
   const codebases: EvalBaseline["codebases"] = {};
   for (const [codebaseId, currentMetrics] of Object.entries(current.codebases)) {
@@ -41,6 +68,7 @@ async function main(): Promise<void> {
   }
 
   const next: EvalBaseline = {
+    version: current.version,
     metrics: ratchetMetrics(existing.metrics, current.metrics),
     codebases,
     updatedAt: current.updatedAt,

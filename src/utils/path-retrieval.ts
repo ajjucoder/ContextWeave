@@ -2,9 +2,61 @@ const FRAMEWORK_ENTRY_EXT = String.raw`\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$`;
 const FRAMEWORK_ENTRY_RE = new RegExp(
   `(^|/)middleware${FRAMEWORK_ENTRY_EXT}|/app/.+/route${FRAMEWORK_ENTRY_EXT}|/app/.+/(page|layout)${FRAMEWORK_ENTRY_EXT}`
 );
+const NEXT_ROUTE_FILE_RE = new RegExp(`/app/api/.+/route${FRAMEWORK_ENTRY_EXT}`);
+const REQUEST_DYNAMIC_SEGMENT = "__cw_dynamic__";
 
 export function isFrameworkEntryPath(filePath: string): boolean {
   return FRAMEWORK_ENTRY_RE.test(filePath.replace(/\\/g, "/").toLowerCase());
+}
+
+export function sanitizeFrameworkRequestPath(rawPath: string): string {
+  const trimmed = rawPath.trim();
+  const withoutOrigin = trimmed.replace(/^[a-z]+:\/\/[^/]+/i, "");
+  const withoutQuery = withoutOrigin.split(/[?#]/, 1)[0] ?? withoutOrigin;
+  const dynamicNormalized = withoutQuery.replace(/\$\{[^}]+\}/g, REQUEST_DYNAMIC_SEGMENT);
+  return dynamicNormalized.replace(/\/+/g, "/");
+}
+
+function splitRequestSegments(requestPath: string): string[] {
+  const normalized = sanitizeFrameworkRequestPath(requestPath).replace(/^\/+|\/+$/g, "");
+  return normalized.length > 0 ? normalized.split("/") : [];
+}
+
+function splitNextRouteSegments(filePath: string): string[] {
+  const normalized = filePath.replace(/\\/g, "/");
+  const match = normalized.match(/\/app\/api\/(.+)\/route\.[^/]+$/i);
+  if (!match) return [];
+  return match[1]?.split("/").filter(Boolean) ?? [];
+}
+
+function isDynamicRouteSegment(segment: string): boolean {
+  return /^\[[^/]+\]$/.test(segment);
+}
+
+export function matchesNextApiRouteFile(filePath: string, requestPath: string): boolean {
+  const normalizedPath = filePath.replace(/\\/g, "/");
+  if (!NEXT_ROUTE_FILE_RE.test(normalizedPath)) {
+    return false;
+  }
+
+  const requestSegments = splitRequestSegments(requestPath);
+  if (requestSegments[0] !== "api") {
+    return false;
+  }
+
+  const routeSegments = splitNextRouteSegments(normalizedPath);
+  const apiSegments = requestSegments.slice(1);
+  if (routeSegments.length !== apiSegments.length) {
+    return false;
+  }
+
+  return routeSegments.every((routeSegment, index) => {
+    const requestSegment = apiSegments[index];
+    if (!requestSegment) return false;
+    if (routeSegment === requestSegment) return true;
+    if (requestSegment === REQUEST_DYNAMIC_SEGMENT) return isDynamicRouteSegment(routeSegment);
+    return isDynamicRouteSegment(routeSegment);
+  });
 }
 
 export function extractPathTerms(filePath: string): string[] {

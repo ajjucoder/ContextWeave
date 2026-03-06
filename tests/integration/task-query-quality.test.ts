@@ -35,6 +35,10 @@ function evaluateQuery(query: string, tokenBudget: number): number {
   return result.metadata.quality.coverageConfidence;
 }
 
+function renderQuery(query: string, tokenBudget: number): string {
+  return generateCapsule(db, { query, tokenBudget }).content;
+}
+
 beforeAll(async () => {
   db = new Database(":memory:");
   db.pragma("foreign_keys = ON");
@@ -63,6 +67,12 @@ describe("query quality by class", () => {
         expect(confidence).toBeGreaterThan(BROAD_THRESHOLD);
       });
     }
+
+    it("surfaces schema and migration files for database architecture queries", () => {
+      const content = renderQuery("database schema migration tables indexes", BROAD_TOKEN_BUDGET);
+      expect(content).toContain("db/schema.ts");
+      expect(content).toContain("db/migrations.ts");
+    });
   });
 
   describe("CLASS C: task-oriented queries", () => {

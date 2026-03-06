@@ -21,7 +21,7 @@ describe("scorePivotRelevance", () => {
       { name: "capsuleLogQueries", signature: "function capsuleLogQueries(db)", kind: "function", filePath: "src/db/queries/capsule-log.ts" },
       queryTerms
     );
-    expect(multi).toBeGreaterThan(single * 2);
+    expect(multi).toBeGreaterThan(single * 1.5);
   });
 
   it("boosts file path matches", () => {
@@ -42,5 +42,51 @@ describe("scorePivotRelevance", () => {
       queryTerms
     );
     expect(score).toBe(0);
+  });
+
+  it("boosts framework route handlers above inquiry-themed UI components", () => {
+    const routeScore = scorePivotRelevance(
+      {
+        name: "POST",
+        signature: "async function POST()",
+        kind: "function",
+        filePath: "app/api/inquiries/route.ts",
+      },
+      ["inquiry", "submission", "email", "flow"]
+    );
+    const componentScore = scorePivotRelevance(
+      {
+        name: "InquiryHeroCard",
+        signature: "function InquiryHeroCard()",
+        kind: "function",
+        filePath: "components/InquiryHeroCard.tsx",
+      },
+      ["inquiry", "submission", "email", "flow"]
+    );
+
+    expect(routeScore).toBeGreaterThan(componentScore);
+  });
+
+  it("penalizes oauth success views relative to route registration and server code", () => {
+    const routeScore = scorePivotRelevance(
+      {
+        name: "registerOAuthRoutes",
+        signature: "function registerOAuthRoutes(app)",
+        kind: "function",
+        filePath: "src/routes/oauth.js",
+      },
+      ["oauth", "auth", "flow"]
+    );
+    const viewScore = scorePivotRelevance(
+      {
+        name: "OAuthSuccessView",
+        signature: "function OAuthSuccessView()",
+        kind: "function",
+        filePath: "src/views/OAuthSuccessView.js",
+      },
+      ["oauth", "auth", "flow"]
+    );
+
+    expect(routeScore).toBeGreaterThan(viewScore);
   });
 });

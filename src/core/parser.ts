@@ -1,9 +1,11 @@
 import Parser from "tree-sitter";
 import { createRequire } from "node:module";
 import { createHash } from "node:crypto";
-import { extname } from "node:path";
+import { basename, extname } from "node:path";
 import { getQueries } from "./queries/index.js";
 import { createLogger } from "../utils/logger.js";
+import { splitIdentifier } from "../utils/camel-split.js";
+import { extractFrameworkCalls } from "../frameworks/registry.js";
 import type {
   ParsedSymbol,
   ParsedImport,
@@ -61,7 +63,16 @@ const extensionToLanguage: Record<string, string> = {
   ".sh": "bash",
   ".bash": "bash",
   ".php": "php",
+  ".md": "markdown",
+  ".markdown": "markdown",
+  ".yaml": "yaml",
+  ".yml": "yaml",
+  ".json": "json",
 };
+
+const DOCUMENT_SOURCE_LIMIT = 6000;
+const DOCUMENT_NAME_TOKEN_LIMIT = 10;
+const DOCUMENT_SIGNATURE_TOKEN_LIMIT = 24;
 
 export function detectLanguage(filePath: string): string | null {
   const ext = extname(filePath).toLowerCase();
@@ -127,6 +138,81 @@ function buildSignature(node: Parser.SyntaxNode, content: string): string {
 
 function hashContent(source: string): string {
   return createHash("sha256").update(source).digest("hex");
+}
+
+function isDocumentLanguage(language: string): boolean {
+  return language === "markdown" || language === "yaml" || language === "json";
+}
+
+function trimDocumentSource(content: string): string {
+  if (content.length <= DOCUMENT_SOURCE_LIMIT) return content;
+  return `${content.slice(0, DOCUMENT_SOURCE_LIMIT).trimEnd()}\n... document truncated for indexing`;
+}
+
+function basenameWithoutExtension(filePath: string): string {
+  const fileName = basename(filePath);
+  const extension = extname(fileName);
+  return extension ? fileName.slice(0, -extension.length) : fileName;
+}
+
+function extractDocumentText(content: string, language: string): string {
+  const rawLines = content.split(/\r?\n/);
+  const cleanedLines = rawLines
+    .map((line) => {
+      let cleaned = line.trim();
+      if (!cleaned) return "";
+      if (language === "markdown") {
+        cleaned = cleaned
+          .replace(/^#{1,6}\s+/, "")
+          .replace(/^>\s+/, "")
+          .replace(/^[-*+]\s+/, "")
+          .replace(/^\d+\.\s+/, "");
+      }
+      return cleaned.replace(/[`"'()[\]{}:,]/g, " ").replace(/\s+/g, " ").trim();
+    })
+    .filter(Boolean);
+
+  return cleanedLines.join(" ").trim();
+}
+
+function tokenizeDocumentText(text: string): string[] {
+  const roughTokens = text
+    .split(/\s+/)
+    .flatMap((token) => splitIdentifier(token))
+    .filter((token) => token.length >= 2);
+
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const token of roughTokens) {
+    if (seen.has(token)) continue;
+    seen.add(token);
+    unique.push(token);
+  }
+  return unique;
+}
+
+function buildDocumentSymbol(filePath: string, content: string, language: string): ParsedSymbol {
+  const totalLines = Math.max(1, content.split(/\r?\n/).length);
+  const docText = extractDocumentText(content, language);
+  const baseTokens = splitIdentifier(basenameWithoutExtension(filePath));
+  const bodyTokens = tokenizeDocumentText(docText);
+  const nameTokens = [...baseTokens, ...bodyTokens.filter((token) => !baseTokens.includes(token))]
+    .slice(0, DOCUMENT_NAME_TOKEN_LIMIT);
+  const signatureTokens = bodyTokens.slice(0, DOCUMENT_SIGNATURE_TOKEN_LIMIT);
+  const documentName = nameTokens.join(" ").trim() || basenameWithoutExtension(filePath);
+  const signature = signatureTokens.join(" ").trim() || documentName;
+
+  return {
+    name: documentName,
+    kind: "variable",
+    startLine: 1,
+    endLine: totalLines,
+    signature,
+    fullSource: trimDocumentSource(content),
+    bodyHash: hashContent(content),
+    isExported: true,
+    docComment: null,
+  };
 }
 
 function isFunctionScoped(node: Parser.SyntaxNode): boolean {
@@ -254,6 +340,133 @@ function parsePythonAllExports(tree: Parser.Tree): Set<string> | null {
   return hasAllAssignment ? exports : null;
 }
 
+function isJsLikeLanguage(language: string): boolean {
+  return language === "typescript" || language === "tsx" || language === "javascript" || language === "jsx";
+}
+
+function parseCommonJsSpecifiers(specSource: string): Array<{ localName: string; importedName: string }> {
+  return specSource
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .flatMap((part) => {
+      const aliasMatch = part.match(/^([A-Za-z_$][\w$]*)\s*:\s*([A-Za-z_$][\w$]*)$/);
+      if (aliasMatch) {
+        return [{ localName: aliasMatch[2]!, importedName: aliasMatch[1]! }];
+      }
+      return /^[A-Za-z_$][\w$]*$/.test(part)
+        ? [{ localName: part, importedName: part }]
+        : [];
+    });
+}
+
+function toLocalBindingName(reference: string): string | null {
+  const trimmed = reference.trim();
+  const identifierMatch = trimmed.match(/([A-Za-z_$][\w$]*)$/);
+  return identifierMatch?.[1] ?? null;
+}
+
+function parseCommonJsExports(content: string): Set<string> {
+  const exported = new Set<string>();
+
+  const moduleExportsObjectRe = /module\.exports\s*=\s*{([\s\S]*?)}/g;
+  for (const match of content.matchAll(moduleExportsObjectRe)) {
+    const body = match[1] ?? "";
+    for (const part of body.split(",")) {
+      const trimmed = part.trim();
+      if (!trimmed) continue;
+      const aliasMatch = trimmed.match(/^([A-Za-z_$][\w$]*)\s*:\s*(.+)$/);
+      if (aliasMatch) {
+        const localName = toLocalBindingName(aliasMatch[2]!);
+        if (localName) exported.add(localName);
+        continue;
+      }
+      const localName = toLocalBindingName(trimmed);
+      if (localName) exported.add(localName);
+    }
+  }
+
+  const directExportRe = /(?:module\.exports|exports)\.([A-Za-z_$][\w$]*)\s*=\s*([^\n;]+)/g;
+  for (const match of content.matchAll(directExportRe)) {
+    const localName = toLocalBindingName(match[2] ?? "");
+    if (localName) exported.add(localName);
+  }
+
+  return exported;
+}
+
+function parseBrowserGlobalExports(content: string): Set<string> {
+  const exported = new Set<string>();
+  const globalAssignRe = /(?:window|globalThis|self)\.([A-Za-z_$][\w$]*)\s*=\s*([^\n;]+)/g;
+
+  for (const match of content.matchAll(globalAssignRe)) {
+    const localName = toLocalBindingName(match[2] ?? "");
+    if (localName) {
+      exported.add(localName);
+    } else if (match[1]) {
+      exported.add(match[1]);
+    }
+  }
+
+  return exported;
+}
+
+function parsePythonMainBlock(content: string): ParsedSymbol[] {
+  const lines = content.split(/\r?\n/);
+  const symbols: ParsedSymbol[] = [];
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index]?.trim();
+    if (!line || !/^if\s+__name__\s*==\s*["']__main__["']\s*:\s*$/.test(line)) continue;
+
+    let endIndex = index;
+    const blockLines = [lines[index] ?? ""];
+    for (let next = index + 1; next < lines.length; next++) {
+      const candidate = lines[next] ?? "";
+      if (candidate.trim().length === 0) {
+        blockLines.push(candidate);
+        endIndex = next;
+        continue;
+      }
+      if (/^\s+/.test(candidate)) {
+        blockLines.push(candidate);
+        endIndex = next;
+        continue;
+      }
+      break;
+    }
+
+    const fullSource = blockLines.join("\n");
+    symbols.push({
+      name: "__main__",
+      kind: "variable",
+      startLine: index + 1,
+      endLine: endIndex + 1,
+      signature: `if __name__ == "__main__":`,
+      fullSource,
+      bodyHash: hashContent(fullSource),
+      isExported: true,
+      docComment: null,
+    });
+  }
+
+  return symbols;
+}
+
+function getOwningVariableName(node: Parser.SyntaxNode): string | null {
+  let current: Parser.SyntaxNode | null = node;
+  while (current) {
+    if (current.type === "variable_declarator") {
+      const nameNode = current.childForFieldName("name");
+      if (nameNode?.type === "identifier") {
+        return nameNode.text;
+      }
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
 function shouldSkipTrivialSymbol(
   node: Parser.SyntaxNode,
   kind: SymbolKind
@@ -311,6 +524,12 @@ function parseSymbols(
   const symbols: ParsedSymbol[] = [];
   const seen = new Set<number>();
   const pythonAllExports = language === "python" ? parsePythonAllExports(tree) : null;
+  const jsLikeExports = isJsLikeLanguage(language)
+    ? new Set([
+        ...parseCommonJsExports(content),
+        ...parseBrowserGlobalExports(content),
+      ])
+    : null;
 
   const runQuery = (queryStr: string, kind: SymbolKind) => {
     try {
@@ -351,6 +570,12 @@ function parseSymbols(
           } else {
             exportedOverride = moduleLevel && !symbolName.startsWith("_");
           }
+        } else if (jsLikeExports && isModuleLevelDeclaration(defCapture.node)) {
+          const symbolName = nameCapture.node.text;
+          const ownerName = getOwningVariableName(defCapture.node);
+          if (jsLikeExports.has(symbolName) || (ownerName !== null && jsLikeExports.has(ownerName))) {
+            exportedOverride = true;
+          }
         }
 
         symbols.push(nodeToSymbol(
@@ -388,10 +613,11 @@ function parseSymbols(
 
 function parseImports(
   tree: Parser.Tree,
-  language: string
+  language: string,
+  content: string
 ): ParsedImport[] {
   if (language === "typescript" || language === "tsx" || language === "javascript" || language === "jsx") {
-    return parseJsLikeModuleImports(tree);
+    return parseJsLikeModuleImports(tree, content);
   }
 
   const queries = getQueries(language);
@@ -479,7 +705,7 @@ function unquoteJs(raw: string): string {
   return text;
 }
 
-function parseJsLikeModuleImports(tree: Parser.Tree): ParsedImport[] {
+function parseJsLikeModuleImports(tree: Parser.Tree, content: string): ParsedImport[] {
   const imports: ParsedImport[] = [];
 
   for (const node of tree.rootNode.namedChildren) {
@@ -583,6 +809,34 @@ function parseJsLikeModuleImports(tree: Parser.Tree): ParsedImport[] {
       kind: "named",
       isReExport: true,
       specifiers,
+    });
+  }
+
+  const destructuredRequireRe = /\b(?:const|let|var)\s*\{([\s\S]*?)\}\s*=\s*require\((['"])([^'"]+)\2\)/g;
+  for (const match of content.matchAll(destructuredRequireRe)) {
+    const specifiers = parseCommonJsSpecifiers(match[1] ?? "");
+    if (specifiers.length === 0) continue;
+    imports.push({
+      names: specifiers.map((specifier) => specifier.localName),
+      source: match[3] ?? "",
+      kind: "named",
+      specifiers,
+    });
+  }
+
+  const requireRe = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*require\((['"])([^'"]+)\2\)/g;
+  for (const match of content.matchAll(requireRe)) {
+    const localName = match[1];
+    const source = match[3];
+    if (!localName || !source) continue;
+    if (imports.some((imp) => imp.source === source && imp.names.includes(localName))) {
+      continue;
+    }
+    imports.push({
+      names: [localName],
+      source,
+      kind: "default",
+      specifiers: [{ localName, importedName: localName }],
     });
   }
 
@@ -784,6 +1038,16 @@ export function parseFile(
   const errors: string[] = [];
 
   try {
+    if (isDocumentLanguage(language)) {
+      return {
+        symbols: [buildDocumentSymbol(filePath, content, language)],
+        imports: [],
+        calls: [],
+        frameworkCalls: [],
+        errors,
+      };
+    }
+
     const parser = initParser(language);
     // tree-sitter's string parse() throws for inputs >= 32768 bytes.
     // Use the callback (string-chunk) form for large files.
@@ -801,17 +1065,22 @@ export function parseFile(
       errors.push(`Syntax errors detected in ${filePath}`);
     }
 
-    const symbols = parseSymbols(tree, language, content);
-    const imports = parseImports(tree, language);
+    const symbols = [
+      ...parseSymbols(tree, language, content),
+      ...(language === "python" ? parsePythonMainBlock(content) : []),
+    ];
+    const imports = parseImports(tree, language, content);
     const calls = parseCalls(tree, language, symbols);
+    const frameworkCalls = extractFrameworkCalls(language, symbols);
 
-    return { symbols, imports, calls, errors };
+    return { symbols, imports, calls, frameworkCalls, errors };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {
       symbols: [],
       imports: [],
       calls: [],
+      frameworkCalls: [],
       errors: [`Failed to parse ${filePath}: ${message}`],
     };
   }

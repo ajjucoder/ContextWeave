@@ -16,6 +16,10 @@ export const arrowFunctions = `
   (variable_declarator
     name: (identifier) @name
     value: (arrow_function) @value)) @definition
+
+(pair
+  key: (property_identifier) @name
+  value: (arrow_function) @value) @definition
 `;
 
 export const classDeclarations = `

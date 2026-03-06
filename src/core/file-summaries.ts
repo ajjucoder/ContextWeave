@@ -4,6 +4,7 @@ import { splitIdentifier } from "../utils/camel-split.js";
 interface SymbolRow {
   name: string;
   kind: string;
+  signature: string;
   centrality: number;
   is_exported: number;
 }
@@ -27,8 +28,12 @@ function buildSummaryText(filePath: string, symbols: SymbolRow[]): string {
     .flatMap((s) => [s.name.toLowerCase(), ...splitIdentifier(s.name)])
     .filter((t, i, arr) => arr.indexOf(t) === i)
     .join(" ");
+  const signatureTokens = symbols
+    .flatMap((s) => splitIdentifier(s.signature))
+    .filter((t, i, arr) => arr.indexOf(t) === i)
+    .join(" ");
   const kinds = [...new Set(symbols.map((s) => s.kind))].join(" ");
-  return `${pathTokens} ${symbolNames} ${kinds}`.toLowerCase();
+  return `${pathTokens} ${symbolNames} ${signatureTokens} ${kinds}`.toLowerCase();
 }
 
 export function computeFileSummary(
@@ -36,7 +41,7 @@ export function computeFileSummary(
   fileId: number
 ): { summaryText: string; symbolCount: number; edgeCount: number; avgCentrality: number; exportNames: string } {
   const symbols = db.prepare(
-    "SELECT name, kind, centrality, is_exported FROM symbols WHERE file_id = ?"
+    "SELECT name, kind, signature, centrality, is_exported FROM symbols WHERE file_id = ?"
   ).all(fileId) as SymbolRow[];
 
   const filePath =

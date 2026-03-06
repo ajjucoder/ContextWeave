@@ -13,6 +13,11 @@ describe("classifyQueryIntent", () => {
     expect(classified.focusTerms).toContain("generation");
   });
 
+  it("treats short flow-oriented architecture queries as broad, not narrow symbol lookups", () => {
+    const classified = classifyQueryIntent("oauth auth flow");
+    expect(classified.intent).toBe("broad");
+  });
+
   it("classifies task-oriented queries and extracts action verbs", () => {
     const classified = classifyQueryIntent("find bugs in the capsule pipeline");
     expect(classified.intent).toBe("task");

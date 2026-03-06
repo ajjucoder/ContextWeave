@@ -64,4 +64,42 @@ export const CONTEXTWEAVE_FIXTURE: EvalCodebaseFixture = {
       expectedFiles: ["db/queries/files.ts", "db/queries/symbols.ts", "db/queries/edges.ts"],
     },
   ],
+  tasks: [
+    {
+      id: "cw-task-indexing-pipeline",
+      goal: "Recover the indexing and parsing pipeline with a broad query and a corrective follow-up.",
+      attempts: [
+        {
+          id: "cw-task-indexing-pipeline-a1",
+          query: "workspace discovery pipeline",
+          expectedFiles: ["core/indexer.ts", "core/parser.ts"],
+          expectedSymbols: ["indexProject", "parseFile"],
+        },
+        {
+          id: "cw-task-indexing-pipeline-a2",
+          query: "indexProject parseFile",
+          expectedFiles: ["core/indexer.ts", "core/parser.ts"],
+          expectedSymbols: ["indexProject", "parseFile"],
+        },
+      ],
+    },
+    {
+      id: "cw-task-mcp-search",
+      goal: "Find the MCP symbol-search implementation after one conceptual miss.",
+      attempts: [
+        {
+          id: "cw-task-mcp-search-a1",
+          query: "tool lookup workflow",
+          expectedFiles: ["mcp/tools/search.ts", "db/queries/symbols.ts"],
+          expectedSymbols: ["registerSearchTool"],
+        },
+        {
+          id: "cw-task-mcp-search-a2",
+          query: "registerSearchTool",
+          expectedFiles: ["mcp/tools/search.ts"],
+          expectedSymbols: ["registerSearchTool"],
+        },
+      ],
+    },
+  ],
 };

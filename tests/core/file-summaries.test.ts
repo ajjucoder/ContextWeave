@@ -46,4 +46,40 @@ describe("file summaries", () => {
     const paths = results.map((r) => r.path);
     expect(paths).toContain("src/core/graph.ts");
   });
+
+  it("indexes document-like files through summary text even when symbol coverage is minimal", () => {
+    const now = Date.now();
+    const files = fileQueries(db);
+    const syms = symbolQueries(db);
+
+    const fileId = files.insert({
+      path: "docs/partner-policy.md",
+      hash: "doc-a",
+      lastIndexed: now,
+      mtime: now,
+      language: "markdown",
+      symbolCount: 1,
+      error: null,
+    });
+    syms.insert({
+      fileId,
+      name: "partner policy district approval auto enrollment",
+      kind: "variable",
+      startLine: 1,
+      endLine: 3,
+      signature: "# Partner Policy District approval is required before auto-enrollment.",
+      bodyHash: "doc-x1",
+      fullSource: "# Partner Policy\n\nDistrict approval is required before auto-enrollment.",
+      isExported: true,
+      docComment: null,
+      centrality: 1,
+      lastSeen: now,
+    });
+
+    upsertFileSummary(db, fileId);
+
+    const results = searchFilesByQuery(db, "district approval partner rules", 10);
+    const paths = results.map((r) => r.path);
+    expect(paths).toContain("docs/partner-policy.md");
+  });
 });

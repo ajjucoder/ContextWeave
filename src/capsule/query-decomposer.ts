@@ -5,6 +5,21 @@ const STOP_WORDS = new Set(["a", "an", "the", "in", "on", "at", "for", "of", "wi
 const MAX_TERMS_PER_GROUP = 3;
 const MIN_TERMS_TO_SPLIT = 4;
 const MAX_SMART_SUB_QUERIES = 4;
+const FLOW_SPLIT_TERMS = new Set([
+  "flow",
+  "route",
+  "routes",
+  "handler",
+  "handlers",
+  "request",
+  "response",
+  "submission",
+  "submit",
+  "callback",
+  "session",
+  "auth",
+  "oauth",
+]);
 
 const TASK_PATTERN_BUNDLES: Record<string, string[][]> = {
   find: [["error", "handling", "validation"], ["edge", "cases", "guards"], ["pipeline", "flow", "output"]],
@@ -60,6 +75,20 @@ function sanitizeTerms(terms: string[]): string[] {
     terms
       .map((term) => term.toLowerCase().trim())
       .filter((term) => term.length > 1 && !STOP_WORDS.has(term))
+  );
+}
+
+function termsLooselyOverlap(left: string, right: string): boolean {
+  if (left === right) return true;
+  if (left.length >= 5 && right.startsWith(left.slice(0, -1))) return true;
+  if (right.length >= 5 && left.startsWith(right.slice(0, -1))) return true;
+  return false;
+}
+
+function clusterMatchesBaseTerms(cluster: ClusterHint, baseTerms: string[]): boolean {
+  const clusterTerms = sanitizeTerms(cluster.terms);
+  return clusterTerms.some((clusterTerm) =>
+    baseTerms.some((baseTerm) => termsLooselyOverlap(clusterTerm, baseTerm))
   );
 }
 
@@ -164,7 +193,9 @@ export function decomposeForBroad(
   clusterHints: ClusterHint[] = []
 ): SubQuery[] {
   const baseTerms = buildBaseTerms(classified, query);
-  const rankedClusters = rankClusters(clusterHints);
+  const rankedClusters = rankClusters(clusterHints).filter((cluster) =>
+    clusterMatchesBaseTerms(cluster, baseTerms)
+  );
 
   if (rankedClusters.length > 0) {
     const weightedSubQueries = rankedClusters.map((cluster, index) => ({
@@ -174,6 +205,18 @@ export function decomposeForBroad(
       weight: cluster.relevance ?? 1,
     }));
     return normalizeFractions(weightedSubQueries);
+  }
+
+  const keepsFlowContext = baseTerms.some((term) => FLOW_SPLIT_TERMS.has(term));
+  if (baseTerms.length <= 5 && !keepsFlowContext) {
+    return [
+      {
+        terms: baseTerms,
+        targetClusterIds: [],
+        priority: 1,
+        budgetFraction: 1,
+      },
+    ];
   }
 
   const grouped = decomposeQuery(baseTerms.join(" "));

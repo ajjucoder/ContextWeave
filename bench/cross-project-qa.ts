@@ -1,6 +1,6 @@
 import { execSync } from "node:child_process";
-import { mkdirSync, rmSync, existsSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import Database from "better-sqlite3";
 import { createSchema } from "../src/db/schema.js";
@@ -14,67 +14,70 @@ const QA_DIR = resolve(__dirname, "../.qa-temp");
 interface QaProject {
   name: string;
   repo: string;
-  sessionQueries: string[];
+  tasks: Array<{
+    id: string;
+    goal: string;
+    attempts: Array<{
+      query: string;
+      expectedFiles: string[];
+      tokenBudget?: number;
+    }>;
+  }>;
 }
 
 const PROJECTS: QaProject[] = [
   {
     name: "express",
     repo: "https://github.com/expressjs/express.git",
-    sessionQueries: [
-      "createApplication",
-      "Router",
-      "View",
-      "middleware routing request response pipeline",
-      "find bugs in express router error handling",
+    tasks: [
+      {
+        id: "express-router-pipeline",
+        goal: "Recover Express router request flow after a vague first query.",
+        attempts: [
+          { query: "request lifecycle", expectedFiles: ["lib/router/index.js"] },
+          { query: "middleware routing request response pipeline", expectedFiles: ["lib/router/index.js", "lib/application.js"] },
+        ],
+      },
     ],
   },
   {
     name: "fastify",
     repo: "https://github.com/fastify/fastify.git",
-    sessionQueries: [
-      "createServer",
-      "Route",
-      "ContentTypeParser",
-      "hook lifecycle request validation pipeline",
-      "find bugs in route matching and serialization",
+    tasks: [
+      {
+        id: "fastify-hook-lifecycle",
+        goal: "Recover hook/request validation after a broad conceptual miss.",
+        attempts: [
+          { query: "request lifecycle", expectedFiles: ["lib/hooks.js"] },
+          { query: "hook lifecycle request validation pipeline", expectedFiles: ["lib/hooks.js", "lib/route.js"] },
+        ],
+      },
     ],
   },
   {
     name: "zod",
     repo: "https://github.com/colinhacks/zod.git",
-    sessionQueries: [
-      "ZodString",
-      "ZodObject",
-      "parse",
-      "schema validation transform pipeline",
-      "find bugs in discriminated union parsing",
+    tasks: [
+      {
+        id: "zod-parse-pipeline",
+        goal: "Recover parse/transform logic after a fuzzy first attempt.",
+        attempts: [
+          { query: "schema processing", expectedFiles: ["src/types.ts"] },
+          { query: "schema validation transform pipeline", expectedFiles: ["src/types.ts", "src/index.ts"] },
+        ],
+      },
     ],
   },
 ];
 
-interface QueryResult {
-  query: string;
-  confidence: number;
-  pivotCoverage: number;
-  symbolCount: number;
-  tokensUsed: number;
-  tokenReductionPct: number | null;
+interface TaskSummary {
+  success: boolean;
+  correction: boolean;
+  tokensToSuccess: number;
+  avgConfidence: number;
 }
 
-interface ProjectResult {
-  project: string;
-  filesIndexed: number;
-  symbolsFound: number;
-  queryResults: QueryResult[];
-  sessionConfidenceTrend: number;
-  sessionTokenReductionPct: number | null;
-}
-
-async function runProject(
-  project: QaProject,
-  projectDir: string
-): Promise<ProjectResult | null> {
+async function runProject(project: QaProject, projectDir: string): Promise<TaskSummary[] | null> {
   try {
     execSync(`git clone --depth 1 ${project.repo} "${projectDir}"`, {
       stdio: "pipe",
@@ -92,159 +95,85 @@ async function runProject(
   process.stdout.write("  Indexing...\n");
   const indexResult = await indexProject(db, projectDir);
   updateCentralityScores(db);
-
-  const { filesIndexed, symbolsFound } = indexResult;
-  process.stdout.write(`  ${filesIndexed} files, ${symbolsFound} symbols\n`);
+  process.stdout.write(`  ${indexResult.filesIndexed} files, ${indexResult.symbolsFound} symbols\n`);
 
   const sessionId = `qa-session-${project.name}-${Date.now()}`;
-  const queryResults: QueryResult[] = [];
+  const summaries: TaskSummary[] = [];
 
-  for (let i = 0; i < project.sessionQueries.length; i++) {
-    const query = project.sessionQueries[i];
-    const capsule = generateCapsule(db, {
-      query,
-      tokenBudget: 4000,
-      sessionId,
+  for (const task of project.tasks) {
+    let tokensToSuccess = 0;
+    let success = false;
+    let correction = false;
+    const confidences: number[] = [];
+
+    for (let attemptIndex = 0; attemptIndex < task.attempts.length; attemptIndex++) {
+      const attempt = task.attempts[attemptIndex]!;
+      const capsule = generateCapsule(db, {
+        query: attempt.query,
+        tokenBudget: attempt.tokenBudget ?? 4000,
+        sessionId,
+      });
+      confidences.push(capsule.metadata.quality.coverageConfidence);
+      tokensToSuccess += capsule.metadata.tokensUsed;
+
+      const expectedCount = attempt.expectedFiles.filter((fragment) => capsule.content.includes(fragment)).length;
+      const successNow = expectedCount === attempt.expectedFiles.length;
+
+      process.stdout.write(
+        `  ${task.id} / attempt ${attemptIndex + 1}: "${attempt.query}" -> ${successNow ? "success" : "miss"}, confidence ${(capsule.metadata.quality.coverageConfidence * 100).toFixed(1)}%, tokens ${capsule.metadata.tokensUsed}\n`
+      );
+
+      if (successNow) {
+        success = true;
+        correction = attemptIndex > 0;
+        break;
+      }
+    }
+
+    summaries.push({
+      success,
+      correction,
+      tokensToSuccess,
+      avgConfidence: confidences.reduce((sum, value) => sum + value, 0) / Math.max(1, confidences.length),
     });
-
-    const q = capsule.metadata.quality;
-    const tokensUsed = capsule.metadata.tokensUsed;
-    const q1Tokens = i === 0 ? tokensUsed : queryResults[0].tokensUsed;
-    const tokenReductionPct =
-      i === 0 ? null : ((q1Tokens - tokensUsed) / q1Tokens) * 100;
-
-    queryResults.push({
-      query,
-      confidence: q.coverageConfidence,
-      pivotCoverage: q.pivotCoverage,
-      symbolCount: capsule.metadata.symbolCount,
-      tokensUsed,
-      tokenReductionPct,
-    });
-
-    const reductionStr =
-      tokenReductionPct !== null
-        ? ` (${tokenReductionPct >= 0 ? "-" : "+"}${Math.abs(tokenReductionPct).toFixed(1)}% vs Q1)`
-        : "";
-
-    process.stdout.write(
-      `  Q${i + 1} "${query}" → confidence: ${(q.coverageConfidence * 100).toFixed(1)}%, tokens: ${tokensUsed}${reductionStr}\n`
-    );
   }
 
   db.close();
-
-  const firstConfidence = queryResults[0].confidence;
-  const lastConfidence = queryResults[queryResults.length - 1].confidence;
-  const sessionConfidenceTrend =
-    (lastConfidence - firstConfidence) * 100;
-
-  const q1Tokens = queryResults[0].tokensUsed;
-  const lastTokens = queryResults[queryResults.length - 1].tokensUsed;
-  const sessionTokenReductionPct =
-    queryResults.length > 1
-      ? ((q1Tokens - lastTokens) / q1Tokens) * 100
-      : null;
-
-  const trendSign = sessionConfidenceTrend >= 0 ? "+" : "";
-  const tokenStr =
-    sessionTokenReductionPct !== null
-      ? `, ${sessionTokenReductionPct >= 0 ? "-" : "+"}${Math.abs(sessionTokenReductionPct).toFixed(1)}% tokens over session`
-      : "";
-
-  process.stdout.write(
-    `  Session trend: ${trendSign}${sessionConfidenceTrend.toFixed(1)}% confidence${tokenStr}\n`
-  );
-
-  return {
-    project: project.name,
-    filesIndexed,
-    symbolsFound,
-    queryResults,
-    sessionConfidenceTrend,
-    sessionTokenReductionPct,
-  };
+  return summaries;
 }
 
 async function main(): Promise<void> {
   if (existsSync(QA_DIR)) rmSync(QA_DIR, { recursive: true, force: true });
   mkdirSync(QA_DIR, { recursive: true });
 
-  const projectResults: ProjectResult[] = [];
+  const summaries: TaskSummary[] = [];
 
   for (const project of PROJECTS) {
     const projectDir = resolve(QA_DIR, project.name);
     process.stdout.write(`\nCloning ${project.name}...\n`);
-
     const result = await runProject(project, projectDir);
-    if (result !== null) {
-      projectResults.push(result);
-    }
+    if (result) summaries.push(...result);
   }
 
-  process.stdout.write("\n=== SUMMARY ===\n");
+  process.stdout.write("\n=== PRODUCT BENCH SUMMARY ===\n");
 
-  if (projectResults.length === 0) {
+  if (summaries.length === 0) {
     process.stdout.write("No results — all projects skipped (clone failures)\n");
-    process.stdout.write("This is expected if repos are private or unavailable\n");
     process.stdout.write("Status: SKIP (not FAIL)\n");
     rmSync(QA_DIR, { recursive: true, force: true });
     return;
   }
 
-  const allQueryResults = projectResults.flatMap((p) => p.queryResults);
-  const avgConfidence =
-    allQueryResults.reduce((acc, r) => acc + r.confidence, 0) /
-    allQueryResults.length;
-  const minConfidence = Math.min(...allQueryResults.map((r) => r.confidence));
+  const taskSuccessRate = summaries.reduce((sum, task) => sum + (task.success ? 1 : 0), 0) / summaries.length;
+  const correctionRate = summaries.reduce((sum, task) => sum + (task.correction ? 1 : 0), 0) / summaries.length;
+  const avgTaskTokens = summaries.reduce((sum, task) => sum + task.tokensToSuccess, 0) / summaries.length;
+  const avgConfidence = summaries.reduce((sum, task) => sum + task.avgConfidence, 0) / summaries.length;
 
-  const followUpResults = allQueryResults.filter(
-    (r) => r.tokenReductionPct !== null
-  );
-  const avgTokenReduction =
-    followUpResults.length > 0
-      ? followUpResults.reduce((acc, r) => acc + (r.tokenReductionPct ?? 0), 0) /
-        followUpResults.length
-      : null;
-  const hasMixedBroadTaskQueries = PROJECTS.some((project) =>
-    project.sessionQueries.some((query) => query.trim().split(/\s+/).length >= 4)
-  );
-
-  process.stdout.write(`Average confidence: ${(avgConfidence * 100).toFixed(1)}%\n`);
-  process.stdout.write(`Min confidence:     ${(minConfidence * 100).toFixed(1)}%\n`);
-
-  if (avgTokenReduction !== null) {
-    const reductionLabel = avgTokenReduction >= 0 ? "reduction" : "increase";
-    process.stdout.write(
-      `Avg token ${reductionLabel} (Q2+Q3 vs Q1): ${Math.abs(avgTokenReduction).toFixed(1)}%\n`
-    );
-  }
-
-  process.stdout.write(`Target confidence:  >65%\n`);
-  process.stdout.write(
-    `Target token trend: ${hasMixedBroadTaskQueries ? "informational for mixed broad/task workloads" : "reduction > 0% on Q2/Q3"}\n`
-  );
-
-  const confidencePass = avgConfidence > 0.65;
-  const tokenGateEnabled = !hasMixedBroadTaskQueries;
-  const tokenPass = !tokenGateEnabled || (avgTokenReduction !== null && avgTokenReduction > 0);
-
-  process.stdout.write(
-    `Confidence status:  ${confidencePass ? "PASS" : "FAIL"}\n`
-  );
-
-  if (avgTokenReduction !== null) {
-    if (tokenGateEnabled) {
-      process.stdout.write(
-        `Token dedup status: ${tokenPass ? "PASS" : "FAIL"}\n`
-      );
-    } else {
-      process.stdout.write("Token dedup status: SKIP (mixed broad/task workload)\n");
-    }
-  }
-
-  const overallPass = confidencePass && (avgTokenReduction === null || tokenPass);
-  process.stdout.write(`Overall status:     ${overallPass ? "PASS" : "FAIL"}\n`);
+  process.stdout.write(`Task success rate: ${(taskSuccessRate * 100).toFixed(1)}%\n`);
+  process.stdout.write(`Correction rate:   ${(correctionRate * 100).toFixed(1)}%\n`);
+  process.stdout.write(`Avg task tokens:   ${avgTaskTokens.toFixed(1)}\n`);
+  process.stdout.write(`Avg confidence:    ${(avgConfidence * 100).toFixed(1)}%\n`);
+  process.stdout.write(`Overall status:    ${taskSuccessRate > 0.5 && avgConfidence > 0.65 ? "PASS" : "FAIL"}\n`);
 
   rmSync(QA_DIR, { recursive: true, force: true });
 }

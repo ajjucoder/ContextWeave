@@ -20,7 +20,7 @@ import { expandQueryWithSynonyms } from "../utils/synonyms.js";
 import { getDirectoryWeight } from "../utils/directory-weights.js";
 import { isFrameworkEntryPath } from "../utils/path-retrieval.js";
 import { scoreNode, assignCompressionLevel } from "./scorer.js";
-import { rankPivotsWithScores } from "./pivot-scorer.js";
+import { rankPivotsWithScores, scorePivotRelevance } from "./pivot-scorer.js";
 import { renderSymbol, type EdgeSummary } from "./compressor.js";
 import { packNodes, packNodesStoryMode, enrichL2WithDeps } from "./packer.js";
 import { formatCapsule } from "./formatter.js";
@@ -43,7 +43,7 @@ import { mergeSubCapsules, type SubCapsuleResult } from "./merger.js";
 import { searchFilesByQuery } from "../core/file-summaries.js";
 import { getFileClusterId, getClusterFileIds } from "../core/clusters.js";
 import { buildUncertainty, computeCoverageConfidence } from "./confidence.js";
-import { filePathMatchesQueryTerms } from "../utils/path-retrieval.js";
+import { extractPathTerms, filePathMatchesQueryTerms } from "../utils/path-retrieval.js";
 import { contentFallbackSearch } from "./content-fallback.js";
 import {
   getCommonDisplayRoot,
@@ -53,6 +53,7 @@ import {
   quantile,
   toDisplayPath,
 } from "./generator-helpers.js";
+import { applySemanticRerank } from "./semantic-reranker.js";
 
 const logger = createLogger("generator");
 export { computeCoverageConfidence } from "./confidence.js";
@@ -66,6 +67,7 @@ interface CapsuleParams {
   maxQueryTimeMs?: number;
   path?: string;
   glob?: string;
+  semanticRerank?: boolean;
 }
 
 interface RankedCandidate {
@@ -100,6 +102,125 @@ const FRAMEWORK_QUERY_HINT_TERMS = new Set([
   "page",
   "layout",
 ]);
+const UI_COMPONENT_PATH_RE = /(^|\/)(components?|views?|templates?|marketing)(\/|$)/i;
+const PAGE_ENTRY_PATH_RE = /(^|\/)(page|layout)\.[cm]?[jt]sx?$/i;
+const ACTION_SIGNAL_TERMS = new Set([
+  "submit",
+  "create",
+  "send",
+  "load",
+  "get",
+  "save",
+  "persist",
+  "fetch",
+  "update",
+  "delete",
+  "exchange",
+  "verify",
+  "handle",
+  "route",
+  "authenticate",
+  "write",
+  "read",
+  "sync",
+  "callback",
+  "notify",
+]);
+const TYPE_FOCUSED_TERMS = new Set([
+  "type",
+  "types",
+  "interface",
+  "interfaces",
+  "schema",
+  "schemas",
+  "model",
+  "models",
+  "dto",
+  "dtos",
+  "props",
+  "payload",
+  "request",
+  "response",
+  "config",
+  "shape",
+]);
+
+function getRuntimeKindWeight(
+  kind: string,
+  preferRuntimeKinds: boolean
+): number {
+  if (!preferRuntimeKinds) return 1;
+
+  const normalizedKind = kind.toLowerCase();
+  if (normalizedKind === "function" || normalizedKind === "method" || normalizedKind === "class") {
+    return 1.08;
+  }
+  if (normalizedKind === "interface" || normalizedKind === "type") {
+    return 0.72;
+  }
+  if (normalizedKind === "variable") {
+    return 0.82;
+  }
+  return 1;
+}
+
+function getPivotKindWeight(
+  kind: string,
+  preferRuntimeKinds: boolean
+): number {
+  if (!preferRuntimeKinds) return 1;
+
+  const normalizedKind = kind.toLowerCase();
+  if (normalizedKind === "function" || normalizedKind === "method" || normalizedKind === "class") {
+    return 1.08;
+  }
+  if (normalizedKind === "interface" || normalizedKind === "type") {
+    return 0.7;
+  }
+  if (normalizedKind === "variable") {
+    return 0.82;
+  }
+  return 1;
+}
+
+function hasActionSignal(name: string, signature: string): boolean {
+  const tokens = `${name} ${signature}`
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  return tokens.some((token) => ACTION_SIGNAL_TERMS.has(token));
+}
+
+function tokenizeCoverageTerms(text: string): string[] {
+  return text
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 2);
+}
+
+function commonPrefixLength(left: string, right: string): number {
+  const max = Math.min(left.length, right.length);
+  let idx = 0;
+  while (idx < max && left[idx] === right[idx]) {
+    idx += 1;
+  }
+  return idx;
+}
+
+function coverageTermsMatch(queryTerm: string, candidate: string): boolean {
+  if (candidate === queryTerm) return true;
+  if (queryTerm.length >= 5 && candidate.includes(queryTerm)) return true;
+  if (candidate.length >= 5 && queryTerm.includes(candidate)) return true;
+
+  const prefix = commonPrefixLength(queryTerm, candidate);
+  const minPrefix = Math.min(queryTerm.length, candidate.length) >= 8 ? 5 : 4;
+  return prefix >= minPrefix;
+}
 
 export function generateCapsule(db: Database.Database, params: CapsuleParams): CapsuleOutput {
   const tokenBudget = params.tokenBudget ?? DEFAULT_TOKEN_BUDGET;
@@ -145,6 +266,11 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   const FILE_SEARCH_LIMIT = intent === "narrow" ? 50 : 80;
   const candidateFiles = searchFilesByQuery(db, query, FILE_SEARCH_LIMIT);
+  const candidateFileBoostById = new Map<number, number>();
+  for (const [index, candidate] of candidateFiles.slice(0, intent === "broad" ? 12 : 16).entries()) {
+    const boost = Math.max(1, 1.38 - index * 0.05);
+    candidateFileBoostById.set(candidate.fileId, boost);
+  }
   let candidateFileIds = candidateFiles.length > 0
     ? new Set(candidateFiles.map((f) => f.fileId))
     : null;
@@ -191,6 +317,11 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     : baseQueryTerms;
   const exactQueryTerms = baseQueryTerms;
   const expandedQueryTerms = expandQueryWithSynonyms(allQueryTerms);
+  const typeFocusedQuery = allQueryTerms.some((term) => TYPE_FOCUSED_TERMS.has(term));
+  const preferRuntimeKinds = intent === "task" && candidateFiles.length > 0 && candidateFiles.length <= 3 && !typeFocusedQuery;
+  const semanticRerankEnabled =
+    (params.semanticRerank ?? false) ||
+    process.env["CW_ENABLE_SEMANTIC_RERANK"] === "1";
   const exactQueryTermSet = new Set(exactQueryTerms);
   const queryLooksTestFocused = isTestQuery(allQueryTerms);
 
@@ -230,6 +361,45 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       : intent === "broad"
         ? Math.max(120, Math.floor(retrievalBudget / 140))
         : Math.max(160, Math.floor(retrievalBudget / 120));
+
+  if (intent !== "narrow" && candidateFiles.length > 0) {
+    const seedFileLimit = intent === "broad" ? 6 : 8;
+    const seedSymbolsPerFile = intent === "broad" ? 2 : 3;
+    for (const candidate of candidateFiles.slice(0, seedFileLimit)) {
+      if (rawPivotIds.size >= maxStageARaw) break;
+      const fileSymbols = symbols
+        .getByFileIdLight(candidate.fileId)
+        .map((symbol) => ({
+          symbol,
+          score: scorePivotRelevance(
+            {
+              name: symbol.name,
+              signature: symbol.signature,
+              kind: symbol.kind,
+              filePath: files.getById(candidate.fileId)?.path ?? "",
+            },
+            exactQueryTerms
+          ),
+        }))
+        .sort((a, b) => {
+          if (b.score !== a.score) {
+            return b.score - a.score;
+          }
+          if (a.symbol.isExported !== b.symbol.isExported) {
+            return a.symbol.isExported ? -1 : 1;
+          }
+          if (b.symbol.centrality !== a.symbol.centrality) {
+            return b.symbol.centrality - a.symbol.centrality;
+          }
+          return a.symbol.startLine - b.symbol.startLine;
+        })
+        .slice(0, seedSymbolsPerFile);
+      for (const entry of fileSymbols) {
+        rawPivotIds.add(entry.symbol.id);
+        if (rawPivotIds.size >= maxStageARaw) break;
+      }
+    }
+  }
 
   for (const term of expandedQueryTerms) {
     if (rawPivotIds.size >= maxStageARaw) break;
@@ -356,21 +526,56 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     pivotCandidates.push({ id, name: sym.name, signature: sym.signature ?? "", kind: sym.kind, filePath });
   }
 
-  const { ranked: rankedPivots, scores: pivotScores } = rankPivotsWithScores(
+  const pivotRanking = rankPivotsWithScores(
     pivotCandidates,
     exactQueryTerms,
     MAX_PIVOTS
   );
+  let rankedPivots = pivotRanking.ranked;
+  let pivotScores = pivotRanking.scores;
 
-  const sessionId = params.sessionId ?? "default";
-  sessionQueries(db).ensureSession(sessionId, params.projectRoot ?? "");
-  const sessionCtx = new SessionContext(db, sessionId);
-  const previousSameQueryTokens =
-    capsuleLogQueries(db)
-      .getBySessionAndQuery(sessionId, query)
-      ?.tokensUsed ?? null;
+  if (intent !== "narrow" && rankedPivots.size > 0) {
+    const pivotKinds = new Map(pivotCandidates.map((candidate) => [candidate.id, candidate.kind]));
+    const adjustedEntries = [...rankedPivots.entries()]
+      .map(([id, score]) => [
+        id,
+        score * getPivotKindWeight(pivotKinds.get(id) ?? "", preferRuntimeKinds),
+      ] as const)
+      .sort((a, b) => b[1] - a[1]);
+    rankedPivots = new Map(adjustedEntries);
+    pivotScores = adjustedEntries.map(([, score]) => score);
+  }
 
-  const recentFileIds = new Set(sessionCtx.getRecentFileIds());
+  if (intent !== "narrow" && rankedPivots.size > 0) {
+    const rankedEntries = [...rankedPivots.entries()].sort((a, b) => b[1] - a[1]);
+    const topScore = rankedEntries[0]?.[1] ?? 0;
+    const pivotFloor = topScore * (intent === "broad" ? 0.22 : 0.18);
+    const guaranteedPivots = intent === "broad" ? 4 : 5;
+    const maxPrimaryPivots = intent === "broad" ? 12 : 14;
+
+    const filteredEntries = rankedEntries.filter(([, score], index) =>
+      index < guaranteedPivots || (index < maxPrimaryPivots && score >= pivotFloor)
+    );
+
+    rankedPivots = new Map(filteredEntries);
+    pivotScores = filteredEntries.map(([, score]) => score);
+  }
+
+  const sessionId = params.sessionId?.trim();
+  const hasExplicitSession = typeof sessionId === "string" && sessionId.length > 0;
+  const sessionCtx = hasExplicitSession ? new SessionContext(db, sessionId) : null;
+
+  if (hasExplicitSession) {
+    sessionQueries(db).ensureSession(sessionId, params.projectRoot ?? "");
+  }
+
+  const previousSameQueryTokens = hasExplicitSession
+    ? capsuleLogQueries(db)
+        .getBySessionAndQuery(sessionId, query)
+        ?.tokensUsed ?? null
+    : null;
+
+  const recentFileIds = new Set(sessionCtx?.getRecentFileIds() ?? []);
   if (recentFileIds.size > 0) {
     const filePathToFileId = new Map<string, number>();
     for (const [fileId, filePath] of pivotFileCache) {
@@ -451,7 +656,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         ? Math.min(6, baseDepth)
         : baseDepth;
   const rankingPivotDirs =
-    intent === "narrow" || localityPivotDirs.size === 0
+    intent === "broad"
+      ? pivotDirs
+      : intent === "narrow" || localityPivotDirs.size === 0
       ? pivotDirs
       : localityPivotDirs;
   const scopeDirSet = new Set<string>(rankingPivotDirs);
@@ -519,12 +726,14 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     const sameFileAsPivot = pivotFileIds.has(candidate.file.id);
     const sameDirAsPivot = rankingPivotDirs.has(dirname(candidate.file.path));
     const directoryWeight = getDirectoryWeight(candidate.file.path);
+    const fileSearchBoost = candidateFileBoostById.get(candidate.file.id) ?? 1;
     const testFilePenalty =
       !queryLooksTestFocused && isTestFile(candidate.file.path) ? 0.5 : 1;
     const localityBoost =
       (sameFileAsPivot ? 1.35 : sameDirAsPivot ? 1.2 : 1) *
       directoryWeight *
-      testFilePenalty;
+      testFilePenalty *
+      fileSearchBoost;
     const lexicalBoost = 1 + Math.min(1.5, candidate.lexicalScore * 0.3);
 
     let hubPenalty = 1;
@@ -564,10 +773,42 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       localityBoost,
       hubPenalty,
       mode,
-    });
+    }) * getRuntimeKindWeight(candidate.symbol.kind, preferRuntimeKinds);
   }
 
-  const ranked = [...candidates].sort((a, b) => b.score - a.score);
+  let ranked = [...candidates].sort((a, b) => b.score - a.score);
+  let semanticRerank = {
+    enabled: semanticRerankEnabled,
+    applied: false,
+    candidateCount: 0,
+    boosted: 0,
+  };
+
+  if (semanticRerankEnabled && (intent === "broad" || intent === "task")) {
+    const reranked = applySemanticRerank(
+      ranked.map((candidate) => ({
+        item: candidate,
+        id: candidate.symbol.id,
+        name: candidate.symbol.name,
+        signature: candidate.symbol.signature,
+        filePath: candidate.file.path,
+        docComment: candidate.symbol.docComment,
+        baseScore: candidate.score,
+        isPivot: candidate.isPivot,
+      })),
+      {
+        queryTerms: allQueryTerms,
+        expandedTerms: expandedQueryTerms,
+      }
+    );
+    ranked = reranked.ranked.map((entry) => entry.item);
+    semanticRerank = {
+      enabled: true,
+      applied: reranked.applied,
+      candidateCount: reranked.candidateCount,
+      boosted: reranked.boosted,
+    };
+  }
 
   function hasStrongLocality(candidate: RankedCandidate): boolean {
     if (pivotFileIds.has(candidate.file.id)) return true;
@@ -696,7 +937,16 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       if (!cache.has(file.id)) cache.set(file.id, displayFile);
 
       const outgoingEdges = outgoingEdgesMap.get(symbol.id);
-      const compressionLevel = assignCompressionLevel(score, distance, maxSc);
+      let compressionLevel = assignCompressionLevel(score, distance, maxSc);
+      if (intent !== "narrow" && compressionLevel === 0) {
+        const pathLower = displayFile.path.toLowerCase();
+        const actionSignal = hasActionSignal(symbol.name, symbol.signature);
+        if (!actionSignal && PAGE_ENTRY_PATH_RE.test(pathLower)) {
+          compressionLevel = 1;
+        } else if (!actionSignal && UI_COMPONENT_PATH_RE.test(pathLower)) {
+          compressionLevel = 2;
+        }
+      }
       // Render without edges for initial tokenCount estimate — packer re-renders with edges
       const rendered = renderSymbol(fullSymbol, displayFile, compressionLevel);
       const tokenCount = estimateTokens(rendered);
@@ -728,7 +978,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     intent === "narrow" ? narrowHardCap : intent === "broad" ? 72 : 84;
   const baseCandidateLimit = Math.min(dynamicLimit, hardCap);
 
-  const recentSymbolIds: Set<number> = params.sessionId
+  const recentSymbolIds: Set<number> = hasExplicitSession && sessionCtx
     ? new Set(sessionCtx.getRecentSymbolIds().filter((id): id is number => id !== null))
     : new Set();
 
@@ -1010,6 +1260,30 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const avgSymbolsPerFile =
     fileCounts.length === 0 ? 0 : fileCounts.reduce((sum, value) => sum + value, 0) / fileCounts.length;
   const maxSymbolsPerFile = fileCounts.length === 0 ? 0 : Math.max(...fileCounts);
+  const uniqueFiles = new Set(packed.map((node) => canonicalFilePath(node)));
+  const queryTermsForCoverage = baseQueryTerms.filter((term) => term.length > 2);
+  const packedCoverageTerms = new Set<string>();
+  for (const node of packed) {
+    for (const term of extractPathTerms(canonicalFilePath(node))) {
+      packedCoverageTerms.add(term);
+    }
+    for (const term of tokenizeCoverageTerms(`${node.symbol.name} ${node.symbol.signature}`)) {
+      packedCoverageTerms.add(term);
+    }
+  }
+  const matchedQueryTerms = queryTermsForCoverage.filter((term) =>
+    [...packedCoverageTerms].some((candidate) => coverageTermsMatch(term, candidate))
+  );
+  const queryTermCoverage =
+    queryTermsForCoverage.length === 0 ? 1 : matchedQueryTerms.length / queryTermsForCoverage.length;
+  const retrievalSurfaceScore =
+    intent === "narrow"
+      ? 1
+      : Math.min(
+          1,
+          (rawPivotIds.size + packed.length + uniqueFiles.size + fileSummaries.length) /
+            (intent === "broad" ? 18 : 14)
+        );
 
   const reasons: string[] = [];
   if (pivotCount === 0) reasons.push("no pivot symbol match");
@@ -1018,6 +1292,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     reasons.push("dependency coverage below 25%");
   }
   if (noiseRatio > 0.6) reasons.push("low-relevance content exceeds 60%");
+  if (intent !== "narrow" && queryTermCoverage < 0.6) {
+    reasons.push("query term coverage below 60%");
+  }
+  if (intent !== "narrow" && retrievalSurfaceScore < 0.5) {
+    reasons.push(`${intent} retrieval surface too thin`);
+  }
 
   const coverageConfidence = computeCoverageConfidence({
     intent,
@@ -1028,6 +1308,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     dependencyCoverage,
     noiseRatio,
     fileSummaryCount: fileSummaries.length,
+    queryTermCoverage,
+    retrievalSurfaceScore,
     moduleCoverageStats: {
       packedClusters: packedClusters.size,
       relevantClusters: relevantClusters.size,
@@ -1043,7 +1325,6 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const tokenUtilization = tokenBudget > 0 ? tokensUsed / tokenBudget : 0;
   const uncertainty = buildUncertainty(uncertaintyFlag, reasons.length, coverageConfidence, tokenUtilization);
 
-  const uniqueFiles = new Set(packed.map((node) => canonicalFilePath(node)));
   const clusterGroupStats = new Map<number, { symbolCount: number; fileIds: Set<number> }>();
   for (const node of packed) {
     const clusterId = clusterBySymbolId.get(node.symbol.id);
@@ -1092,6 +1373,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       intent,
       mode: useMultiPass ? "multi-pass" : "single-pass",
       subQueryCount: useMultiPass ? subQueries.length : 1,
+      semanticRerank,
     },
     ...(clusterGroups.length > 0 ? { clusterGroups } : {}),
     generatedAt: Date.now(),
@@ -1123,11 +1405,13 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
   };
 
-  safeWrite("observation", () => {
-    captureQueryObservation(db, query, pivotSymbolIds, sessionId, params.projectRoot ?? "");
-  });
+  if (hasExplicitSession) {
+    safeWrite("observation", () => {
+      captureQueryObservation(db, query, pivotSymbolIds, sessionId, params.projectRoot ?? "");
+    });
+  }
 
-  if (packed.length > 0) {
+  if (hasExplicitSession && packed.length > 0 && sessionCtx) {
     safeWrite("session_context", () => {
       const symbolsToRecord = packed.map((node) => ({
         symbolId: node.symbol.id,
@@ -1137,21 +1421,23 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     });
   }
 
-  safeWrite("capsule_log", () => {
-    capsuleLogQueries(db).insert({
-      sessionId,
-      query,
-      mode,
-      tokenBudget,
-      tokensUsed,
-      symbolsIncluded: packed.map((n) => n.symbol.name),
-      filesIncluded: [...uniqueFiles],
-      timestamp: Date.now(),
-      followedUp: false,
-      missRatio: null,
-      noiseRatio: metadata.quality.noiseRatio,
+  if (hasExplicitSession) {
+    safeWrite("capsule_log", () => {
+      capsuleLogQueries(db).insert({
+        sessionId,
+        query,
+        mode,
+        tokenBudget,
+        tokensUsed,
+        symbolsIncluded: packed.map((n) => n.symbol.name),
+        filesIncluded: [...uniqueFiles],
+        timestamp: Date.now(),
+        followedUp: false,
+        missRatio: null,
+        noiseRatio: metadata.quality.noiseRatio,
+      });
     });
-  });
+  }
 
   return { content, metadata };
 }

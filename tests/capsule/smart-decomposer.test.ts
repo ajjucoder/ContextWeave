@@ -17,12 +17,32 @@ describe("smart query decomposition", () => {
 
     const subQueries = decomposeForBroad("capsule generation pipeline scoring compression", classified, clusters);
 
-    expect(subQueries).toHaveLength(3);
+    expect(subQueries).toHaveLength(2);
     expect(subQueries[0]?.targetClusterIds).toEqual([11]);
     expect(subQueries[0]?.terms).toContain("generator");
     const totalBudget = subQueries.reduce((sum, q) => sum + q.budgetFraction, 0);
     expect(totalBudget).toBeCloseTo(1, 6);
     expect(subQueries[0]!.priority).toBe(1);
+  });
+
+  it("keeps short broad queries intact when cluster hints do not match the query terms", () => {
+    const classified = classifyQueryIntent("database schema migration tables indexes");
+    const clusters: ClusterHint[] = [
+      { id: 13, terms: ["mcp", "tools", "capsule", "files"], relevance: 8 },
+      { id: 7, terms: ["queries", "edges", "symbols"], relevance: 4 },
+      { id: 6, terms: ["schema", "migrations", "connection"], relevance: 3 },
+    ];
+
+    const subQueries = decomposeForBroad("database schema migration tables indexes", classified, clusters);
+
+    expect(subQueries).toHaveLength(1);
+    expect(subQueries[0]?.targetClusterIds).toEqual([6]);
+    expect(subQueries[0]?.terms).toContain("database");
+    expect(subQueries[0]?.terms).toContain("schema");
+    expect(subQueries[0]?.terms).toContain("migration");
+    expect(subQueries[0]?.terms).toContain("indexes");
+    expect(subQueries[0]?.terms).not.toContain("mcp");
+    expect(subQueries[0]?.terms).not.toContain("queries");
   });
 
   it("decomposes task queries into focused patterns even without cluster hints", () => {

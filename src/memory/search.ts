@@ -6,6 +6,7 @@ import { countTokens } from "../utils/tokens.js";
 interface SearchOptions {
   scope?: string;
   includeStale?: boolean;
+  includePassive?: boolean;
   limit?: number;
 }
 
@@ -49,7 +50,7 @@ export class MemorySearch {
   }
 
   search(query: string, options: SearchOptions = {}): ScoredObservation[] {
-    const { scope, includeStale = false, limit = 20 } = options;
+    const { scope, includeStale = false, includePassive = true, limit = 20 } = options;
 
     const rawResults = this.store.searchWithScores(query, limit * 3);
 
@@ -59,6 +60,7 @@ export class MemorySearch {
       if (!includeStale && obs.stale) continue;
       if (isExpiredPassive(obs)) continue;
       if (scope !== undefined && obs.scope !== scope) continue;
+      if (!includePassive && obs.scope === "passive") continue;
 
       const combinedScore = obs.confidence * bm25Score * getScopeWeight(obs.scope);
       scored.push({ observation: obs, score: combinedScore });
@@ -73,7 +75,7 @@ export class MemorySearch {
     query: string,
     budget: number
   ): { observations: ObservationRecord[]; formatted: string; tokensUsed: number } {
-    const results = this.search(query, { limit: 50 });
+    const results = this.search(query, { includePassive: false, limit: 50 });
 
     const selected: ObservationRecord[] = [];
     let tokensUsed = 0;

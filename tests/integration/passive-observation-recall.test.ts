@@ -37,6 +37,7 @@ describe("passive observations are searchable via recall", () => {
 
     const search = new MemorySearch(db);
     const results = search.search("UserService authentication", {
+      scope: "passive",
       limit: 10,
     });
 
@@ -61,7 +62,7 @@ describe("passive observations are searchable via recall", () => {
     );
 
     const search = new MemorySearch(db);
-    const results = search.search("newHelper", { limit: 10 });
+    const results = search.search("newHelper", { scope: "passive", limit: 10 });
 
     expect(results.length).toBeGreaterThan(0);
     expect(results[0]!.observation.note).toContain("newHelper");
@@ -80,5 +81,29 @@ describe("passive observations are searchable via recall", () => {
 
     expect(results.length).toBeGreaterThan(0);
     expect(results[0]!.observation.note).toContain("Stripe webhooks");
+  });
+
+  it("generateCapsule excludes passive observations by default", () => {
+    const store = new ObservationStore(db);
+    store.create({
+      sessionId: "test-session",
+      scope: "architecture",
+      note: "Architecture note: UserService coordinates authentication state.",
+      confidence: 1.0,
+    });
+
+    const symbols = symbolQueries(db);
+    const pivotIds = new Set(symbols.getAll().slice(0, 2).map((s) => s.id));
+    captureQueryObservation(db, "UserService authentication", pivotIds, "test-session", FIXTURE_DIR);
+
+    const result = generateCapsule(db, {
+      query: "UserService authentication",
+      tokenBudget: 1200,
+      sessionId: "test-session",
+      projectRoot: FIXTURE_DIR,
+    });
+
+    expect(result.content).toContain("Architecture note: UserService coordinates authentication state.");
+    expect(result.content).not.toContain('[auto] Query: "UserService authentication"');
   });
 });

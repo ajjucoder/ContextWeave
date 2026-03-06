@@ -1,181 +1,94 @@
 # ContextWeave
 
-Local-first MCP server that delivers AST-aware, token-budgeted code context capsules with cross-session memory for AI coding agents.
+Local-first MCP server for AST-aware code retrieval, deterministic navigation tools, and cross-session memory.
 
----
+## Runtime Snapshot
 
-## What is ContextWeave
+ContextWeave indexes the project into a SQLite-backed symbol and edge graph, then serves token-budgeted `cw_capsule` outputs. The current runtime includes field-recovery hardening for:
 
-AI coding agents like Claude operate within a fixed context window. On any non-trivial codebase, naively dumping files exhausts that budget immediately — leaving the model with stale, unfocused, or irrelevant code. The result is hallucinated APIs, missed dependencies, and wasted tokens on files that have nothing to do with the task at hand.
+- capsule relevance and packing under broad/task queries
+- framework/runtime boundary tracing (Next.js and Express entry edges)
+- navigation and impact correctness for file-qualified symbol targets
+- confidence calibration and explicit uncertainty signaling
 
-ContextWeave solves this by building a persistent AST dependency graph of your project using tree-sitter. When an agent needs context, it issues a natural-language query and receives a *capsule*: a token-budgeted, multi-level-compressed snapshot of exactly the symbols relevant to that query, ranked by graph distance, centrality, recency, and lexical match. Pivot symbols — the ones directly matched by your query — always appear at full source. Everything else is progressively compressed based on how relevant it is.
+## MCP Tool Surface
 
-Cross-session memory compounds this over time. Every query and every file change is silently recorded as a low-confidence observation. Explicit `cw_remember` calls add high-confidence notes that survive across sessions. Future capsule generations pull these observations into context alongside code, so the model inherits knowledge from previous sessions without you having to re-explain it.
+ContextWeave always registers these read-focused tools:
 
----
+| Tool | Purpose |
+|---|---|
+| `cw_capsule` | Token-budgeted context capsule with intent-aware retrieval |
+| `cw_impact` | Dependents / blast-radius analysis |
+| `cw_flow` | Symbol-to-symbol path tracing or outgoing flow exploration |
+| `cw_recall` | BM25-backed memory retrieval |
+| `cw_status` | Index health and recent capsule summary |
+| `cw_overview` | Directory/symbol overview with optional query focus |
+| `cw_files` | Indexed file listing with scope/pattern filters |
+| `cw_grep` | Content/regex search with symbol context |
+| `cw_read` | Safe bounded file or file-qualified symbol reads |
+| `cw_stats` | Session token usage and estimated savings |
 
-## How it Works
+In primary lock mode only, ContextWeave also registers:
 
-### 7-Phase Capsule Pipeline
+| Tool | Purpose |
+|---|---|
+| `cw_remember` | Persist intentional memory observations |
+| `cw_reindex` | Force file/directory/project reindex |
 
-```
-Query
-  │
-  ▼
-[Phase 1] Pivot Resolution
-  Fuzzy-match query terms against all symbol names and file paths.
-  Collect up to 5 symbol matches + 3 file matches per term.
-  │
-  ▼
-[Phase 2] BFS Graph Traversal (Stage A)
-  Walk the dependency graph outward from pivots via import/call/
-  reference/inheritance edges. Depth scales with token budget
-  (3–6 hops). Collect all reachable symbols with their distances.
-  │
-  ▼
-[Phase 3] Stage B Reranking
-  Score every candidate: pivot boost, distance decay, centrality
-  signal, recency, export bonus, lexical match, locality boost
-  (same-file: 1.35x, same-dir: 1.15x), hub dampening for high-
-  degree non-pivot nodes. Select final candidate set.
-  │
-  ▼
-[Phase 4] Compression Assignment
-  Assign each symbol a compression level based on normalized score
-  and distance. Pivot (distance=0) → L0. Score ≥60% → L1.
-  Score ≥30% → L2. Otherwise → L3.
-  │
-  ▼
-[Phase 5] Token-Budget Packing
-  Pack symbols in score order, trying each compression level until
-  the symbol fits within the code budget. Apply a promotion pass:
-  if budget remains after packing, upgrade L3 nodes to lower
-  compression levels by score priority.
-  │
-  ▼
-[Phase 6] Memory Injection
-  BM25-search passive and explicit observations for the query.
-  Inject up to 20% of the token budget as observation context.
-  │
-  ▼
-[Phase 7] Quality Gate + Format
-  Compute pivot coverage, dependency coverage, noise ratio, and
-  coverage confidence. Set uncertainty flag. Format output.
-  Persist capsule log and passive query observation.
-```
+Key schema points:
 
-### Compression Levels
+- `cw_capsule`: `query`, `token_budget`, `mode`, optional `path` and `glob`
+- `cw_impact`, `cw_flow`, and `cw_read` support file-qualified symbol targets (for example `src/file.ts:SymbolName`)
+- `cw_recall` defaults to intentional observations and only includes passive observations when `scope: "passive"` is requested
 
-| Level | Name | Content |
-|-------|------|---------|
-| L0 | Full source | Complete symbol body as parsed |
-| L1 | Signature skeleton | Function/class signature, no body |
-| L2 | Summary | One-line docstring or name + kind |
-| L3 | Reference | Single file:line reference entry |
+## Capsule and Confidence
 
----
+Capsules are produced through a staged retrieval path (pivot discovery, traversal/ranking, compression/packing, memory injection, formatting). Output quality metadata includes:
 
-## MCP Tools
+- retrieval counts (`stageA -> stageB`)
+- pivot/dependency/noise coverage
+- `coverageConfidence` from intent-specific confidence scoring
+- uncertainty level: `very_low`, `low`, `medium`, `high`, `critical`
+- explicit reason strings when retrieval is thin (for example low query term coverage or low overall coverage confidence)
 
-ContextWeave registers seven tools over the MCP stdio transport.
+Broad/task confidence is explicitly breadth-gated using query-term and retrieval-surface coverage, so narrow local hits do not overstate confidence on broad requests.
 
-### `cw_capsule`
+## Document Indexing Support
 
-Generate a token-budgeted context capsule for a query.
+In addition to code languages, ContextWeave indexes:
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `query` | `string` | What you're working on or looking for |
-| `token_budget` | `number?` | Max tokens for the capsule (default: 4000) |
-| `mode` | `"debug" \| "refactor" \| "feature" \| "review"?` | Task mode affecting scoring weights (default: `"feature"`) |
+- Markdown: `.md`, `.markdown`
+- YAML: `.yaml`, `.yml`
+- JSON: `.json`
 
-Returns compressed AST-aware context with quality metrics, compression breakdown, and any relevant observations from memory.
+Document files are parsed as document-language entries and represented as a synthetic exported symbol (no imports/calls/framework edges). This makes policy/config docs retrievable in capsule, overview, and navigation paths.
 
-### `cw_impact`
+## Memory and Recall Behavior
 
-Analyze what breaks if a symbol or file changes. Traverses incoming edges (dependents) up to a configurable depth.
+Passive memory is still captured automatically:
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `target` | `string` | Symbol name or file path to analyze |
-| `depth` | `number?` | Max traversal depth (default: 3) |
+- query observations: scope `passive`, confidence `0.5`
+- file-change observations: scope `passive`, confidence `0.6`
 
-### `cw_flow`
+Current retrieval defaults intentionally reduce passive noise:
 
-Trace call flow between two symbols or explore all outgoing flows from a source symbol.
+- capsule memory injection excludes passive observations by default
+- `cw_recall` excludes passive observations unless `scope: "passive"` is requested
+- passive observations are auto-expired after 7 days in memory search
+- scope weighting favors intentional notes (`architecture`, `decision`, `intent`) over passive telemetry
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `source` | `string` | Source symbol name |
-| `target` | `string?` | Target symbol name (omit to trace all outgoing paths) |
-| `max_hops` | `number?` | Maximum path length (default: 5) |
+## Field Regression Gate
 
-### `cw_remember`
+The field regression gate is implemented in [`tests/field/review-regressions.test.ts`](tests/field/review-regressions.test.ts). It covers four reviewed project clusters with 12 assertions:
 
-Persist a cross-session observation about the codebase. Stored at confidence 1.0 by default and injected into future capsules.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `scope` | `string` | Category: `architecture`, `bug`, `pattern`, `decision`, `todo`, `convention` |
-| `note` | `string` | The observation to remember |
-| `symbol` | `string?` | Symbol name to associate with |
-| `confidence` | `number?` | Confidence level 0–1 (default: 1.0) |
-
-### `cw_recall`
-
-Retrieve prior observations from cross-session memory using BM25 search.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `query` | `string` | What to search for in memory |
-| `scope` | `string?` | Filter by scope category |
-| `include_stale` | `boolean?` | Include stale observations (default: false) |
-| `limit` | `number?` | Max results (default: 10) |
-
-### `cw_status`
-
-Show index health: file count, symbol count, edge count, observation count, stale observations, and the five most recent capsule generations.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `verbose` | `boolean?` | Show per-file breakdown (default: false) |
-
-### `cw_reindex`
-
-Force reindex a file, directory, or the entire project. Rebuilds the AST graph and recalculates centrality scores.
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `path` | `string?` | File or directory to reindex (omit for full project) |
-
----
-
-## Language Support
-
-ContextWeave supports 12 languages via tree-sitter grammars. It indexes functions, classes, methods, variables, imports, exports, and call expressions for each.
-
-| Language | Extensions |
-|----------|-----------|
-| TypeScript | `.ts`, `.tsx` |
-| JavaScript | `.js`, `.jsx`, `.mjs`, `.cjs` |
-| Python | `.py` |
-| Go | `.go` |
-| Rust | `.rs` |
-| Java | `.java` |
-| C | `.c`, `.h` |
-| C++ | `.cpp`, `.cc`, `.cxx`, `.hpp` |
-| C# | `.cs` |
-| Ruby | `.rb` |
-| Bash | `.sh`, `.bash` |
-| PHP | `.php` |
-
----
+- Sitecraft: server route/service retrieval over UI noise, HTTP boundary flow tracing, and recall ordering
+- Claud-ometer: route loader/handler/resolver retrieval and direct file-qualified `cw_read`
+- gravity-proxy: Express route/controller/service chain, flow, impact, and file-qualified reads
+- EBPS: policy-doc retrieval (`.yaml` + `.md`) and confidence calibration expectations
 
 ## Installation
 
-### Global Setup (Recommended)
-
-Install once and it works in every project — no per-project setup.
+### Global Setup
 
 ```bash
 git clone https://github.com/ajjucoder/ContextWeave.git
@@ -197,137 +110,53 @@ Add to `~/.claude/settings.json`:
 }
 ```
 
-That's it. When you open Claude Code in any project, ContextWeave connects, auto-initializes `.contextweave/` if it doesn't exist, indexes the project, and starts the file watcher. No `cw init` required.
-
-### Per-Project Setup (Alternative)
+### Per-Project Setup
 
 ```bash
 npm install contextweave
 npx cw init
 ```
 
-`cw init` creates `.contextweave/config.json`, seeds the SQLite database, runs a full index, and prints the `.mcp.json` snippet to add to the project root.
-
-Start the server manually (Claude Code starts it automatically via `.mcp.json`):
-
-```bash
-npx cw serve
-```
-
----
-
 ## Configuration
 
-`.contextweave/config.json` is created by `cw init` with the following fields:
+`.contextweave/config.json` fields:
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `tokenBudget` | `number` | `4000` | Default token budget for capsule generation |
-| `defaultMode` | `string` | `"feature"` | Default task mode (`debug`, `refactor`, `feature`, `review`) |
-| `ignore` | `string[]` | `["node_modules","dist","build",".git",".next","coverage"]` | Glob patterns excluded from indexing |
-| `stalenessDepth` | `number` | `2` | Graph hops before an observation is considered stale |
-| `confidenceDecay` | `number` | `0.1` | Confidence decay rate applied to passive observations over time |
-| `gcThreshold` | `number` | `0.1` | Minimum confidence before an observation is garbage-collected |
+| Field | Type | Default |
+|---|---|---|
+| `version` | `number` | `1` |
+| `ignore` | `string[]` | `["node_modules","dist","build",".git",".next","coverage"]` |
+| `tokenBudget` | `number` | `4000` |
+| `defaultMode` | `"debug" \| "refactor" \| "feature" \| "review"` | `"feature"` |
+| `stalenessDepth` | `number` | `2` |
+| `confidenceDecay` | `number` | `0.1` |
+| `gcThreshold` | `number` | `0.1` |
 
----
+## Development and CI Gates
 
-## Quality Metrics
+Local scripts:
 
-Every capsule includes a `quality` block reporting retrieval health.
-
-**Pivot coverage** — fraction of pivot symbols (directly matched by query) that made it into the packed output. Below 80% triggers a warning reason.
-
-**Dependency coverage** — fraction of Stage B selected non-pivot symbols that survived packing. Below 35% is flagged.
-
-**Noise ratio** — fraction of packed symbols with no lexical relevance to the query. Above 55% is flagged.
-
-**Coverage confidence** — composite score: `pivotCoverage * 0.5 + dependencyCoverage * 0.3 + (1 - noiseRatio) * 0.2`. Below 0.65 triggers the uncertainty flag.
-
-**Uncertainty** — three levels:
-- `low`: no flags, coverage confidence ≥ 0.65
-- `medium`: one flag reason, coverage confidence ≥ 0.45
-- `high`: two or more flag reasons, or coverage confidence < 0.45
-
-The capsule output header surfaces the uncertainty level and lists any flag reasons, so the agent knows when to be skeptical of the context it received.
-
----
-
-## Passive Memory
-
-ContextWeave builds memory automatically without any manual intervention.
-
-Every time `cw_capsule` is called, the query and the resolved pivot symbols are recorded as a passive observation at confidence 0.5:
-
-```
-[auto] Query: "generateCapsule" resolved to: generateCapsule, packNodes
+```bash
+npm run lint
+npm run test:field
+npm test
+npm run build
 ```
 
-Every time a file changes (detected by the chokidar file watcher), the symbol-level diff — added, removed, and modified symbols — is recorded at confidence 0.6:
+GitHub CI (`.github/workflows/ci.yml`) runs gates in this order:
 
-```
-[auto] Modified: src/capsule/generator.ts — added: [scoreNode], removed: [], changed: [generateCapsule]
-```
-
-These passive observations accumulate across sessions in the SQLite database. When the next capsule is generated, BM25 search retrieves the most relevant observations and injects them into the capsule output alongside code, giving the model awareness of what has changed and what has been worked on previously.
-
-Manual observations via `cw_remember` are stored at confidence 1.0 by default, so they rank above passive auto-observations in retrieval scoring. The combined score used for ranking is `confidence * bm25Score`.
-
----
-
-## Benchmark
-
-Average token reduction across test fixtures: **74.7%** with quality gates maintaining pivot coverage above 80%. The compression pipeline avoids the common failure mode of naive context windows: low-signal utility code (logging helpers, re-exports, deeply generic utilities) is pushed to L3 reference entries or dropped entirely while the symbols directly relevant to the query are preserved at full source.
-
-### Real-World QA Results
-
-Tested against four production codebases across four languages:
-
-| Project | Language | Files | Symbols | Index Time | Capsule Time |
-|---------|----------|-------|---------|------------|--------------|
-| ebps | Python | 55 | 844 | 719ms | 5–11ms |
-| Nudgy | Rust + TSX | 16 | 65 | 1,152ms | 1–7ms |
-| codex-team-orchestrator | TypeScript | 237 | 3,148 | 4,238ms | 12–21ms |
-| polymarket-arbitrage-sim | TypeScript | 100 | 717 | 1,866ms | 3–10ms |
-
-**0 crashes, 0 query misses** across 408 files and 4,774 symbols. Capsule generation averages 1–21ms after index. The most common quality pattern: focused queries on specific symbols return `low` uncertainty; broad generic terms in large codebases return `weak` uncertainty due to the 4,000-token budget covering too many matches — expected behavior, not a bug.
-
----
+1. `npm ci`
+2. `npm run lint`
+3. `npm run test:field` (`CW_P95_TARGET_MS=200`)
+4. `npm test` (`CW_P95_TARGET_MS=200`)
+5. `npm run build`
 
 ## Technical Stack
 
 | Component | Technology |
-|-----------|-----------|
-| Runtime | Node.js ≥22, TypeScript ESM |
-| AST parsing | tree-sitter with 12 language grammars |
-| Database | better-sqlite3 (embedded SQLite) |
-| File watching | chokidar v5 |
+|---|---|
+| Runtime | Node.js >= 22, TypeScript ESM |
+| Parser | tree-sitter grammars + document-language indexing |
+| Storage | better-sqlite3 (WAL) |
+| Watcher | `@parcel/watcher` |
 | MCP transport | `@modelcontextprotocol/sdk` stdio |
-| Token counting | gpt-tokenizer (exact cl100k_base counts) |
-| Memory search | Custom BM25 full-text search over SQLite |
-| Schema validation | zod |
-
----
-
-## Development
-
-```bash
-# Build
-npm run build
-
-# Run tests
-npm test
-
-# Watch mode
-npm run dev
-
-# Type check
-npm run lint
-
-# Run benchmark harness
-npm run bench
-
-# Run synthetic 100K LOC scale harness
-npm run bench:100k
-```
-
-The database is stored at `.contextweave/contextweave.db` and is excluded from version control. Delete it and re-run `cw init` to reset the index.
+| Validation | zod |

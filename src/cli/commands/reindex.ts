@@ -5,6 +5,7 @@ import { runMigrations } from "../../db/migrations.js";
 import { indexDirectory, indexProject, indexSingleFile } from "../../core/indexer.js";
 import { runPageRankInBackground } from "../../core/graph.js";
 import { loadConfig } from "../../utils/config.js";
+import { syncBootstrapObservations } from "../../memory/bootstrap.js";
 
 export async function runReindex(projectRoot: string, targetPath?: string): Promise<void> {
   const cwDir = resolve(projectRoot, ".contextweave");
@@ -28,6 +29,7 @@ export async function runReindex(projectRoot: string, targetPath?: string): Prom
     process.stdout.write(`Reindexing ${fullPath}${isDirectory ? " (directory)" : ""}...\n`);
     if (isDirectory) {
       const result = await indexDirectory(db, fullPath, projectRoot, config.ignore);
+      syncBootstrapObservations(db, projectRoot);
       runPageRankInBackground(dbPath);
       const elapsed = Date.now() - startTime;
       process.stdout.write(`  ${result.filesIndexed} files, ${result.symbolsFound} symbols (${elapsed}ms)\n`);
@@ -36,6 +38,7 @@ export async function runReindex(projectRoot: string, targetPath?: string): Prom
       }
     } else {
       const result = indexSingleFile(db, fullPath, projectRoot);
+      syncBootstrapObservations(db, projectRoot);
       runPageRankInBackground(dbPath);
       const elapsed = Date.now() - startTime;
       process.stdout.write(`  ${result.symbolCount} symbols (${elapsed}ms)\n`);
@@ -43,6 +46,7 @@ export async function runReindex(projectRoot: string, targetPath?: string): Prom
   } else {
     process.stdout.write("Reindexing entire project...\n");
     const result = await indexProject(db, projectRoot, config.ignore);
+    syncBootstrapObservations(db, projectRoot);
     runPageRankInBackground(dbPath);
     const elapsed = Date.now() - startTime;
     process.stdout.write(`  ${result.filesIndexed} files, ${result.symbolsFound} symbols (${elapsed}ms)\n`);

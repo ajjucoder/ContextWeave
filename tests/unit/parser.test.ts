@@ -23,6 +23,9 @@ const languageFixtures = [
   { language: "bash", fileName: "sample.sh", extProbe: "run.bash" },
   { language: "php", fileName: "sample.php", extProbe: "foo.php" },
   { language: "python", fileName: "sample.py", extProbe: "foo.py" },
+  { language: "markdown", fileName: "sample.ts", extProbe: "README.md" },
+  { language: "yaml", fileName: "sample.ts", extProbe: "config.yml" },
+  { language: "json", fileName: "sample.ts", extProbe: "config.json" },
 ];
 
 describe("detectLanguage", () => {
@@ -129,6 +132,73 @@ export * from "./shared";
     expect(exportAll?.exportAll).toBe(true);
   });
 
+  it("parses CommonJS require imports and exported object-literal handler methods", () => {
+    const content = `
+const {
+  exchangeCode,
+  persistProviderToken,
+} = require("../services/oauth-service");
+
+const oauthController = {
+  handleOAuthCallback: async (req, res) => {
+    const token = await exchangeCode(req.query.code);
+    await persistProviderToken(token);
+    return res.json({ ok: true });
+  },
+};
+
+module.exports = { oauthController };
+`;
+    const parsed = parseFile("oauth-controller.js", content, "javascript");
+    const names = parsed.symbols.map((symbol) => symbol.name);
+    const handleOAuthCallback = parsed.symbols.find((symbol) => symbol.name === "handleOAuthCallback");
+    const serviceImport = parsed.imports.find((imp) => imp.source === "../services/oauth-service");
+
+    expect(parsed.errors).toHaveLength(0);
+    expect(serviceImport).toBeDefined();
+    expect(serviceImport?.names).toEqual(["exchangeCode", "persistProviderToken"]);
+    expect(names).toContain("oauthController");
+    expect(names).toContain("handleOAuthCallback");
+    expect(handleOAuthCallback?.kind).toBe("arrow");
+    expect(handleOAuthCallback?.isExported).toBe(true);
+    expect(parsed.calls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ callerSymbol: "handleOAuthCallback", calleeName: "exchangeCode" }),
+        expect.objectContaining({ callerSymbol: "handleOAuthCallback", calleeName: "persistProviderToken" }),
+      ])
+    );
+  });
+
+  it("marks browser-global assignments and IIFE wrappers as exported JS entrypoints", () => {
+    const content = `
+const startServer = () => bootKernel();
+const publicApi = (() => {
+  function boot() {
+    return startServer();
+  }
+
+  return { boot };
+})();
+
+globalThis.publicApi = publicApi;
+window.startServer = startServer;
+`;
+    const parsed = parseFile("browser-entry.js", content, "javascript");
+    const publicApi = parsed.symbols.find((symbol) => symbol.name === "publicApi");
+    const startServer = parsed.symbols.find((symbol) => symbol.name === "startServer");
+    const boot = parsed.symbols.find((symbol) => symbol.name === "boot");
+
+    expect(parsed.errors).toHaveLength(0);
+    expect(publicApi?.isExported).toBe(true);
+    expect(startServer?.isExported).toBe(true);
+    expect(boot).toBeDefined();
+    expect(parsed.calls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ callerSymbol: "boot", calleeName: "startServer" }),
+      ])
+    );
+  });
+
   it("extracts call references", () => {
     expect(result.calls.length).toBeGreaterThan(0);
   });
@@ -188,6 +258,29 @@ export * from "./shared";
     expect(Array.isArray(parsed.errors)).toBe(true);
   });
 
+  it("creates searchable document symbols for markdown and yaml files", () => {
+    const markdown = parseFile(
+      "docs/partner-policy.md",
+      "# Partner Policy\n\nDistrict approval is required before auto-enrollment.\n",
+      "markdown"
+    );
+    const yaml = parseFile(
+      "config/program-rules.yaml",
+      "requireDistrictApproval: true\napprovalSource: district-reviewer\n",
+      "yaml"
+    );
+
+    expect(markdown.errors).toHaveLength(0);
+    expect(markdown.symbols).toHaveLength(1);
+    expect(markdown.symbols[0]?.name.toLowerCase()).toContain("partner policy");
+    expect(markdown.symbols[0]?.fullSource).toContain("District approval");
+
+    expect(yaml.errors).toHaveLength(0);
+    expect(yaml.symbols).toHaveLength(1);
+    expect(yaml.symbols[0]?.name.toLowerCase()).toContain("district");
+    expect(yaml.symbols[0]?.fullSource).toContain("approvalSource");
+  });
+
   it("parses python decorators without dropping class and method symbols", () => {
     const path = resolve(__dirname, "../fixtures/sample.py");
     const content = readFileSync(path, "utf-8");
@@ -198,6 +291,27 @@ export * from "./shared";
     expect(names).toContain("UserService");
     expect(names).toContain("greet");
     expect(names).toContain("build_service");
+  });
+
+  it("creates a synthetic __main__ entrypoint symbol for python CLI files", () => {
+    const content = `
+def main():
+    return run()
+
+if __name__ == "__main__":
+    main()
+`;
+    const parsed = parseFile("cli.py", content, "python");
+    const entrypoint = parsed.symbols.find((symbol) => symbol.name === "__main__");
+
+    expect(parsed.errors).toHaveLength(0);
+    expect(entrypoint).toBeDefined();
+    expect(entrypoint?.signature).toContain(`__main__`);
+    expect(parsed.calls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ callerSymbol: "__main__", calleeName: "main" }),
+      ])
+    );
   });
 
   it("honors python __all__ for module-level export detection", () => {
@@ -243,7 +357,7 @@ class Service:
     expect(names).toContain("new_service");
   });
 
-  it("parses all language fixtures with symbols, imports, and calls", () => {
+  it("parses all language fixtures with symbols and language-appropriate graph metadata", () => {
     for (const fixture of languageFixtures) {
       const path = resolve(__dirname, `../fixtures/${fixture.fileName}`);
       const content = readFileSync(path, "utf-8");
@@ -251,8 +365,14 @@ class Service:
 
       expect(parsed.errors).toHaveLength(0);
       expect(parsed.symbols.length).toBeGreaterThan(0);
-      expect(parsed.imports.length).toBeGreaterThan(0);
-      expect(parsed.calls.length).toBeGreaterThan(0);
+      if (fixture.language === "markdown" || fixture.language === "yaml" || fixture.language === "json") {
+        expect(parsed.imports).toHaveLength(0);
+        expect(parsed.calls).toHaveLength(0);
+        expect(parsed.frameworkCalls).toHaveLength(0);
+      } else {
+        expect(parsed.imports.length).toBeGreaterThan(0);
+        expect(parsed.calls.length).toBeGreaterThan(0);
+      }
     }
   });
 });

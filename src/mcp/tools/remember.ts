@@ -27,11 +27,11 @@ export function registerRememberTool(
     async ({ scope, note, symbol, confidence }: { scope: string; note: string; symbol?: string; confidence?: number }) => {
       try {
         const store = new ObservationStore(db);
+        let linkedSymbolId: number | undefined;
 
         const id = db.transaction(() => {
           sessionQueries(db).ensureSession(sessionId, projectRoot);
 
-          let symbolId: number | undefined;
           if (symbol) {
             const symbols = symbolQueries(db);
             const allNames = symbols.getAllNames();
@@ -39,7 +39,7 @@ export function registerRememberTool(
             if (matches.length > 0) {
               const syms = symbols.getByName(matches[0]!.name);
               if (syms.length > 0) {
-                symbolId = syms[0]!.id;
+                linkedSymbolId = syms[0]!.id;
               }
             }
           }
@@ -48,13 +48,13 @@ export function registerRememberTool(
             sessionId,
             scope,
             note,
-            symbolId,
+            symbolId: linkedSymbolId,
             confidence,
           });
           return result.id;
         })();
 
-        const response = symbolId
+        const response = linkedSymbolId
           ? `Remembered observation #${id} [${scope}] linked to symbol`
           : `Remembered observation #${id} [${scope}]`;
 

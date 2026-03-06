@@ -39,6 +39,20 @@ export interface AggregateMetricOutput {
   avgTokenEfficiency: number;
   avgLatencyMs: number;
   p95LatencyMs: number;
+  taskCount: number;
+  taskSuccessRate: number;
+  firstPassSuccessRate: number;
+  correctionRate: number;
+  avgTaskTokensToSuccess: number;
+  avgTurnsToSuccess: number;
+}
+
+export interface TaskMetricOutput {
+  success: boolean;
+  firstPassSuccess: boolean;
+  correction: boolean;
+  tokensToSuccess: number;
+  turnsToSuccess: number;
 }
 
 interface HitMetrics {
@@ -176,6 +190,30 @@ export function computeQueryMetrics(input: QueryMetricInput): QueryMetricOutput 
 }
 
 export function aggregateMetrics(queries: QueryMetricOutput[]): AggregateMetricOutput {
+  return aggregateMetricsWithTasks(queries, []);
+}
+
+export function computeTaskMetrics(attempts: Array<{ success: boolean; tokensUsed: number }>): TaskMetricOutput {
+  const firstSuccessIndex = attempts.findIndex((attempt) => attempt.success);
+  const success = firstSuccessIndex >= 0;
+  const turnsToSuccess = success ? firstSuccessIndex + 1 : attempts.length;
+  const tokensToSuccess = attempts
+    .slice(0, success ? firstSuccessIndex + 1 : attempts.length)
+    .reduce((sum, attempt) => sum + attempt.tokensUsed, 0);
+
+  return {
+    success,
+    firstPassSuccess: success && firstSuccessIndex === 0,
+    correction: success && firstSuccessIndex > 0,
+    tokensToSuccess,
+    turnsToSuccess,
+  };
+}
+
+export function aggregateMetricsWithTasks(
+  queries: QueryMetricOutput[],
+  tasks: TaskMetricOutput[]
+): AggregateMetricOutput {
   return {
     queryCount: queries.length,
     precision: average(queries.map((q) => q.precision)),
@@ -184,5 +222,11 @@ export function aggregateMetrics(queries: QueryMetricOutput[]): AggregateMetricO
     avgTokenEfficiency: average(queries.map((q) => q.tokenEfficiency)),
     avgLatencyMs: average(queries.map((q) => q.latencyMs)),
     p95LatencyMs: percentile(queries.map((q) => q.latencyMs), 0.95),
+    taskCount: tasks.length,
+    taskSuccessRate: average(tasks.map((task) => (task.success ? 1 : 0))),
+    firstPassSuccessRate: average(tasks.map((task) => (task.firstPassSuccess ? 1 : 0))),
+    correctionRate: average(tasks.map((task) => (task.correction ? 1 : 0))),
+    avgTaskTokensToSuccess: average(tasks.map((task) => task.tokensToSuccess)),
+    avgTurnsToSuccess: average(tasks.map((task) => task.turnsToSuccess)),
   };
 }

@@ -143,13 +143,23 @@ export interface ParsedCall {
   callerSymbol: string;
   calleeName: string;
   line: number;
-  edgeKind?: "call" | "jsx_render" | "type_usage" | "inheritance" | "implements";
+  edgeKind?: "call" | "jsx_render" | "type_usage" | "inheritance" | "implements" | "framework_entry";
+}
+
+export interface ParsedFrameworkCall {
+  callerSymbol: string;
+  targetName: string;
+  line: number;
+  framework: "next_fetch" | "express_route";
+  httpMethod?: string;
+  routePath?: string;
 }
 
 export interface ParseResult {
   symbols: ParsedSymbol[];
   imports: ParsedImport[];
   calls: ParsedCall[];
+  frameworkCalls: ParsedFrameworkCall[];
   errors: string[];
 }
 
@@ -203,6 +213,12 @@ export interface CapsuleMetadata {
     intent: QueryIntent;
     mode: "single-pass" | "multi-pass";
     subQueryCount: number;
+    semanticRerank?: {
+      enabled: boolean;
+      applied: boolean;
+      candidateCount: number;
+      boosted: number;
+    };
   };
   clusterGroups?: Array<{
     id: number;

@@ -4,6 +4,9 @@ import { getDb, closeDb } from "../../db/connection.js";
 import { runMigrations } from "../../db/migrations.js";
 import { indexProject } from "../../core/indexer.js";
 import { runPageRankInBackground } from "../../core/graph.js";
+import { fileQueries } from "../../db/queries/files.js";
+import { buildProjectProfile, formatProjectProfile } from "../../utils/project-profile.js";
+import { syncBootstrapObservations } from "../../memory/bootstrap.js";
 const DEFAULT_CONFIG = {
   version: 1,
   ignore: ["node_modules", "dist", "build", ".git", ".next", "coverage"],
@@ -130,6 +133,7 @@ export async function autoInit(projectRoot: string): Promise<void> {
   runMigrations(db);
 
   const result = await indexProject(db, projectRoot, DEFAULT_CONFIG.ignore);
+  syncBootstrapObservations(db, projectRoot);
   runPageRankInBackground(dbPath);
   closeDb();
 
@@ -167,6 +171,7 @@ export async function runInit(projectRoot: string): Promise<void> {
     process.stdout.write("  Indexing project...\n");
     const startTime = Date.now();
     const result = await indexProject(db, projectRoot, DEFAULT_CONFIG.ignore);
+    const bootstrap = syncBootstrapObservations(db, projectRoot);
     const elapsed = Date.now() - startTime;
 
     runPageRankInBackground(dbPath);
@@ -175,6 +180,14 @@ export async function runInit(projectRoot: string): Promise<void> {
 
     if (result.errors.length > 0) {
       process.stdout.write(`  ${result.errors.length} files had parse errors\n`);
+    }
+
+    process.stdout.write(`\n`);
+    for (const line of formatProjectProfile(buildProjectProfile(projectRoot, fileQueries(db).getAll()))) {
+      process.stdout.write(`  ${line}\n`);
+    }
+    if (bootstrap.total > 0) {
+      process.stdout.write(`  Durable memory seeds: ${bootstrap.total} docs notes (${bootstrap.seeded} new, ${bootstrap.archived} archived)\n`);
     }
 
     generateClaudeMd(projectRoot);

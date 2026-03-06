@@ -50,4 +50,19 @@ describe("session-aware pivot boosting", () => {
       generateCapsule(db, { query: "weightedBfsTraversal", tokenBudget: 2000 });
     }).not.toThrow();
   });
+
+  it("does not let implicit default-session history pollute a later narrow symbol query", () => {
+    generateCapsule(db, { query: "generateCapsule", tokenBudget: 4000 });
+    generateCapsule(db, { query: "weightedBfsTraversal", tokenBudget: 4000 });
+    generateCapsule(db, { query: "scorePivotRelevance", tokenBudget: 4000 });
+
+    const result = generateCapsule(db, {
+      query: "SessionContext",
+      tokenBudget: 4000,
+    });
+
+    expect(result.metadata.fileCount).toBe(1);
+    expect(result.metadata.quality.coverageConfidence).toBeGreaterThan(0.7);
+    expect(result.content).toContain("SessionContext");
+  });
 });

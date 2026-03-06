@@ -95,6 +95,8 @@ describe("computeCoverageConfidence", () => {
         avgSymbolsPerFile: 2.2,
         maxSymbolsPerFile: 4,
       },
+      queryTermCoverage: 0.9,
+      retrievalSurfaceScore: 0.95,
     });
     expect(broad).toBeGreaterThan(0.6);
   });
@@ -115,7 +117,93 @@ describe("computeCoverageConfidence", () => {
         avgSymbolsPerFile: 3,
         maxSymbolsPerFile: 4,
       },
+      queryTermCoverage: 0.85,
+      retrievalSurfaceScore: 0.9,
     });
     expect(task).toBeGreaterThan(0.65);
+  });
+
+  it("penalizes broad confidence when query coverage is thin", () => {
+    const healthy = computeCoverageConfidence({
+      intent: "broad",
+      pivotCount: 12,
+      pivotsIncluded: 8,
+      relevantPivotsIncluded: 8,
+      totalRelevantPivots: 8,
+      dependencyCoverage: 0.4,
+      noiseRatio: 0.1,
+      fileSummaryCount: 1,
+      moduleCoverageStats: {
+        packedClusters: 3,
+        relevantClusters: 3,
+        avgSymbolsPerFile: 2,
+        maxSymbolsPerFile: 3,
+      },
+      queryTermCoverage: 1,
+      retrievalSurfaceScore: 1,
+    });
+    const thin = computeCoverageConfidence({
+      intent: "broad",
+      pivotCount: 2,
+      pivotsIncluded: 2,
+      relevantPivotsIncluded: 2,
+      totalRelevantPivots: 2,
+      dependencyCoverage: 1,
+      noiseRatio: 0,
+      fileSummaryCount: 0,
+      moduleCoverageStats: {
+        packedClusters: 1,
+        relevantClusters: 1,
+        avgSymbolsPerFile: 1,
+        maxSymbolsPerFile: 1,
+      },
+      queryTermCoverage: 0.5,
+      retrievalSurfaceScore: 0.35,
+    });
+
+    expect(thin).toBeLessThan(healthy);
+    expect(thin).toBeLessThan(0.7);
+  });
+
+  it("penalizes task confidence when the retrieval surface is too narrow", () => {
+    const healthy = computeCoverageConfidence({
+      intent: "task",
+      pivotCount: 16,
+      pivotsIncluded: 10,
+      relevantPivotsIncluded: 8,
+      totalRelevantPivots: 10,
+      dependencyCoverage: 0.5,
+      noiseRatio: 0.1,
+      fileSummaryCount: 1,
+      moduleCoverageStats: {
+        packedClusters: 4,
+        relevantClusters: 4,
+        avgSymbolsPerFile: 3,
+        maxSymbolsPerFile: 4,
+      },
+      queryTermCoverage: 0.95,
+      retrievalSurfaceScore: 0.9,
+    });
+    const thin = computeCoverageConfidence({
+      intent: "task",
+      pivotCount: 3,
+      pivotsIncluded: 3,
+      relevantPivotsIncluded: 3,
+      totalRelevantPivots: 3,
+      dependencyCoverage: 1,
+      noiseRatio: 0,
+      fileSummaryCount: 0,
+      moduleCoverageStats: {
+        packedClusters: 1,
+        relevantClusters: 1,
+        avgSymbolsPerFile: 1,
+        maxSymbolsPerFile: 1,
+      },
+      queryTermCoverage: 0.5,
+      retrievalSurfaceScore: 0.4,
+    });
+
+    expect(thin).toBeLessThan(healthy);
+    expect(thin).toBeLessThan(0.72);
   });
 });

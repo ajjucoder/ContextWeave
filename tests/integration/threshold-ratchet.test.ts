@@ -4,6 +4,7 @@ import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   DEFAULT_BASELINE,
+  EVAL_BASELINE_VERSION,
   runEvalSuite,
   toBaseline,
   type EvalBaseline,
@@ -17,8 +18,13 @@ const TOLERANCE = {
   recall: 0.02,
   avgConfidence: 0.02,
   avgTokenEfficiency: 0.03,
-  // Full-suite parallelism can add heavy contention/jitter versus isolated eval runs.
-  p95LatencyMs: 45,
+  // Full-suite parallelism plus scale tests can add heavy contention/jitter versus isolated eval runs.
+  p95LatencyMs: 50,
+  taskSuccessRate: 0.05,
+  firstPassSuccessRate: 0.1,
+  correctionRate: 0.15,
+  avgTaskTokensToSuccess: 1200,
+  avgTurnsToSuccess: 0.5,
 };
 
 function loadBaseline(): EvalBaseline {
@@ -47,6 +53,21 @@ function expectNoRegression(current: EvalBaseline["metrics"], baseline: EvalBase
   expect(current.p95LatencyMs, `${label}: p95LatencyMs`).toBeLessThanOrEqual(
     baseline.p95LatencyMs + TOLERANCE.p95LatencyMs
   );
+  expect(current.taskSuccessRate, `${label}: taskSuccessRate`).toBeGreaterThanOrEqual(
+    baseline.taskSuccessRate - TOLERANCE.taskSuccessRate
+  );
+  expect(current.firstPassSuccessRate, `${label}: firstPassSuccessRate`).toBeGreaterThanOrEqual(
+    baseline.firstPassSuccessRate - TOLERANCE.firstPassSuccessRate
+  );
+  expect(current.correctionRate, `${label}: correctionRate`).toBeGreaterThanOrEqual(
+    baseline.correctionRate - TOLERANCE.correctionRate
+  );
+  expect(current.avgTaskTokensToSuccess, `${label}: avgTaskTokensToSuccess`).toBeLessThanOrEqual(
+    baseline.avgTaskTokensToSuccess + TOLERANCE.avgTaskTokensToSuccess
+  );
+  expect(current.avgTurnsToSuccess, `${label}: avgTurnsToSuccess`).toBeLessThanOrEqual(
+    baseline.avgTurnsToSuccess + TOLERANCE.avgTurnsToSuccess
+  );
 }
 
 const baselineExistedBefore = existsSync(BASELINE_PATH);
@@ -68,6 +89,7 @@ describe("quality ratchet - no regression allowed", () => {
     }
     const defaultDate = new Date(0).toISOString();
     expect(baseline.updatedAt).not.toBe(defaultDate);
+    expect(baseline.version).toBe(EVAL_BASELINE_VERSION);
   });
 
   it("overall eval metrics do not regress beyond tolerance", () => {

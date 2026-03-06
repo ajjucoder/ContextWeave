@@ -61,4 +61,14 @@ describe("two-phase retrieval", () => {
     expect(result.metadata.quality.retrieval.stageACandidateCount).toBeLessThanOrEqual(200);
     expect(result.metadata.quality.retrieval.stageBSelectedCount).toBeLessThanOrEqual(260);
   });
+
+  it("keeps semantic reranking disabled by default", () => {
+    const result = generateCapsule(db, {
+      query: "file indexing parsing symbol extraction",
+      tokenBudget: 4000,
+    });
+
+    expect(result.metadata.strategy?.semanticRerank?.enabled).toBe(false);
+    expect(result.metadata.strategy?.semanticRerank?.applied).toBe(false);
+  });
 });

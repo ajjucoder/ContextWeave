@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { aggregateMetrics, computeQueryMetrics, computeTokenEfficiency } from "./metrics.js";
+import {
+  aggregateMetrics,
+  aggregateMetricsWithTasks,
+  computeQueryMetrics,
+  computeTaskMetrics,
+  computeTokenEfficiency,
+} from "./metrics.js";
 
 describe("eval metrics", () => {
   it("computes token efficiency", () => {
@@ -61,5 +67,53 @@ describe("eval metrics", () => {
     expect(aggregate.avgTokenEfficiency).toBeCloseTo((0.8 + 0.6) / 2, 6);
     expect(aggregate.avgLatencyMs).toBeCloseTo(15, 6);
     expect(aggregate.p95LatencyMs).toBe(20);
+    expect(aggregate.taskCount).toBe(0);
+  });
+
+  it("computes task metrics with correction attempts", () => {
+    const task = computeTaskMetrics([
+      { success: false, tokensUsed: 400 },
+      { success: true, tokensUsed: 250 },
+      { success: true, tokensUsed: 100 },
+    ]);
+
+    expect(task.success).toBe(true);
+    expect(task.firstPassSuccess).toBe(false);
+    expect(task.correction).toBe(true);
+    expect(task.turnsToSuccess).toBe(2);
+    expect(task.tokensToSuccess).toBe(650);
+  });
+
+  it("aggregates task metrics alongside query metrics", () => {
+    const query = computeQueryMetrics({
+      expectedFiles: ["a.ts"],
+      expectedSymbols: [],
+      actualFiles: ["a.ts"],
+      actualSymbols: [],
+      latencyMs: 10,
+      tokensUsed: 200,
+      rawTokenCount: 1000,
+      coverageConfidence: 0.8,
+    });
+
+    const aggregate = aggregateMetricsWithTasks(
+      [query],
+      [
+        computeTaskMetrics([
+          { success: false, tokensUsed: 400 },
+          { success: true, tokensUsed: 200 },
+        ]),
+        computeTaskMetrics([
+          { success: true, tokensUsed: 150 },
+        ]),
+      ]
+    );
+
+    expect(aggregate.taskCount).toBe(2);
+    expect(aggregate.taskSuccessRate).toBe(1);
+    expect(aggregate.firstPassSuccessRate).toBe(0.5);
+    expect(aggregate.correctionRate).toBe(0.5);
+    expect(aggregate.avgTaskTokensToSuccess).toBeCloseTo((600 + 150) / 2, 6);
+    expect(aggregate.avgTurnsToSuccess).toBeCloseTo((2 + 1) / 2, 6);
   });
 });

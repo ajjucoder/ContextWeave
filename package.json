@@ -11,10 +11,12 @@
     "build": "tsup",
     "dev": "tsup --watch",
     "test": "vitest run",
+    "test:field": "vitest run tests/field/*.test.ts",
     "test:watch": "vitest",
     "eval": "tsx tests/eval/eval-runner.ts --assert",
     "eval:update-baseline": "tsx tests/integration/update-baseline.ts",
     "bench": "tsx bench/harness.ts",
+    "bench:product": "tsx bench/cross-project-qa.ts",
     "bench:100k": "tsx bench/100k-harness.ts",
     "bench:concurrent": "tsx bench/concurrent-stress.ts",
     "lint": "tsc --noEmit"

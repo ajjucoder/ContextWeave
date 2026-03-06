@@ -7,6 +7,7 @@ import { edgeQueries } from "../../db/queries/edges.js";
 import { observationQueries } from "../../db/queries/observations.js";
 import { capsuleLogQueries } from "../../db/queries/capsule-log.js";
 import { getRegisterTool } from "./register-helper.js";
+import { buildProjectProfile, formatProjectProfile } from "../../utils/project-profile.js";
 
 export function registerStatusTool(server: McpServer, db: Database.Database, projectRoot: string): void {
   const registerTool = getRegisterTool(server);
@@ -40,6 +41,8 @@ export function registerStatusTool(server: McpServer, db: Database.Database, pro
           `Edges:        ${edgeCount}`,
           `Observations: ${observationCount} (${staleCount} stale)`,
         ];
+        const profile = buildProjectProfile(projectRoot, files.getAll());
+        lines.push("", ...formatProjectProfile(profile));
 
         if (recentCapsules.length > 0) {
           lines.push(``, `Recent Capsule Generations:`);

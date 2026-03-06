@@ -65,6 +65,7 @@ const STOP_WORDS = new Set([
 // Question words signal exploration intent, not task intent.
 // "how does auth work" should classify as narrow/broad, not task.
 const QUESTION_WORDS = new Set(["how", "what", "why", "where", "when"]);
+const FLOW_SCOPE_TERMS = new Set(["flow", "pipeline", "architecture", "lifecycle", "journey", "boundary"]);
 
 export const TASK_VERBS = new Set([
   "find",
@@ -132,6 +133,9 @@ function inferModules(terms: string[]): string[] {
 function classifyIntent(actionVerbs: string[], normalizedTerms: string[], hasQuestionWord: boolean): QueryIntent {
   // Real action verbs (not question words) → task intent with multi-pass pipeline
   if (actionVerbs.length > 0) return "task";
+  if (!hasQuestionWord && normalizedTerms.length >= 3 && normalizedTerms.some((term) => FLOW_SCOPE_TERMS.has(term))) {
+    return "broad";
+  }
   // Question-word queries are exploration: use term count to decide narrow vs broad
   if (hasQuestionWord) {
     return normalizedTerms.length >= 4 ? "broad" : "narrow";

@@ -10,6 +10,8 @@ export interface ConfidenceParams {
   dependencyCoverage: number;
   noiseRatio: number;
   fileSummaryCount: number;
+  queryTermCoverage?: number;
+  retrievalSurfaceScore?: number;
   moduleCoverageStats?: {
     packedClusters: number;
     relevantClusters: number;
@@ -27,6 +29,8 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
     dependencyCoverage,
     noiseRatio,
     fileSummaryCount,
+    queryTermCoverage = 1,
+    retrievalSurfaceScore = 1,
     moduleCoverageStats,
   } = params;
 
@@ -53,7 +57,7 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
       : 0;
 
   if (intent === "broad") {
-    return Math.max(
+    const base = Math.max(
       0,
       Math.min(
         1,
@@ -61,13 +65,15 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
           relevantCoverage * 0.25 +
           (1 - noiseRatio) * 0.15 +
           summaryBoost +
-          0.262
+          0.282
       )
     );
+    const breadthFactor = Math.min(queryTermCoverage, retrievalSurfaceScore);
+    return Math.max(0, Math.min(1, base * (0.35 + 0.65 * breadthFactor)));
   }
 
   if (intent === "task") {
-    return Math.max(
+    const base = Math.max(
       0,
       Math.min(
         1,
@@ -75,9 +81,11 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
           moduleCoverage * 0.25 +
           relevantCoverage * 0.2 +
           (1 - noiseRatio) * 0.1 +
-          0.302
+          0.362
       )
     );
+    const breadthFactor = Math.min(queryTermCoverage, retrievalSurfaceScore);
+    return Math.max(0, Math.min(1, base * (0.45 + 0.55 * breadthFactor)));
   }
 
   return Math.max(

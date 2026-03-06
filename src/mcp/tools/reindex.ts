@@ -8,6 +8,7 @@ import { runPageRankInBackground } from "../../core/graph.js";
 import { createLogger } from "../../utils/logger.js";
 import type { ProjectConfig } from "../../utils/config.js";
 import { getRegisterTool } from "./register-helper.js";
+import { syncBootstrapObservations } from "../../memory/bootstrap.js";
 
 const log = createLogger("reindex-tool");
 
@@ -47,6 +48,7 @@ export function registerReindexTool(server: McpServer, db: Database.Database, pr
 
           if (isDirectory) {
             const result = await indexDirectory(db, fullPath, projectRoot, config?.ignore);
+            syncBootstrapObservations(db, projectRoot);
             runPageRankInBackground(dbPath);
             const elapsed = Date.now() - startTime;
             return {
@@ -58,6 +60,7 @@ export function registerReindexTool(server: McpServer, db: Database.Database, pr
           }
 
           const result = indexSingleFile(db, fullPath, projectRoot);
+          syncBootstrapObservations(db, projectRoot);
           runPageRankInBackground(dbPath);
           const elapsed = Date.now() - startTime;
 
@@ -70,6 +73,7 @@ export function registerReindexTool(server: McpServer, db: Database.Database, pr
         }
 
         const result = await indexProject(db, projectRoot, config?.ignore);
+        syncBootstrapObservations(db, projectRoot);
         runPageRankInBackground(dbPath);
         const elapsed = Date.now() - startTime;
 

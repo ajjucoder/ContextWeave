@@ -43,4 +43,42 @@ export const SMALL_PROJECT_FIXTURE: EvalCodebaseFixture = {
       expectedSymbols: ["createAuthStack"],
     },
   ],
+  tasks: [
+    {
+      id: "sp-task-login-stack",
+      goal: "Recover the login request path with one vague attempt and one corrective query.",
+      attempts: [
+        {
+          id: "sp-task-login-stack-a1",
+          query: "session entry flow",
+          expectedFiles: ["handler.ts", "service.ts"],
+          expectedSymbols: ["handleLogin", "AuthService"],
+        },
+        {
+          id: "sp-task-login-stack-a2",
+          query: "login handler",
+          expectedFiles: ["handler.ts", "service.ts"],
+          expectedSymbols: ["handleLogin", "AuthHandler"],
+        },
+      ],
+    },
+    {
+      id: "sp-task-token-validation",
+      goal: "Recover token validation logic after a conceptual miss.",
+      attempts: [
+        {
+          id: "sp-task-token-validation-a1",
+          query: "credential freshness checks",
+          expectedFiles: ["service.ts", "utils.ts"],
+          expectedSymbols: ["validateToken", "isTokenExpired"],
+        },
+        {
+          id: "sp-task-token-validation-a2",
+          query: "validate token",
+          expectedFiles: ["service.ts", "utils.ts"],
+          expectedSymbols: ["validateToken"],
+        },
+      ],
+    },
+  ],
 };

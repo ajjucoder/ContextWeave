@@ -7,4 +7,9 @@ export const EVAL_CODEBASE_FIXTURES: EvalCodebaseFixture[] = [
   SMALL_PROJECT_FIXTURE,
 ];
 
-export type { EvalCodebaseFixture, EvalQueryFixture } from "./types.js";
+export type {
+  EvalCodebaseFixture,
+  EvalQueryFixture,
+  EvalTaskAttemptFixture,
+  EvalTaskFixture,
+} from "./types.js";

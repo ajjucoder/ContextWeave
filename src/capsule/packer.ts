@@ -11,6 +11,7 @@ export interface PackResult {
 
 const COMPRESSION_LEVELS: CompressionLevel[] = [0, 1, 2, 3];
 const FILE_SUMMARY_MIN_SYMBOLS = 3;
+const UI_ENTRY_PATH_RE = /(^|\/)(components?|views?|templates?|marketing)(\/|$)|(^|\/)(page|layout)\.[cm]?[jt]sx?$/i;
 
 function summarizeUnpacked(
   scoredNodes: ScoredNode[],
@@ -197,14 +198,21 @@ export function packNodesStoryMode(
     for (const node of sortedNodes) {
       if (packedIds.has(node.symbol.id)) continue;
 
-      let targetLevel: CompressionLevel;
+      let preferredLevel: CompressionLevel;
       if (node.distance === 0) {
-        targetLevel = 0;
+        preferredLevel = 0;
       } else if (node.score >= topScore * 0.65) {
-        targetLevel = 1;
+        preferredLevel = 1;
       } else {
-        targetLevel = 2;
+        preferredLevel = 2;
       }
+
+      const targetLevel =
+        node.distance === 0 &&
+        node.compressionLevel > 0 &&
+        UI_ENTRY_PATH_RE.test(node.file.path)
+          ? node.compressionLevel
+          : preferredLevel;
 
       const rendered = renderSymbol(node.symbol, node.file, targetLevel);
       const tokens = countTokens(rendered);

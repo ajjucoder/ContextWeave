@@ -20,6 +20,7 @@ import { startWatcher, stopWatcher } from "../core/watcher.js";
 import { createLogger } from "../utils/logger.js";
 import type { ProjectConfig } from "../utils/config.js";
 import { acquireServerSessionLock, releaseServerSessionLock } from "./session-lock.js";
+import { syncBootstrapObservations } from "../memory/bootstrap.js";
 
 const log = createLogger("mcp-server");
 
@@ -44,6 +45,7 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
   });
 
   const db = getServerDb(projectRoot);
+  syncBootstrapObservations(db, projectRoot);
 
   log.info("acquired server lock", { mode: serverLock.mode, projectRoot });
 

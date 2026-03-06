@@ -16,6 +16,7 @@ import { isFrameworkEntryPath } from "../utils/path-retrieval.js";
 import { upsertFileSummary, backfillSummariesIfNeeded } from "./file-summaries.js";
 import { computeClusters, backfillClustersIfNeeded } from "./clusters.js";
 import { loadTsconfigPaths, resolveAliasedImport, type TsconfigPaths } from "../utils/tsconfig-paths.js";
+import { resolveFrameworkTargets } from "../frameworks/registry.js";
 
 const log = createLogger("indexer");
 
@@ -664,6 +665,26 @@ function resolveEdges(
     }
   }
 
+  for (const frameworkCall of parseResult.frameworkCalls) {
+    const callerId = symbolMap.get(frameworkCall.callerSymbol);
+    if (!callerId) continue;
+
+    const targetIds = resolveFrameworkTargets(frameworkCall, {
+      files,
+      symbols,
+      pickTargets,
+    });
+    for (const targetId of targetIds) {
+      if (callerId === targetId) continue;
+      edges.insert({
+        sourceSymbolId: callerId,
+        targetSymbolId: targetId,
+        kind: "framework_entry",
+        createdAt: now,
+      });
+    }
+  }
+
   for (const call of parseResult.calls) {
     const callerId = symbolMap.get(call.callerSymbol);
     if (!callerId) continue;
@@ -1074,7 +1095,6 @@ export async function indexDirectory(
 
   const discoveredPaths = new Set(inDirectory.map((f) => f.path));
   const files = fileQueries(db);
-  const dirPrefix = `${resolvedDirectory}${sep}`;
   const existingInDir = files.searchByPath(resolvedDirectory, 100000);
   let prunedCount = 0;
   for (const existing of existingInDir) {
