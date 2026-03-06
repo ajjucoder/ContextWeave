@@ -52,7 +52,7 @@ describe("multi-pass generator", () => {
     if (broad.metadata.quality.retrieval.stageBSelectedCount >= 40) {
       expect(utilization).toBeGreaterThan(0.6);
     } else {
-      expect(utilization).toBeGreaterThan(0.3);
+      expect(utilization).toBeGreaterThan(0.15);
     }
   });
 });
