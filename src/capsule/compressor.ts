@@ -10,10 +10,34 @@ export function renderSymbol(
   symbol: SymbolRecord,
   file: FileRecord,
   level: CompressionLevel,
-  edges?: EdgeSummary[]
+  edges?: EdgeSummary[],
+  maxL0Tokens?: number
 ): string {
   if (level === 0) {
-    return `// ${file.path}:${symbol.startLine}-${symbol.endLine}\n${symbol.fullSource}`;
+    const header = `// ${file.path}:${symbol.startLine}-${symbol.endLine}`;
+    const full = `${header}\n${symbol.fullSource}`;
+    const cap = maxL0Tokens ?? 600;
+    if (countTokens(full) <= cap) return full;
+
+    const lines = symbol.fullSource.split("\n");
+    const sigLine = lines[0] ?? "";
+    const tailLines = lines.slice(-3);
+    const headLines: string[] = [sigLine];
+    const truncMsg = `// ... truncated — use cw_read(symbol: "${symbol.name}") for full source`;
+    let tokens = countTokens([header, sigLine, truncMsg, ...tailLines].join("\n"));
+
+    for (let i = 1; i < lines.length - 3; i++) {
+      const next = lines[i]!;
+      const nextTokens = countTokens(next);
+      if (tokens + nextTokens > cap * 0.7) break;
+      headLines.push(next);
+      tokens += nextTokens;
+    }
+
+    const omitted = lines.length - headLines.length - tailLines.length;
+    if (omitted <= 0) return full;
+
+    return [header, ...headLines, `// ... ${omitted} more lines — use cw_read(symbol: "${symbol.name}") for full source`, ...tailLines].join("\n");
   }
 
   if (level === 1) {
@@ -39,8 +63,12 @@ export function renderSymbol(
   return `${symbol.kind} ${symbol.name} @ ${file.path}:${symbol.startLine}`;
 }
 
-export function estimateTokens(symbol: SymbolRecord, level: CompressionLevel): number {
-  if (level === 0) return countTokens(symbol.fullSource);
+export function estimateTokens(symbol: SymbolRecord, level: CompressionLevel, maxL0Tokens?: number): number {
+  if (level === 0) {
+    const full = countTokens(symbol.fullSource);
+    const cap = maxL0Tokens ?? 600;
+    return Math.min(full, cap);
+  }
   if (level === 1) {
     const doc = symbol.docComment ?? "";
     return countTokens(`${symbol.signature}\n${doc}`);

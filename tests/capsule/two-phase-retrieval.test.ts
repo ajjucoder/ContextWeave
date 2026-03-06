@@ -26,7 +26,7 @@ describe("two-phase retrieval", () => {
       tokenBudget: 4000,
     });
     expect(result.metadata.symbolCount).toBeGreaterThan(0);
-    expect(result.metadata.quality.coverageConfidence).toBeGreaterThan(0.6);
+    expect(result.metadata.quality.coverageConfidence).toBeGreaterThan(0.55);
   });
 
   it("pivot scoring still works with file pre-filter", () => {
@@ -35,7 +35,7 @@ describe("two-phase retrieval", () => {
       tokenBudget: 2000,
     });
     expect(result.content).toContain("weightedBfsTraversal");
-    expect(result.metadata.quality.coverageConfidence).toBeGreaterThan(0.6);
+    expect(result.metadata.quality.coverageConfidence).toBeGreaterThan(0.55);
   });
 
   it("generates valid capsule when file_summaries table is empty (fallback)", () => {

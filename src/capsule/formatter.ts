@@ -85,7 +85,35 @@ export function formatCapsule(
     }
   }
 
-  const parts = [header, ...codeSections];
+  const followUpCandidates = packedNodes
+    .filter((n) => n.compressionLevel >= 1 && n.compressionLevel <= 2)
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    .slice(0, 5);
+
+  const highConfObs = observations.filter((o) => o.confidence >= 0.8);
+  const lowConfObs = observations.filter((o) => o.confidence < 0.8);
+
+  const parts = [header];
+
+  if (highConfObs.length > 0) {
+    parts.push("\n--- Key Context ---");
+    for (const obs of highConfObs) {
+      parts.push(`[${obs.scope}] ${obs.note}`);
+    }
+  }
+
+  parts.push(...codeSections);
+
+  if (followUpCandidates.length > 0) {
+    parts.push("\n--- Follow-Up Reads ---");
+    parts.push("These symbols were compressed. Use cw_read for full source:");
+    for (const node of followUpCandidates) {
+      const lineCount = (node.symbol?.endLine ?? 0) - (node.symbol?.startLine ?? 0) + 1;
+      const name = node.symbol?.name ?? "unknown";
+      const scoreStr = (node.score ?? 0).toFixed(2);
+      parts.push(`  cw_read(symbol: "${name}")  — ${lineCount} lines, scored ${scoreStr}`);
+    }
+  }
 
   if (fileSummaries.length > 0) {
     parts.push("\n--- Unpacked Files ---");
@@ -109,9 +137,9 @@ export function formatCapsule(
     parts.push(`Suggestion: ${metadata.diagnostics.suggestion}`);
   }
 
-  if (observations.length > 0) {
+  if (lowConfObs.length > 0) {
     parts.push("\n--- Observations ---");
-    for (const obs of observations) {
+    for (const obs of lowConfObs) {
       parts.push(`[${obs.scope}] ${obs.note} (confidence: ${obs.confidence})`);
     }
   }

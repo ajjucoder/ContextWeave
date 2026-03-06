@@ -44,6 +44,7 @@ import { searchFilesByQuery } from "../core/file-summaries.js";
 import { getFileClusterId, getClusterFileIds } from "../core/clusters.js";
 import { buildUncertainty, computeCoverageConfidence } from "./confidence.js";
 import { filePathMatchesQueryTerms } from "../utils/path-retrieval.js";
+import { contentFallbackSearch } from "./content-fallback.js";
 import {
   getCommonDisplayRoot,
   getLexicalScore,
@@ -319,6 +320,20 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
   }
 
+  if (rawPivotIds.size < 3) {
+    const contentMatches = contentFallbackSearch(db, expandedQueryTerms);
+    let added = 0;
+    for (const match of contentMatches) {
+      if (!rawPivotIds.has(match.symbolId)) {
+        rawPivotIds.add(match.symbolId);
+        added++;
+      }
+    }
+    if (added > 0) {
+      logger.info("content fallback activated", { additionalPivots: added, totalPivots: rawPivotIds.size });
+    }
+  }
+
   logger.debug("raw pivot candidates", { count: rawPivotIds.size });
 
   const MAX_PIVOTS =
@@ -448,7 +463,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const scopeDirs = scopeDirSet.size > 0 ? [...scopeDirSet] : null;
   const maxVisitedNodes = Math.min(MAX_BFS_VISITED_CAP, Math.floor(retrievalBudget / MAX_BFS_VISITED_DIVISOR));
   const effectiveBfsDepth = skipBfs ? 1 : maxDepth;
-  const bfsNodes = weightedBfsTraversal(db, [...pivotSymbolIds], effectiveBfsDepth, scopeDirs, { maxVisitedNodes, maxHops: MAX_BFS_HOPS });
+  const bfsIncomingMult = intent === "broad" ? 4.0 : 1.5;
+  const bfsNodes = weightedBfsTraversal(db, [...pivotSymbolIds], effectiveBfsDepth, scopeDirs, { maxVisitedNodes, maxHops: MAX_BFS_HOPS, incomingEdgeCostMultiplier: bfsIncomingMult });
   const visited = new Map<number, number>(bfsNodes.map((n) => [n.symbolId, n.distance]));
 
   logger.debug("bfs traversal complete", { nodesVisited: visited.size });

@@ -248,6 +248,13 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 10,
+    up(db) {
+      db.exec("DELETE FROM file_summaries");
+      db.exec("INSERT INTO file_summaries_fts(file_summaries_fts) VALUES ('rebuild')");
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {
