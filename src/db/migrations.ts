@@ -225,6 +225,29 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 9,
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS session_context_new (
+          id          INTEGER PRIMARY KEY AUTOINCREMENT,
+          session_id  TEXT    NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+          symbol_id   INTEGER REFERENCES symbols(id) ON DELETE CASCADE,
+          file_id     INTEGER REFERENCES files(id) ON DELETE CASCADE,
+          query       TEXT    NOT NULL,
+          relevance   REAL    NOT NULL DEFAULT 1.0,
+          returned_at INTEGER NOT NULL
+        );
+        INSERT OR IGNORE INTO session_context_new
+          SELECT * FROM session_context
+          WHERE session_id IN (SELECT id FROM sessions);
+        DROP TABLE IF EXISTS session_context;
+        ALTER TABLE session_context_new RENAME TO session_context;
+        CREATE INDEX IF NOT EXISTS idx_session_ctx_session ON session_context(session_id);
+        CREATE INDEX IF NOT EXISTS idx_session_ctx_symbol ON session_context(symbol_id);
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

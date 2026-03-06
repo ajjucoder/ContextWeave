@@ -41,7 +41,7 @@ describe("DB migration upgrade path", () => {
       .all() as Array<{ version: number }>;
     const versions = applied.map((r) => r.version);
 
-    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
 
     db.close();
   });
@@ -71,7 +71,7 @@ describe("DB migration upgrade path", () => {
         .get() as { cnt: number }
     ).cnt;
 
-    expect(count).toBe(8);
+    expect(count).toBe(9);
 
     db.close();
   });
@@ -126,6 +126,23 @@ describe("DB migration upgrade path", () => {
       .get();
 
     expect(row).toBeTruthy();
+
+    db.close();
+  });
+
+  it("session_context has FK to sessions after v9 migration", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    runMigrations(db);
+
+    const fks = db
+      .prepare("PRAGMA foreign_key_list(session_context)")
+      .all() as Array<{ table: string; from: string; to: string }>;
+
+    const sessionFk = fks.find((fk) => fk.from === "session_id");
+    expect(sessionFk).toBeDefined();
+    expect(sessionFk!.table).toBe("sessions");
+    expect(sessionFk!.to).toBe("id");
 
     db.close();
   });

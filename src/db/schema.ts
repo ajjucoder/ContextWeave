@@ -125,7 +125,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 
 CREATE TABLE IF NOT EXISTS session_context (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  session_id  TEXT    NOT NULL,
+  session_id  TEXT    NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   symbol_id   INTEGER REFERENCES symbols(id) ON DELETE CASCADE,
   file_id     INTEGER REFERENCES files(id) ON DELETE CASCADE,
   query       TEXT    NOT NULL,
