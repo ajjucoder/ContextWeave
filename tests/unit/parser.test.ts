@@ -169,6 +169,23 @@ module.exports = { oauthController };
     );
   });
 
+  it("treats CommonJS require aliases as default module imports", () => {
+    const content = `
+const proto = require("./application");
+
+function createApplication() {
+  return proto.init();
+}
+`;
+    const parsed = parseFile("express.js", content, "javascript");
+    const moduleImport = parsed.imports.find((imp) => imp.source === "./application");
+
+    expect(parsed.errors).toHaveLength(0);
+    expect(moduleImport).toBeDefined();
+    expect(moduleImport?.kind).toBe("default");
+    expect(moduleImport?.specifiers).toEqual([{ localName: "proto", importedName: "default" }]);
+  });
+
   it("marks browser-global assignments and IIFE wrappers as exported JS entrypoints", () => {
     const content = `
 const startServer = () => bootKernel();

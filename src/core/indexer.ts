@@ -599,6 +599,13 @@ function resolveEdges(
         for (const targetId of resolveReExportTargets(importFileId, pair.lookupName)) {
           addImportedTarget(pair.localName, targetId, true);
         }
+
+        if (imp.kind === "default" && pair.lookupName === "default") {
+          for (const exportedSymbol of targetSymbols.filter((symbol) => symbol.isExported).slice(0, MAX_EDGE_TARGETS_PER_REFERENCE)) {
+            addImportedTarget(pair.localName, exportedSymbol.id, false);
+            addImportedTarget(exportedSymbol.name, exportedSymbol.id, false);
+          }
+        }
       }
     }
   }

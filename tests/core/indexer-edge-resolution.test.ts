@@ -83,4 +83,52 @@ describe("indexer edge resolution", () => {
     expect(callEdges.length).toBeLessThanOrEqual(3);
     expect(edges.count()).toBeLessThan(250);
   });
+
+  it("resolves CommonJS module alias imports to exported symbols in the required file", async () => {
+    writeFileSync(
+      resolve(TEMP_DIR, "application.js"),
+      [
+        "var app = exports = module.exports = {};",
+        "app.init = function init() {",
+        "  return app;",
+        "};",
+        "",
+      ].join("\n")
+    );
+
+    writeFileSync(
+      resolve(TEMP_DIR, "express.js"),
+      [
+        "var proto = require('./application');",
+        "export function createApplication() {",
+        "  return proto.init();",
+        "}",
+        "",
+      ].join("\n")
+    );
+
+    await indexProject(db, TEMP_DIR);
+
+    const files = fileQueries(db);
+    const symbols = symbolQueries(db);
+    const edges = edgeQueries(db);
+
+    const expressFile = files.getByPath(resolve(TEMP_DIR, "express.js"));
+    const applicationFile = files.getByPath(resolve(TEMP_DIR, "application.js"));
+    expect(expressFile).toBeDefined();
+    expect(applicationFile).toBeDefined();
+
+    const createApplication = symbols.getByFileId(expressFile!.id).find((s) => s.name === "createApplication");
+    const appInit = symbols.getByFileId(applicationFile!.id).find((s) => s.name === "init");
+    expect(createApplication).toBeDefined();
+    expect(appInit).toBeDefined();
+
+    const outgoing = edges.getBySource(createApplication!.id);
+    const applicationTargets = outgoing.filter((edge) => {
+      const target = symbols.getById(edge.targetSymbolId);
+      return target?.fileId === applicationFile!.id;
+    });
+
+    expect(applicationTargets.some((edge) => edge.targetSymbolId === appInit!.id)).toBe(true);
+  });
 });

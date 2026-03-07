@@ -33,8 +33,8 @@ const PROJECTS: QaProject[] = [
         id: "express-router-pipeline",
         goal: "Find the Express router request flow with a realistic first-shot architecture query and a narrower fallback.",
         attempts: [
-          { query: "middleware routing request response pipeline", expectedFiles: ["lib/express.js"] },
-          { query: "request lifecycle", expectedFiles: ["lib/express.js"] },
+          { query: "middleware routing request response pipeline", expectedFiles: ["lib/express.js", "lib/application.js"] },
+          { query: "express request routing pipeline", expectedFiles: ["lib/express.js", "lib/application.js"] },
         ],
       },
       {

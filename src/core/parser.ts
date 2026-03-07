@@ -368,6 +368,7 @@ function toLocalBindingName(reference: string): string | null {
 
 function parseCommonJsExports(content: string): Set<string> {
   const exported = new Set<string>();
+  const exportAliases = new Set(["exports", "module.exports"]);
 
   const moduleExportsObjectRe = /module\.exports\s*=\s*{([\s\S]*?)}/g;
   for (const match of content.matchAll(moduleExportsObjectRe)) {
@@ -392,7 +393,71 @@ function parseCommonJsExports(content: string): Set<string> {
     if (localName) exported.add(localName);
   }
 
+  const exportAliasRe = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:exports\s*=\s*module\.exports|module\.exports\s*=\s*exports)\s*=\s*[^\n;]+/g;
+  for (const match of content.matchAll(exportAliasRe)) {
+    const alias = match[1];
+    if (alias) exportAliases.add(alias);
+  }
+
+  const aliasPattern = [...exportAliases]
+    .map((alias) => alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  const memberExportRe = new RegExp(`(?:${aliasPattern})\\.([A-Za-z_$][\\w$]*)\\s*=\\s*([^\\n;]+)`, "g");
+  for (const match of content.matchAll(memberExportRe)) {
+    const localName = toLocalBindingName(match[2] ?? "");
+    if (localName) exported.add(localName);
+    else if (match[1]) exported.add(match[1]);
+  }
+
   return exported;
+}
+
+function parseJsLikeMemberAssignmentSymbols(
+  tree: Parser.Tree,
+  content: string,
+  exportedNames: Set<string>
+): ParsedSymbol[] {
+  const symbols: ParsedSymbol[] = [];
+  const seen = new Set<string>();
+  const stack: Parser.SyntaxNode[] = [tree.rootNode];
+
+  while (stack.length > 0) {
+    const current = stack.pop()!;
+    if (current.type === "assignment_expression" && isModuleLevelDeclaration(current)) {
+      const left = current.childForFieldName("left");
+      const right = current.childForFieldName("right");
+      const propertyNode = left?.childForFieldName("property");
+      const propertyName = propertyNode?.text;
+      const rightType = right?.type;
+      const kind =
+        rightType === "arrow_function" ? "arrow" : rightType === "function_expression" ? "function" : null;
+
+      if (propertyNode && propertyName && kind && exportedNames.has(propertyName)) {
+        const key = `${propertyName}:${current.startIndex}:${current.endIndex}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          const fullSource = current.text;
+          symbols.push({
+            name: propertyName,
+            kind,
+            startLine: current.startPosition.row + 1,
+            endLine: current.endPosition.row + 1,
+            signature: buildSignature(current, content),
+            fullSource,
+            bodyHash: hashContent(fullSource),
+            isExported: true,
+            docComment: extractDocComment(current),
+          });
+        }
+      }
+    }
+
+    for (const child of current.namedChildren) {
+      stack.push(child);
+    }
+  }
+
+  return symbols;
 }
 
 function parseBrowserGlobalExports(content: string): Set<string> {
@@ -606,6 +671,10 @@ function parseSymbols(
   }
   if (queries.enumDeclarations) {
     runQuery(queries.enumDeclarations, "enum");
+  }
+
+  if (jsLikeExports) {
+    symbols.push(...parseJsLikeMemberAssignmentSymbols(tree, content, jsLikeExports));
   }
 
   return symbols;
@@ -836,7 +905,7 @@ function parseJsLikeModuleImports(tree: Parser.Tree, content: string): ParsedImp
       names: [localName],
       source,
       kind: "default",
-      specifiers: [{ localName, importedName: localName }],
+      specifiers: [{ localName, importedName: "default" }],
     });
   }
 
