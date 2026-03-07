@@ -77,4 +77,33 @@ describe("SessionContext", () => {
     expect(ctxB.getRecentSymbolIds()).not.toContain(symId);
     expect(ctxB.getRecentFileIds()).not.toContain(fileId);
   });
+
+  it("returns the latest unique file and symbol ids when recency is limited", () => {
+    const files = fileQueries(db);
+    const syms = symbolQueries(db);
+    const now = Date.now();
+
+    const olderFileId = files.insert({ path: "src/older.ts", hash: "d", lastIndexed: now, mtime: now, language: "typescript", symbolCount: 1, error: null });
+    const newerFileId = files.insert({ path: "src/newer.ts", hash: "e", lastIndexed: now, mtime: now, language: "typescript", symbolCount: 1, error: null });
+    const olderSymId = syms.insert({ fileId: olderFileId, name: "olderFn", kind: "function", startLine: 1, endLine: 5, signature: "function olderFn()", bodyHash: "older", fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now });
+    const newerSymId = syms.insert({ fileId: newerFileId, name: "newerFn", kind: "function", startLine: 1, endLine: 5, signature: "function newerFn()", bodyHash: "newer", fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now });
+
+    sessionQueries(db).ensureSession("test-session-4", "/tmp/test");
+    db.prepare(`
+      INSERT INTO session_context (session_id, symbol_id, file_id, query, relevance, returned_at)
+      VALUES (?, ?, ?, ?, 1.0, ?)
+    `).run("test-session-4", olderSymId, olderFileId, "first", 1000);
+    db.prepare(`
+      INSERT INTO session_context (session_id, symbol_id, file_id, query, relevance, returned_at)
+      VALUES (?, ?, ?, ?, 1.0, ?)
+    `).run("test-session-4", newerSymId, newerFileId, "second", 2000);
+    db.prepare(`
+      INSERT INTO session_context (session_id, symbol_id, file_id, query, relevance, returned_at)
+      VALUES (?, ?, ?, ?, 1.0, ?)
+    `).run("test-session-4", olderSymId, olderFileId, "third", 3000);
+
+    const ctx = new SessionContext(db, "test-session-4");
+    expect(ctx.getRecentFileIds(1)).toEqual([olderFileId]);
+    expect(ctx.getRecentSymbolIds(1)).toEqual([olderSymId]);
+  });
 });

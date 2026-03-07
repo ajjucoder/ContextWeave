@@ -1144,6 +1144,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const recentSymbolIds: Set<number> = hasExplicitSession && sessionCtx
     ? new Set(sessionCtx.getRecentSymbolIds().filter((id): id is number => id !== null))
     : new Set();
+  const shouldDedupRecentSymbols =
+    recentSymbolIds.size > 0 && (intent !== "narrow" || previousSameQueryTokens !== null);
 
   const baseMaxDistance = intent === "task" ? 0 : intent === "broad" ? 1 : isSingleFocusNarrowQuery ? 0 : 1;
   let selected = pruneByFileDiversity(
@@ -1322,7 +1324,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     packed.some((node) => isRuntimeCodePath(canonicalFilePath(node))) &&
     packed.some((node) => isTypeDeclarationPath(canonicalFilePath(node)));
 
-  if (recentSymbolIds.size > 0) {
+  if (shouldDedupRecentSymbols) {
     let tokensDelta = 0;
     for (let i = 0; i < packed.length; i++) {
       const node = packed[i]!;

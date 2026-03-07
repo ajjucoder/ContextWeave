@@ -36,7 +36,7 @@ Execution mode: single-agent (with exploratory subagents)
 | CW-P1-008 | P1 | done | `npx vitest run tests/unit/flow.test.ts tests/unit/impact.test.ts tests/integration/*.test.ts` => pass (18 files, 101 tests); `npm test` => pass (137 files, 684 tests); `npm run eval` => pass at `100.0%` first-pass / `0.0%` correction; `npm run bench:product` => pass after class-qualified symbol resolution and callback-heavy caller attribution fixes |
 | CW-P1-009 | P1 | done | `npx vitest run tests/memory/*.test.ts tests/integration/*.test.ts` => pass (20 files, 90 tests); `npm test` => pass (138 files, 686 tests); `npm run eval` => pass at `100.0%` first-pass / `0.0%` correction; `npm run bench:product` => pass after durable architecture memory can bridge weak first-pass retrieval without surfacing passive telemetry |
 | CW-P1-010 | P1 | done | `npx vitest run tests/integration/mcp-overview-noncode-focus.test.ts tests/core/indexer-noncode-formats.test.ts` => pass (2 tests); `npx vitest run tests/core/*.test.ts tests/integration/*.test.ts` => pass (46 files, 164 tests); `npm test` => pass (140 files, 688 tests); `npm run eval` => pass at `100.0%` first-pass / `0.0%` correction; `npm run bench:product` => pass after focused overview queries can fall back to non-code summary evidence and `.toml` / `.ini` files are indexed as document surfaces |
-| CW-P1-011 | P1 | todo | No evidence yet |
+| CW-P1-011 | P1 | done | `npx vitest run tests/capsule/session-context.test.ts tests/capsule/session-followup-detail.test.ts tests/capsule/dedup.test.ts tests/capsule/session-boost.test.ts tests/eval/eval-runner.test.ts` => pass (13 tests); `npx vitest run tests/capsule/*.test.ts tests/eval/*.test.ts` => pass (27 files, 129 tests); `npm test` => pass (141 files, 690 tests); `npm run eval` => pass at `100.0%` first-pass / `0.0%` correction; `npm run bench:product` => pass after narrow same-session follow-ups retain full detail and session recency uses latest-unique ordering |
 | CW-P1-012 | P1 | todo | No evidence yet |
 | CW-P1-013 | P1 | todo | No evidence yet |
 | CW-P2-004 | P2 | todo | No evidence yet |
@@ -49,9 +49,9 @@ Execution mode: single-agent (with exploratory subagents)
 ## Completion Summary
 
 - P0: 15/15 done (100.0%)
-- P1: 10/13 done (76.9%)
+- P1: 11/13 done (84.6%)
 - P2: 3/9 done (33.3%)
-- Overall: 28/37 done (75.7%)
+- Overall: 29/37 done (78.4%)
 
 ## Implementation Summary
 
@@ -62,6 +62,7 @@ Execution mode: single-agent (with exploratory subagents)
 - `CW-P1-008` is now closed: flow and impact now resolve class-qualified method names, follow JSX member-expression callbacks, and attribute framework/call edges to enclosing callable symbols instead of local variables, which keeps class-heavy callback chains accurate on the first pass.
 - `CW-P1-009` is now closed: durable architecture memory now bridges into Stage A retrieval when lexical/file-summary search is weak, and file-linked observations boost the linked runtime file without letting passive telemetry leak into capsule ranking by default.
 - `CW-P1-010` is now closed: focused `cw_overview` queries can now surface project-relative non-code files through file-summary evidence even when no symbol name matches, and `.toml` / `.ini` config files are indexed as document-like sources so policy/config-heavy repos contribute on the first pass without swamping runtime code paths.
+- `CW-P1-011` is now closed: repeated same-session queries no longer compress distinct narrow symbol follow-ups into `[previously shown]` summaries, and session recency now returns the latest unique file/symbol/query rows instead of SQLite's unstable `DISTINCT ... ORDER BY` behavior.
 - Eval/baseline handling was versioned (`tests/eval/quality-baseline.json` version `2`) and `tests/integration/update-baseline.ts --replace` now supports deliberate baseline refreshes after methodology or scoring changes.
 - Phase 2 is now active. The priority is to turn first-pass quality into the release gate for a product-grade context engine that can replace expensive grep/explorer loops in agentic coding tools.
 - `CW-P0-006` and `CW-P0-013` are now complete. Eval and product-benchmark methodology no longer structurally force two-turn recovery, and both now gate on first-pass quality directly.
@@ -154,6 +155,10 @@ Execution mode: single-agent (with exploratory subagents)
   - 2 files, 2 tests
 - `npx vitest run tests/core/*.test.ts tests/integration/*.test.ts` => pass
   - 46 files, 164 tests
+- `npx vitest run tests/capsule/session-context.test.ts tests/capsule/session-followup-detail.test.ts tests/capsule/dedup.test.ts tests/capsule/session-boost.test.ts tests/eval/eval-runner.test.ts` => pass
+  - 5 files, 13 tests
+- `npx vitest run tests/capsule/*.test.ts tests/eval/*.test.ts` => pass
+  - 27 files, 129 tests
 - `npm run eval` => pass
   - Overall: precision `48.4%`, recall `88.5%`, avg confidence `94.1%`, token efficiency `82.9%`, p95 latency `16.8ms`, task success `100.0%`, first-pass `100.0%`, correction rate `0.0%`, avg task tokens `609.0`, turns to success `1.00`
   - `contextweave-src`: precision `43.3%`, recall `81.7%`, avg confidence `90.5%`, token efficiency `98.4%`, avg task tokens `975.0`, first-pass `100.0%`
@@ -164,6 +169,8 @@ Execution mode: single-agent (with exploratory subagents)
   - 138 files, 686 tests
 - `npm test` => pass
   - 140 files, 688 tests
+- `npm test` => pass
+  - 141 files, 690 tests
 - `npm run lint` => pass
 - `npm run build` => pass
 - `npm run test:field` => pass
@@ -191,6 +198,6 @@ Execution mode: single-agent (with exploratory subagents)
 
 ## Next Actions
 
-1. Continue `CW-P1-011`: harden compression and selection behavior under repeated multi-query sessions so session history cannot quietly bias first-pass packing.
-2. Continue `CW-P1-012` and `CW-P1-013` in order after the session-isolation stabilization work is merged.
+1. Continue `CW-P1-012`: wire the eval and product-benchmark first-pass gates into CI at the right cadence so slow product checks do not drift.
+2. Continue `CW-P1-013` after the CI cadence work is merged so the release docs match the enforced gates and current evidence.
 3. Continue `CW-P2-004` through `CW-P2-009` after the remaining P1 stabilization work is complete.
