@@ -13,6 +13,28 @@ const COMPRESSION_LEVELS: CompressionLevel[] = [0, 1, 2, 3];
 const FILE_SUMMARY_MIN_SYMBOLS = 3;
 const UI_ENTRY_PATH_RE = /(^|\/)(components?|views?|templates?|marketing)(\/|$)|(^|\/)(page|layout)\.[cm]?[jt]sx?$/i;
 
+function computeGroupPriority(nodes: ScoredNode[]): number {
+  const topScore = nodes.reduce((max, node) => Math.max(max, node.score), Number.NEGATIVE_INFINITY);
+  const pivotBonus = nodes.filter((node) => node.distance === 0).length * 2;
+  const bridgeBonus = nodes.filter((node) => node.distance === 1).length * 0.9;
+  const avgDistance =
+    nodes.length === 0 ? 0 : nodes.reduce((sum, node) => sum + node.distance, 0) / nodes.length;
+
+  return topScore + pivotBonus + bridgeBonus - avgDistance * 0.35;
+}
+
+function scoreTailNode(node: ScoredNode, primaryFileIds: ReadonlySet<number>): number {
+  const newFileBonus = primaryFileIds.has(node.file.id) ? 0 : 0.5;
+  const bridgeBonus =
+    node.distance === 1
+      ? 2
+      : node.distance === 2
+        ? 0.25
+        : 0;
+
+  return node.score + bridgeBonus + newFileBonus;
+}
+
 function summarizeUnpacked(
   scoredNodes: ScoredNode[],
   packed: ScoredNode[],
@@ -165,8 +187,7 @@ export function packNodesStoryMode(
     .map(([id, nodes]) => ({
       id,
       nodes,
-      score: nodes.reduce((max, node) => Math.max(max, node.score), Number.NEGATIVE_INFINITY) +
-        nodes.filter((node) => node.distance === 0).length * 2,
+      score: computeGroupPriority(nodes),
     }))
     .sort((a, b) => b.score - a.score);
 
@@ -231,9 +252,15 @@ export function packNodesStoryMode(
     }
   }
 
+  const primaryFileIds = new Set(packed.map((node) => node.file.id));
   const tailNodes = [...scoredNodes]
     .filter((node) => !packedIds.has(node.symbol.id))
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => {
+      const priorityDelta = scoreTailNode(b, primaryFileIds) - scoreTailNode(a, primaryFileIds);
+      if (priorityDelta !== 0) return priorityDelta;
+      if (a.distance !== b.distance) return a.distance - b.distance;
+      return b.score - a.score;
+    });
 
   for (const node of tailNodes) {
     const rendered = renderSymbol(node.symbol, node.file, 3);

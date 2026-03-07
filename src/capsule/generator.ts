@@ -1396,6 +1396,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   );
   const queryTermCoverage =
     queryCoverageGroups.length === 0 ? 1 : matchedQueryTerms.length / queryCoverageGroups.length;
+  const moduleCoverage =
+    relevantClusters.size > 0
+      ? packedClusters.size / relevantClusters.size
+      : packedClusters.size > 0
+        ? 0.5
+        : 0;
   const retrievalSurfaceScore =
     intent === "narrow"
       ? 1
@@ -1412,7 +1418,15 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     reasons.push("dependency coverage below 25%");
   }
   if (noiseRatio > 0.6) reasons.push("low-relevance content exceeds 60%");
-  if (intent !== "narrow" && queryTermCoverage < 0.6) {
+  const structurallyHealthySemanticMatch =
+    intent !== "narrow" &&
+    queryTermCoverage < 0.6 &&
+    pivotCoverage >= 0.75 &&
+    dependencyCoverage >= 0.75 &&
+    moduleCoverage >= 0.75 &&
+    retrievalSurfaceScore >= 0.75 &&
+    noiseRatio <= 0.2;
+  if (intent !== "narrow" && queryTermCoverage < 0.6 && !structurallyHealthySemanticMatch) {
     reasons.push("query term coverage below 60%");
   }
   if (intent !== "narrow" && retrievalSurfaceScore < 0.5) {

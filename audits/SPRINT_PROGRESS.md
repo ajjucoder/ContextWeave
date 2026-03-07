@@ -25,9 +25,9 @@ Execution mode: single-agent (with exploratory subagents)
 | CW-P0-007 | P0 | done | `npm run eval` => pass with first-pass rate `100.0%`; `tests/integration/task-query-quality.test.ts` and `tests/integration/capsule.test.ts` now lock the broad capsule-pipeline and indexing-pipeline first-pass regressions |
 | CW-P0-008 | P0 | done | `tests/unit/synonyms.test.ts` and `tests/integration/task-query-quality.test.ts` are green after expanding conceptual terms like `generation`, `scoring`, `compression`, `index`, and `parser` into concrete runtime surfaces |
 | CW-P0-009 | P0 | done | `npm run bench:product` => pass at `100.0%` first-pass / `0.0%` correction, and `tests/core/file-summaries.test.ts` plus `tests/capsule/pivot-scorer.test.ts` verify runtime-first candidate seeding over declaration/config noise |
-| CW-P0-010 | P0 | todo | No evidence yet |
+| CW-P0-010 | P0 | done | `npx vitest run tests/capsule/story-packing.test.ts tests/integration/eval-fixture-regressions.test.ts` => pass (11 tests); `npm run bench:product` => pass at `100.0%` first-pass / `0.0%` correction after story-mode group ranking and tail packing preserve cross-file bridge nodes over redundant helpers |
 | CW-P0-011 | P0 | todo | No evidence yet |
-| CW-P0-012 | P0 | todo | No evidence yet |
+| CW-P0-012 | P0 | done | `npx vitest run tests/capsule/confidence-5level.test.ts tests/capsule/diagnostics.test.ts tests/integration/eval-fixture-regressions.test.ts` => pass (25 tests); `npm run eval` => pass with `session entry lifecycle` now `low` uncertainty and no lexical false-positive reason |
 | CW-P0-013 | P0 | done | `npm run bench:product` => pass with first-pass rate `100.0%`, correction rate `0.0%`, avg tokens to first correct context `1137.3`; product bench now fails on first-pass/correction regressions instead of only eventual success |
 | CW-P0-014 | P0 | done | `tests/integration/mcp-server.test.ts`, `tests/integration/mcp-navigation-tools.test.ts`, `tests/integration/mcp-tool-schema-compat.test.ts`, `tests/unit/formatter-followup.test.ts`, `npm test`, and `npm run eval` => pass after adding explicit next-step guidance to low-confidence capsule/read/overview output |
 | CW-P0-015 | P0 | todo | No evidence yet |
@@ -48,10 +48,10 @@ Execution mode: single-agent (with exploratory subagents)
 
 ## Completion Summary
 
-- P0: 11/15 done (73.3%)
+- P0: 13/15 done (86.7%)
 - P1: 5/13 done (38.5%)
 - P2: 3/9 done (33.3%)
-- Overall: 19/37 done (51.4%)
+- Overall: 21/37 done (56.8%)
 
 ## Implementation Summary
 
@@ -75,6 +75,8 @@ Execution mode: single-agent (with exploratory subagents)
   - `post-tool-use` capsule follow-up telemetry now matches file paths exactly after normalization, eliminating false positives from substring path collisions.
   - MCP runtime coverage now exercises `startMcpServer()` primary/secondary startup paths and handler-level `cw_capsule`, `cw_status`, and `cw_stats` execution through real MCP registration.
   - `CW-P0-014` is now closed: low-confidence `cw_capsule` output includes explicit next-step commands, `cw_read` miss responses point to `cw_grep`/`cw_overview`, and `cw_overview` empty-focus responses suggest exact-match follow-up queries.
+  - `CW-P0-010` is now closed: story-mode packing boosts bridge-bearing groups and tail-node ordering so constrained budgets keep runtime bridge files ahead of redundant helper files.
+  - `CW-P0-012` is now closed: broad/task confidence now respects strong structural retrieval even when lexical overlap is weak, and diagnostics explicitly identify lexical-semantic mismatch when low-confidence broad capsules are structurally healthy.
 
 ## First-Pass Diagnosis
 
@@ -127,14 +129,16 @@ Execution mode: single-agent (with exploratory subagents)
   - 7 files, 25 tests
 - `npx vitest run tests/unit/formatter-followup.test.ts tests/integration/mcp-navigation-tools.test.ts` => pass
   - 2 files, 19 tests
+- `npx vitest run tests/capsule/story-packing.test.ts tests/capsule/confidence-5level.test.ts tests/capsule/diagnostics.test.ts tests/integration/eval-fixture-regressions.test.ts` => pass
+  - 4 files, 34 tests
 - `npm run eval` => pass
-  - Overall: precision `49.0%`, recall `88.5%`, avg confidence `94.2%`, token efficiency `77.4%`, p95 latency `16.5ms`, task success `100.0%`, first-pass `100.0%`, correction rate `0.0%`, avg task tokens `2276.5`, turns to success `1.00`
-  - `contextweave-src`: precision `44.2%`, recall `81.7%`, avg confidence `90.8%`, token efficiency `97.8%`, avg task tokens `3507.5`, first-pass `100.0%`
+  - Overall: precision `49.0%`, recall `88.5%`, avg confidence `94.1%`, token efficiency `77.4%`, p95 latency `16.4ms`, task success `100.0%`, first-pass `100.0%`, correction rate `0.0%`, avg task tokens `2276.5`, turns to success `1.00`
+  - `contextweave-src`: precision `44.2%`, recall `81.7%`, avg confidence `90.6%`, token efficiency `97.8%`, avg task tokens `3507.5`, first-pass `100.0%`
   - `small-project`: precision `56.9%`, recall `100.0%`, avg confidence `100.0%`, token efficiency `43.3%`, avg task tokens `1045.5`, first-pass `100.0%`
 - `npm run bench` => pass
   - Average reduction `72.5%` against target `>= 65%`
 - `npm test` => pass
-  - 136 files, 669 tests
+  - 136 files, 672 tests
 - `npm run lint` => pass
 - `npm run build` => pass
 - `npm run test:field` => pass
@@ -146,8 +150,8 @@ Execution mode: single-agent (with exploratory subagents)
   - Task success rate `100.0%`
   - First-pass rate `100.0%`
   - Correction rate `0.0%`
-  - Avg tokens to first correct context `892.2`
-  - Avg confidence `73.2%`
+  - Avg tokens to first correct context `574.3`
+  - Avg confidence `73.4%`
   - Bench repos pinned to:
     - Express `6c4249feec8ab40631817c8e7001baf2ed022224`
     - Fastify `b61c362cc9fba35e7e060a71284154e4f86d54f4`
@@ -157,12 +161,12 @@ Execution mode: single-agent (with exploratory subagents)
 
 ## Blockers
 
-- No blocking implementation blockers are known right now. The active gap has moved from first-pass recovery to the next batch of broader product-grade regressions and confidence calibration work.
-- `session entry lifecycle` still returns medium uncertainty even though retrieval is correct on the first pass. This is now a confidence-calibration gap, not a retrieval-correctness gap.
+- No blocking implementation blockers are known right now. The active gap has moved from first-pass recovery to the remaining packing-efficiency and fixture-encoding backlog.
+- `CW-P0-011` remains open because the current packer changes improved bridge retention without yet producing a measurable reduction in `bench:product` avg tokens-to-first-correct-context beyond the current `574.3` baseline.
 
 ## Next Actions
 
-1. Continue `CW-P0-010` and `CW-P0-011`: improve bridge-node retention and packing/compression so broad/task capsules spend less budget on secondary helpers while preserving the current first-pass wins.
-2. Continue `CW-P0-012`: calibrate confidence for broad semantic prompts that now retrieve correctly but still report medium uncertainty.
-3. Continue `CW-P0-015`: keep converting new real-world misses and integration hazards into gated fixtures in the same session.
-4. Continue `CW-P1-006`: improve CommonJS/module wiring coverage once the current P0 capsule-quality batch is exhausted.
+1. Continue `CW-P0-011`: reduce broad/task tokens-to-first-correct-context without regressing the new bridge-retention behavior or first-pass success rate.
+2. Continue `CW-P0-015`: keep converting new real-world misses and integration hazards into gated field/eval/product fixtures in the same session.
+3. Continue `CW-P1-006`: improve CommonJS/module wiring coverage once the remaining P0 packing/fixture work is exhausted.
+4. Continue `CW-P1-007` through `CW-P1-013` and `CW-P2-004` through `CW-P2-009` in order after the final P0 backlog is closed.

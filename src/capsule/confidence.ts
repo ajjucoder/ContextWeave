@@ -20,6 +20,10 @@ export interface ConfidenceParams {
   };
 }
 
+function clamp(value: number): number {
+  return Math.max(0, Math.min(1, value));
+}
+
 export function computeCoverageConfidence(params: ConfidenceParams): number {
   const {
     intent,
@@ -55,49 +59,55 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
         moduleCoverageStats.avgSymbolsPerFile / moduleCoverageStats.maxSymbolsPerFile
       )
       : 0;
+  const lexicalSurface = Math.min(queryTermCoverage, retrievalSurfaceScore);
 
   if (intent === "broad") {
-    const base = Math.max(
-      0,
-      Math.min(
-        1,
-        moduleCoverage * 0.35 +
-          relevantCoverage * 0.25 +
-          (1 - noiseRatio) * 0.15 +
-          summaryBoost +
-          0.282
-      )
+    const base = clamp(
+      moduleCoverage * 0.35 +
+        relevantCoverage * 0.25 +
+        (1 - noiseRatio) * 0.15 +
+        summaryBoost +
+        0.282
     );
-    const breadthFactor = Math.min(queryTermCoverage, retrievalSurfaceScore);
-    return Math.max(0, Math.min(1, base * (0.35 + 0.65 * breadthFactor)));
+    const structuralHealth = clamp(
+      moduleCoverage * 0.45 +
+        relevantCoverage * 0.35 +
+        (1 - noiseRatio) * 0.2
+    );
+    const breadthFactor =
+      retrievalSurfaceScore >= 0.75
+        ? Math.max(lexicalSurface, structuralHealth * 0.52)
+        : lexicalSurface;
+    return clamp(base * (0.35 + 0.65 * breadthFactor));
   }
 
   if (intent === "task") {
-    const base = Math.max(
-      0,
-      Math.min(
-        1,
-        storyCompleteness * 0.3 +
-          moduleCoverage * 0.25 +
-          relevantCoverage * 0.2 +
-          (1 - noiseRatio) * 0.1 +
-          0.362
-      )
+    const base = clamp(
+      storyCompleteness * 0.3 +
+        moduleCoverage * 0.25 +
+        relevantCoverage * 0.2 +
+        (1 - noiseRatio) * 0.1 +
+        0.362
     );
-    const breadthFactor = Math.min(queryTermCoverage, retrievalSurfaceScore);
-    return Math.max(0, Math.min(1, base * (0.45 + 0.55 * breadthFactor)));
+    const structuralHealth = clamp(
+      storyCompleteness * 0.35 +
+        moduleCoverage * 0.3 +
+        relevantCoverage * 0.2 +
+        (1 - noiseRatio) * 0.15
+    );
+    const breadthFactor =
+      retrievalSurfaceScore >= 0.7
+        ? Math.max(lexicalSurface, structuralHealth * 0.5)
+        : lexicalSurface;
+    return clamp(base * (0.45 + 0.55 * breadthFactor));
   }
 
-  return Math.max(
-    0,
-    Math.min(
-      1,
-      relevantCoverage * 0.5 +
+  return clamp(
+    relevantCoverage * 0.5 +
       dependencyCoverage * 0.2 +
       (1 - noiseRatio) * 0.15 +
       summaryBoost +
       0.182
-    )
   );
 }
 

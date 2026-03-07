@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildUncertainty } from "../../src/capsule/confidence.js";
+import { buildUncertainty, computeCoverageConfidence } from "../../src/capsule/confidence.js";
 
 describe("buildUncertainty 5-level calibration", () => {
   it("returns very_low when no issues and high coverage", () => {
@@ -56,5 +56,28 @@ describe("buildUncertainty 5-level calibration", () => {
   it("does not bump when token utilization is normal", () => {
     const result = buildUncertainty(false, 0, 0.8, 0.70);
     expect(result).toBe("very_low");
+  });
+
+  it("keeps broad confidence above the medium-risk floor when structure is healthy", () => {
+    const result = computeCoverageConfidence({
+      intent: "broad",
+      pivotCount: 10,
+      pivotsIncluded: 8,
+      relevantPivotsIncluded: 8,
+      totalRelevantPivots: 8,
+      dependencyCoverage: 1,
+      noiseRatio: 0,
+      fileSummaryCount: 0,
+      queryTermCoverage: 0.34,
+      retrievalSurfaceScore: 0.95,
+      moduleCoverageStats: {
+        packedClusters: 4,
+        relevantClusters: 4,
+        avgSymbolsPerFile: 2.8,
+        maxSymbolsPerFile: 3,
+      },
+    });
+
+    expect(result).toBeGreaterThanOrEqual(0.6);
   });
 });

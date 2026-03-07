@@ -145,6 +145,31 @@ describe("packNodesStoryMode", () => {
     const result = packNodesStoryMode([node], 1200, 0.9);
     expect(result.packed[0]?.compressionLevel).toBe(1);
   });
+
+  it("preserves bridge nodes before redundant helpers under a tight tail budget", () => {
+    const controllerFile = makeFile(20, "src/runtime/controller.ts");
+    const bridgeFile = makeFile(21, "src/runtime/service.ts");
+    const helperFile = makeFile(22, "src/runtime/helpers.ts");
+    const summaryFile = makeFile(23, "src/runtime/secondary.ts");
+
+    const nodes: ScoredNode[] = [
+      makeNode(2001, controllerFile, 10, 0),
+      makeNode(2002, controllerFile, 7.2, 1),
+      makeNode(2101, bridgeFile, 6.4, 1),
+      makeNode(2201, helperFile, 6.9, 2),
+      makeNode(2301, summaryFile, 4.2, 2),
+      makeNode(2302, summaryFile, 4.1, 2),
+      makeNode(2303, summaryFile, 4.0, 2),
+    ];
+
+    const result = packNodesStoryMode(nodes, 200, 0.9);
+    const packedIds = new Set(result.packed.map((node) => node.symbol.id));
+
+    expect(packedIds).toContain(2001);
+    expect(packedIds).toContain(2101);
+    expect(packedIds).not.toContain(2201);
+    expect(result.fileSummaries).toHaveLength(0);
+  });
 });
 
 describe("enrichL2WithDeps", () => {

@@ -143,6 +143,34 @@ describe("diagnose", () => {
     expect(result.bottleneck).toBe("pivot_flood");
   });
 
+  it("reports lexical mismatch when structure is healthy but semantic overlap is thin", () => {
+    const metadata = buildMetadata({
+      query: "session entry lifecycle",
+      quality: {
+        ...buildMetadata().quality,
+        pivotCoverage: 1,
+        dependencyCoverage: 1,
+        coverageConfidence: 0.58,
+        lowConfidence: true,
+        uncertaintyFlag: true,
+        uncertainty: "medium",
+        reasons: [
+          "query term coverage below 60%",
+          "overall coverage confidence below 60%",
+        ],
+        retrieval: {
+          stageACandidateCount: 40,
+          stageBSelectedCount: 18,
+        },
+      },
+    });
+
+    const result = diagnose(metadata, [8, 7, 6, 5], "broad");
+    expect(result.bottleneck).toBe("lexical_mismatch");
+    expect(result.bottleneckDetail).toContain("lexical overlap");
+    expect(result.suggestion).toContain("semantic");
+  });
+
   it("uses preClassifiedIntent when provided instead of re-classifying", () => {
     const metadata = buildMetadata({ query: "generateCapsule" });
     const withoutOverride = diagnose(metadata, [5, 4, 3]);

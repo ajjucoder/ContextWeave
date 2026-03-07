@@ -12,6 +12,9 @@ export interface DiagnosticMetadataSnapshot {
     pivotsIncluded: number;
     pivotCoverage: number;
     dependencyCoverage: number;
+    coverageConfidence?: number;
+    lowConfidence?: boolean;
+    reasons?: string[];
     retrieval: {
       stageACandidateCount: number;
       stageBSelectedCount: number;
@@ -39,8 +42,8 @@ export interface CapsuleDiagnostic {
     l2Count: number;
     l3Count: number;
   };
-  bottleneck: "pivot_flood" | "bfs_noise" | "packing_scatter" | "budget_exhaustion" | "none";
-  bottlenecks: Array<"pivot_flood" | "bfs_noise" | "packing_scatter" | "budget_exhaustion">;
+  bottleneck: "pivot_flood" | "bfs_noise" | "packing_scatter" | "budget_exhaustion" | "lexical_mismatch" | "none";
+  bottlenecks: Array<"pivot_flood" | "bfs_noise" | "packing_scatter" | "budget_exhaustion" | "lexical_mismatch">;
   bottleneckDetail: string;
   suggestion: string;
 }
@@ -99,7 +102,7 @@ export function diagnose(
     ? metadata.symbolCount / metadata.quality.retrieval.stageBSelectedCount
     : 0;
 
-  type BottleneckKind = "pivot_flood" | "bfs_noise" | "packing_scatter" | "budget_exhaustion";
+  type BottleneckKind = "pivot_flood" | "bfs_noise" | "packing_scatter" | "budget_exhaustion" | "lexical_mismatch";
   const detectedBottlenecks: BottleneckKind[] = [];
   const details: string[] = [];
   const suggestions: string[] = [];
@@ -127,6 +130,19 @@ export function diagnose(
     detectedBottlenecks.push("packing_scatter");
     details.push(`Packed symbols are spread across ${metadata.fileCount} files at ${symbolsPerFile.toFixed(2)} symbols/file.`);
     suggestions.push("Use story-complete packing to favor denser, coherent file groups before tail references.");
+  }
+  const lexicalMismatch =
+    detectedBottlenecks.length === 0 &&
+    queryClass !== "narrow" &&
+    metadata.quality.lowConfidence === true &&
+    metadata.quality.pivotCoverage >= 0.85 &&
+    metadata.quality.dependencyCoverage >= 0.75 &&
+    tokenBudgetUsed < 0.9 &&
+    (metadata.quality.reasons ?? []).some((reason) => reason.includes("query term coverage"));
+  if (lexicalMismatch) {
+    detectedBottlenecks.push("lexical_mismatch");
+    details.push("Structural retrieval is healthy, but lexical overlap with the query terms is weak enough to depress confidence.");
+    suggestions.push("Treat this as a semantic wording gap: expand concept synonyms or preserve confidence when bridge files already cover the runtime path.");
   }
 
   const bottleneck: CapsuleDiagnostic["bottleneck"] = detectedBottlenecks[0] ?? "none";
