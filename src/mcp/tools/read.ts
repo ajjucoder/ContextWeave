@@ -147,7 +147,14 @@ export function registerReadTool(server: McpServer, db: Database.Database, proje
         if (symbol && !resolvedSymbol) {
           const detail = requestedPath ? ` in ${path}` : "";
           return {
-            content: [{ type: "text" as const, text: `No indexed symbol found matching "${symbol}"${detail}` }],
+            content: [{
+              type: "text" as const,
+              text: [
+                `No indexed symbol found matching "${symbol}"${detail}`,
+                `Next: cw_grep(query: "${symbol}") for exact symbol/text matches.`,
+                `Next: cw_overview(query: "${symbol}") to inspect likely directories.`,
+              ].join("\n"),
+            }],
           };
         }
 

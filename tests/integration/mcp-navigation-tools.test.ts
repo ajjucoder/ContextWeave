@@ -123,6 +123,18 @@ describe("mcp navigation tools", () => {
     expect(bySymbolText).toContain("validateEmail");
   });
 
+  it("cw_read suggests a next tool when symbol resolution misses", async () => {
+    const result = await getTool(server, "cw_read").handler({
+      symbol: "missingSymbol",
+    });
+
+    const text = result.content[0]?.text ?? "";
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('No indexed symbol found matching "missingSymbol"');
+    expect(text).toContain('cw_grep(query: "missingSymbol")');
+    expect(text).toContain('cw_overview(query: "missingSymbol")');
+  });
+
   it("cw_status returns index health and project profile data", async () => {
     const result = await getTool(server, "cw_status").handler({ verbose: false });
 
@@ -131,6 +143,21 @@ describe("mcp navigation tools", () => {
     expect(text).toContain("ContextWeave Index Status");
     expect(text).toContain("Files:");
     expect(text).toContain("Project Profile");
+  });
+
+  it("cw_overview suggests a follow-up query action when query focus is empty", async () => {
+    const result = await getTool(server, "cw_overview").handler({
+      path: ".",
+      depth: 2,
+      max_tokens: 1200,
+      query: "missingSymbol",
+    });
+
+    const text = result.content[0]?.text ?? "";
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('Query Focus: "missingSymbol"');
+    expect(text).toContain("No focused file matches found.");
+    expect(text).toContain('cw_grep(query: "missingSymbol")');
   });
 
   it("cw_capsule returns capsule content through the registered MCP handler", async () => {
@@ -144,6 +171,19 @@ describe("mcp navigation tools", () => {
     expect(result.isError).not.toBe(true);
     expect(text).toContain("ContextWeave Capsule");
     expect(text).toContain("sample.ts");
+  });
+
+  it("cw_capsule includes next-step commands when confidence is low", async () => {
+    const result = await getTool(server, "cw_capsule").handler({
+      query: "missing symbol journey",
+      token_budget: 2400,
+      mode: "feature",
+    });
+
+    const text = result.content[0]?.text ?? "";
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain("--- Next Actions ---");
+    expect(text).toContain('cw_overview(query: "missing symbol journey")');
   });
 
   it("cw_stats reports session-level savings for the active session", async () => {

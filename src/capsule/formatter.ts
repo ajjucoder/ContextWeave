@@ -90,6 +90,14 @@ export function formatCapsule(
     .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
     .slice(0, 5);
 
+  const topDirectory = (() => {
+    const firstPath = packedNodes[0]?.file.path?.replaceAll("\\", "/");
+    if (!firstPath) return null;
+    const parts = firstPath.split("/").filter(Boolean);
+    if (parts.length <= 1) return parts[0] ?? null;
+    return parts.slice(0, -1).join("/");
+  })();
+
   const highConfObs = observations.filter((o) => o.confidence >= 0.8);
   const lowConfObs = observations.filter((o) => o.confidence < 0.8);
 
@@ -135,6 +143,21 @@ export function formatCapsule(
     parts.push(`Bottleneck: ${metadata.diagnostics.bottleneck}`);
     parts.push(metadata.diagnostics.bottleneckDetail);
     parts.push(`Suggestion: ${metadata.diagnostics.suggestion}`);
+  }
+
+  if (metadata.quality.lowConfidence) {
+    parts.push("\n--- Next Actions ---");
+    if (followUpCandidates.length > 0) {
+      const first = followUpCandidates[0]!;
+      const symbolName = first.symbol?.name ?? "unknown";
+      parts.push(`- Read the highest-value compressed symbol next: cw_read(symbol: "${symbolName}")`);
+    } else {
+      parts.push(`- Expand the search surface first: cw_overview(query: "${metadata.query}")`);
+      parts.push(`- If you need exact text matches, run: cw_grep(query: "${metadata.query}")`);
+    }
+    if (topDirectory) {
+      parts.push(`- Narrow the capsule to the most relevant directory: cw_capsule(query: "${metadata.query}", path: "${topDirectory}")`);
+    }
   }
 
   if (lowConfObs.length > 0) {

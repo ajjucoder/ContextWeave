@@ -163,6 +163,7 @@ export function registerOverviewTool(server: McpServer, db: Database.Database, p
 
           if (focusedFiles.length === 0) {
             lines.push("- No focused file matches found.");
+            lines.push(`- Next: cw_grep(query: "${queryTerm}") for exact text matches.`);
           } else {
             const escaped = queryTerm.replace(/[\\%_]/g, "\\$&");
             for (const file of focusedFiles) {

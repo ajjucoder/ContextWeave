@@ -166,6 +166,44 @@ describe("formatCapsule — follow-up hints", () => {
     expect(result).toContain("20 lines");
     expect(result).toContain("0.85");
   });
+
+  it("adds concrete next actions when uncertainty is medium or worse", () => {
+    const nodes = [
+      makeNode({
+        compressionLevel: 1,
+        score: 0.85,
+        symbol: {
+          id: 1,
+          fileId: 1,
+          name: "targetFn",
+          kind: "function",
+          startLine: 10,
+          endLine: 29,
+          signature: "",
+          bodyHash: "",
+          fullSource: "",
+          isExported: true,
+          docComment: null,
+          centrality: 0.5,
+          lastSeen: 0,
+        },
+      }),
+    ];
+
+    const result = formatCapsule(nodes, [], makeMetadata({
+      quality: {
+        ...makeMetadata().quality,
+        uncertaintyFlag: true,
+        lowConfidence: true,
+        uncertainty: "medium",
+        reasons: ["overall coverage confidence below 60%"],
+      },
+    }));
+
+    expect(result).toContain("--- Next Actions ---");
+    expect(result).toContain('cw_read(symbol: "targetFn")');
+    expect(result).toContain('cw_capsule(query: "test query", path: "src/core")');
+  });
 });
 
 describe("formatCapsule — observation placement", () => {
