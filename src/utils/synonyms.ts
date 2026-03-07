@@ -33,6 +33,9 @@ const SYNONYM_MAP: Record<string, string[]> = {
   scoring: ["score", "scorer", "ranking", "rank"],
   compression: ["compress", "compressor", "packing", "packer", "formatter"],
   capsule: ["context", "retrieval", "generator", "formatter"],
+  bfs: ["weightedbfstraversal", "traversal", "graph", "hops"],
+  traversal: ["bfs", "weightedbfstraversal", "search", "walk"],
+  graph: ["bfs", "traversal", "neighbors", "hops"],
 };
 
 function getSynonyms(term: string): string[] {

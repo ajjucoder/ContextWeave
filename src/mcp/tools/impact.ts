@@ -8,6 +8,10 @@ import { edgeQueries } from "../../db/queries/edges.js";
 import { fileQueries } from "../../db/queries/files.js";
 import { fuzzyMatch } from "../../utils/fuzzy.js";
 import type { SymbolRecord } from "../../core/types.js";
+import {
+  formatSymbolDisplayName,
+  resolveExactSymbolMatches,
+} from "./symbol-resolution.js";
 
 interface ImpactNode {
   name: string;
@@ -42,7 +46,7 @@ export function traceImpact(db: Database.Database, symbolId: number, maxDepth: n
 
     if (current.depth > 0) {
       result.push({
-        name: symbol.name,
+        name: formatSymbolDisplayName(db, symbol),
         kind: symbol.kind,
         file: file?.path ?? "unknown",
         line: symbol.startLine,
@@ -107,28 +111,16 @@ function resolveTargetSymbols(
   target: string
 ): { symbols: SymbolRecord[]; resolvedName: string } | null {
   const symbols = symbolQueries(db);
-  const files = fileQueries(db);
-
-  // Support "file.ts:SymbolName" format for unambiguous resolution
-  const colonIdx = target.lastIndexOf(":");
-  if (colonIdx > 0 && target.slice(0, colonIdx).includes(".")) {
-    const fileSuffix = target.slice(0, colonIdx);
-    const symbolName = target.slice(colonIdx + 1);
-    const file = files.getByPathSuffix(fileSuffix);
-    if (file) {
-      const sym = symbols.getByFileAndName(file.id, symbolName);
-      if (sym) return { symbols: [sym], resolvedName: `${fileSuffix}:${symbolName}` };
-    }
-    return null;
-  }
-
-  // Try exact name match first before fuzzy
-  const exactMatches = symbols.getByName(target);
+  const exactMatches = resolveExactSymbolMatches(db, target);
   if (exactMatches.length > 0) {
     return { symbols: exactMatches, resolvedName: target };
   }
 
-  // Fall back to fuzzy match
+  const hasQualifier = target.includes(":") || target.includes(".");
+  if (hasQualifier) {
+    return null;
+  }
+
   const allNames = symbols.getAllNames();
   const matches = fuzzyMatch(target, allNames, 0.6);
   if (matches.length === 0) return null;

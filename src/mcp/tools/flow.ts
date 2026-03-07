@@ -6,6 +6,10 @@ import { edgeQueries } from "../../db/queries/edges.js";
 import { getRegisterTool } from "./register-helper.js";
 import { fileQueries } from "../../db/queries/files.js";
 import { fuzzyMatch } from "../../utils/fuzzy.js";
+import {
+  formatSymbolDisplayName,
+  resolveExactSymbolMatches,
+} from "./symbol-resolution.js";
 
 interface FlowStep {
   name: string;
@@ -59,7 +63,7 @@ function findPath(
 
     if (symbol) {
       path.unshift({
-        name: symbol.name,
+        name: formatSymbolDisplayName(db, symbol),
         kind: symbol.kind,
         file: file?.path ?? "unknown",
         line: symbol.startLine,
@@ -74,7 +78,7 @@ function findPath(
   const sourceFile = sourceSymbol ? files.getById(sourceSymbol.fileId) : undefined;
   if (sourceSymbol) {
     path.unshift({
-      name: sourceSymbol.name,
+      name: formatSymbolDisplayName(db, sourceSymbol),
       kind: sourceSymbol.kind,
       file: sourceFile?.path ?? "unknown",
       line: sourceSymbol.startLine,
@@ -121,7 +125,7 @@ function traceOutgoing(
 
       if (symbol) {
         path.push({
-          name: symbol.name,
+          name: formatSymbolDisplayName(db, symbol),
           kind: symbol.kind,
           file: file?.path ?? "unknown",
           line: symbol.startLine,
@@ -140,38 +144,29 @@ function traceOutgoing(
 }
 
 function resolveSymbol(db: Database.Database, name: string): number | null {
+  return resolveSymbolCandidates(db, name, 1)[0] ?? null;
+}
+
+function resolveSymbolCandidates(
+  db: Database.Database,
+  name: string,
+  limit = 12
+): number[] {
   const symbols = symbolQueries(db);
-  const files = fileQueries(db);
-
-  // Support "file.ts:SymbolName" format
-  const colonIdx = name.lastIndexOf(":");
-  if (colonIdx > 0 && name.slice(0, colonIdx).includes(".")) {
-    const fileSuffix = name.slice(0, colonIdx);
-    const symbolName = name.slice(colonIdx + 1);
-    const file = files.getByPathSuffix(fileSuffix);
-    if (file) {
-      const sym = symbols.getByFileAndName(file.id, symbolName);
-      if (sym) return sym.id;
-    }
-    return null;
-  }
-
-  // Exact match first
-  const exactMatches = symbols.getByName(name);
+  const exactMatches = resolveExactSymbolMatches(db, name);
   if (exactMatches.length > 0) {
-    // prefer highest centrality when multiple definitions exist
-    return exactMatches.reduce((best, s) => s.centrality > best.centrality ? s : best).id;
+    return exactMatches.slice(0, limit).map((symbol) => symbol.id);
   }
 
-  // Fall back to fuzzy
   const allNames = symbols.getAllNames();
   const matches = fuzzyMatch(name, allNames, 0.6);
-  if (matches.length === 0) return null;
+  if (matches.length === 0) return [];
 
-  const syms = symbols.getByName(matches[0]!.name);
-  return syms.length > 0
-    ? syms.reduce((best, s) => s.centrality > best.centrality ? s : best).id
-    : null;
+  return symbols
+    .getByName(matches[0]!.name)
+    .sort((a, b) => b.centrality - a.centrality || a.fileId - b.fileId || a.startLine - b.startLine)
+    .slice(0, limit)
+    .map((symbol) => symbol.id);
 }
 
 export interface FlowResult {
@@ -194,20 +189,36 @@ export function buildFlowResult(
   }
 
   if (target) {
-    const targetId = resolveSymbol(db, target);
-    if (!targetId) {
+    const sourceCandidates = resolveSymbolCandidates(db, source);
+    if (sourceCandidates.length === 0) {
+      return { text: `No symbol found matching "${source}"`, isLimited: false };
+    }
+
+    const targetCandidates = resolveSymbolCandidates(db, target);
+    if (targetCandidates.length === 0) {
       return { text: `No symbol found matching "${target}"`, isLimited: false };
     }
-    const path = findPath(db, sourceId, targetId, maxHops);
-    if (!path) {
+
+    let bestPath: FlowStep[] | null = null;
+    for (const sourceCandidate of sourceCandidates) {
+      for (const targetCandidate of targetCandidates) {
+        const path = findPath(db, sourceCandidate, targetCandidate, maxHops);
+        if (!path) continue;
+        if (!bestPath || path.length < bestPath.length) {
+          bestPath = path;
+        }
+      }
+    }
+
+    if (!bestPath) {
       return {
         text: `No path found from "${source}" to "${target}" within ${maxHops} hops`,
         isLimited: false,
       };
     }
     const lines = [`Flow: ${source} → ${target}\n`];
-    for (let i = 0; i < path.length; i++) {
-      const step = path[i]!;
+    for (let i = 0; i < bestPath.length; i++) {
+      const step = bestPath[i]!;
       const prefix = i === 0 ? "  " : `  ${"─".repeat(i)}→ `;
       lines.push(`${prefix}[${step.edgeKind}] ${step.kind} ${step.name} (${step.file}:${step.line})`);
     }

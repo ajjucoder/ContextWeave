@@ -51,6 +51,7 @@ const DOMAIN_BUNDLES: Record<string, string[][]> = {
   ui: [["component", "props", "state"], ["render", "layout", "style"], ["event", "handler", "hook"]],
   test: [["fixture", "mock", "setup"], ["assertion", "expect", "coverage"], ["integration", "regression", "snapshot"]],
   capsule: [["generator", "packer", "formatter"], ["compression", "scoring", "budget"], ["pivot", "search", "retrieval"]],
+  graph: [["bfs", "traversal", "graph"], ["weightedbfstraversal", "distance", "hops"], ["queue", "neighbors", "visited"]],
 };
 
 export interface SubQuery {

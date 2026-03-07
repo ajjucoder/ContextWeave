@@ -81,3 +81,22 @@ export const callExpressions = `
   function: (member_expression
     property: (property_identifier) @callee)) @call
 `;
+
+export const jsxUsages = `
+(jsx_opening_element
+  name: (identifier) @component) @jsx
+
+(jsx_self_closing_element
+  name: (identifier) @component) @jsx
+
+(jsx_attribute
+  (property_identifier) @prop_name
+  (jsx_expression
+    (identifier) @prop_value)) @jsx_prop
+
+(jsx_attribute
+  (property_identifier) @prop_name
+  (jsx_expression
+    (member_expression
+      property: (property_identifier) @prop_value))) @jsx_prop
+`;

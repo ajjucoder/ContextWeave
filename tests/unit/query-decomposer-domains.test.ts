@@ -35,6 +35,13 @@ describe("domain-adaptive task decomposition", () => {
     expect(hasDbTerm).toBe(true);
   });
 
+  it("optimize the BFS traversal for large graphs → sub-queries contain graph domain terms", () => {
+    const terms = subQueryTerms("optimize the BFS traversal for large graphs");
+    const graphTerms = ["bfs", "traversal", "graph", "weightedbfstraversal", "distance", "hops", "queue", "neighbors", "visited"];
+    const hasGraphTerm = graphTerms.some((t) => terms.includes(t));
+    expect(hasGraphTerm).toBe(true);
+  });
+
   it("remove the deprecated logger → sub-queries contain remove verb terms", () => {
     const terms = subQueryTerms("remove the deprecated logger");
     const removeTerms = ["usages", "references", "imports", "cleanup", "orphaned", "unused"];

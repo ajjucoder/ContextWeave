@@ -150,4 +150,10 @@ export const jsxUsages = `
   (property_identifier) @prop_name
   (jsx_expression
     (identifier) @prop_value)) @jsx_prop
+
+(jsx_attribute
+  (property_identifier) @prop_name
+  (jsx_expression
+    (member_expression
+      property: (property_identifier) @prop_value))) @jsx_prop
 `;

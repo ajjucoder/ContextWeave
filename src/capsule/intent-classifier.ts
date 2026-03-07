@@ -97,6 +97,7 @@ const MODULE_SYNONYMS: Record<string, string[]> = {
   ui: ["component", "view", "page", "template", "render", "layout", "style"],
   test: ["spec", "assert", "mock", "fixture", "coverage", "validation"],
   capsule: ["generator", "packer", "formatter", "compression", "scoring"],
+  graph: ["bfs", "traversal", "graph", "graphs", "hop", "hops", "neighbor", "neighbors", "pagerank", "centrality"],
 };
 
 function uniq<T>(values: T[]): T[] {

@@ -30,6 +30,11 @@ describe("classifyQueryIntent", () => {
     expect(classified.impliedModules).toContain("auth");
   });
 
+  it("maps graph traversal vocabulary to the graph module", () => {
+    const classified = classifyQueryIntent("optimize the BFS traversal for large graphs");
+    expect(classified.impliedModules).toContain("graph");
+  });
+
   it("normalizes and deduplicates non-signal terms", () => {
     const classified = classifyQueryIntent("the capsule and capsule pipeline");
     expect(classified.normalizedTerms).toEqual(["capsule", "pipeline"]);

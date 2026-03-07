@@ -1,6 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { createSchema } from "../../src/db/schema.js";
+import { runMigrations } from "../../src/db/migrations.js";
+import { indexProject } from "../../src/core/indexer.js";
 import { fileQueries } from "../../src/db/queries/files.js";
 import { symbolQueries } from "../../src/db/queries/symbols.js";
 import { edgeQueries } from "../../src/db/queries/edges.js";
@@ -43,6 +48,7 @@ function makeSymbol(
 }
 
 let db: Database.Database;
+const tempRoots: string[] = [];
 
 beforeEach(() => {
   db = new Database(":memory:");
@@ -52,7 +58,17 @@ beforeEach(() => {
 
 afterEach(() => {
   db.close();
+  while (tempRoots.length > 0) {
+    rmSync(tempRoots.pop()!, { recursive: true, force: true });
+  }
 });
+
+function makeTempProject(): string {
+  const root = mkdtempSync(join(tmpdir(), "cw-impact-"));
+  tempRoots.push(root);
+  mkdirSync(join(root, "src"), { recursive: true });
+  return root;
+}
 
 describe("traceImpact", () => {
   it("finds direct dependents at depth 1", () => {
@@ -204,5 +220,81 @@ describe("fileQueries.getByPathSuffix", () => {
     makeFile(db, "src/old/types.ts");
     const result = fileQueries(db).getByPathSuffix("types.ts");
     expect(result?.path).toBe("src/types.ts");
+  });
+});
+
+describe("cw_impact class and callback tracing", () => {
+  it("resolves qualified class methods when tracing callback-driven dependents", async () => {
+    db.close();
+
+    const root = makeTempProject();
+    writeFileSync(
+      join(root, "src", "Button.tsx"),
+      `export function Button({ onClick }: { onClick: () => void }) {
+  return <button onClick={onClick}>Save</button>;
+}
+`
+    );
+    writeFileSync(
+      join(root, "src", "ComposeModal.tsx"),
+      `import { Button } from "./Button";
+
+export class ComposeModal extends React.Component {
+  handleSave() {
+    return persistDraft();
+  }
+
+  render() {
+    return <Button onClick={this.handleSave} />;
+  }
+}
+
+export class CancelModal extends React.Component {
+  handleSave() {
+    return persistDiscard();
+  }
+
+  render() {
+    return <Button onClick={this.handleSave} />;
+  }
+}
+
+export function persistDraft() {
+  return true;
+}
+
+export function persistDiscard() {
+  return false;
+}
+`
+    );
+
+    db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    runMigrations(db);
+    await indexProject(db, root);
+
+    let handler:
+      | ((args: { target: string; depth?: number }) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>)
+      | undefined;
+    const fakeServer = {
+      tool: (
+        _name: string,
+        _description: string,
+        _schema: unknown,
+        fn: (args: { target: string; depth?: number }) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>
+      ) => {
+        handler = fn;
+      },
+    };
+    registerImpactTool(fakeServer as any, db);
+
+    const response = await handler!({
+      target: "ComposeModal.handleSave",
+      depth: 4,
+    });
+    const text = response.content[0]?.text ?? "";
+    expect(text).toContain("ComposeModal.render");
+    expect(text).not.toContain("CancelModal.render");
   });
 });

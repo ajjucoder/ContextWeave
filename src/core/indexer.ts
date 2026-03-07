@@ -411,10 +411,28 @@ function resolveEdges(
   const fileSymbols = symbols.getByFileId(fileId);
   if (fileSymbols.length === 0) return;
   const sourceIsFrameworkEntry = isFrameworkEntryPath(filePath);
+  const callLikeSymbolKinds = new Set(["function", "method", "arrow", "class"]);
 
   for (const symbol of fileSymbols) {
     edges.deleteBySource(symbol.id);
   }
+
+  const resolveCallerId = (callerName: string, line: number): number | undefined => {
+    const enclosing = fileSymbols
+      .filter(
+        (symbol) =>
+          callLikeSymbolKinds.has(symbol.kind) &&
+          symbol.startLine <= line &&
+          symbol.endLine >= line
+      )
+      .sort(
+        (a, b) =>
+          (a.endLine - a.startLine) - (b.endLine - b.startLine) ||
+          a.startLine - b.startLine
+      )[0];
+    if (enclosing) return enclosing.id;
+    return symbolMap.get(callerName);
+  };
 
   const localTargetsByName = new Map<string, number[]>();
   for (const symbol of fileSymbols) {
@@ -423,9 +441,43 @@ function resolveEdges(
     else localTargetsByName.set(symbol.name, [symbol.id]);
   }
 
+  const fileSymbolsById = new Map(fileSymbols.map((symbol) => [symbol.id, symbol]));
+  const owningClassIdBySymbolId = new Map<number, number | null>();
+  const getOwningClassId = (symbolId: number): number | null => {
+    if (owningClassIdBySymbolId.has(symbolId)) {
+      return owningClassIdBySymbolId.get(symbolId) ?? null;
+    }
+
+    const symbol = fileSymbolsById.get(symbolId);
+    if (!symbol) {
+      owningClassIdBySymbolId.set(symbolId, null);
+      return null;
+    }
+    if (symbol.kind === "class") {
+      owningClassIdBySymbolId.set(symbolId, symbol.id);
+      return symbol.id;
+    }
+
+    const owner = fileSymbols
+      .filter(
+        (candidate) =>
+          candidate.kind === "class" &&
+          candidate.startLine <= symbol.startLine &&
+          candidate.endLine >= symbol.endLine
+      )
+      .sort(
+        (a, b) =>
+          (a.endLine - a.startLine) - (b.endLine - b.startLine) ||
+          a.startLine - b.startLine
+      )[0] ?? null;
+
+    owningClassIdBySymbolId.set(symbolId, owner?.id ?? null);
+    return owner?.id ?? null;
+  };
+
   const callerIdsByCallee = new Map<string, Set<number>>();
   for (const call of parseResult.calls) {
-    const callerId = symbolMap.get(call.callerSymbol);
+    const callerId = resolveCallerId(call.callerSymbol, call.line);
     if (!callerId) continue;
     const existing = callerIdsByCallee.get(call.calleeName);
     if (existing) {
@@ -656,6 +708,29 @@ function resolveEdges(
     return [...combined.values()].slice(0, MAX_EDGE_TARGETS_PER_REFERENCE);
   };
 
+  const narrowToSameOwnerLocalTargets = (
+    callerId: number,
+    localName: string,
+    targetCandidates: TargetCandidate[]
+  ): TargetCandidate[] => {
+    const localTargetIds = localTargetsByName.get(localName) ?? [];
+    if (localTargetIds.length < 2) return targetCandidates;
+
+    const callerOwnerId = getOwningClassId(callerId);
+    if (!callerOwnerId) return targetCandidates;
+
+    const localTargetIdSet = new Set(localTargetIds);
+    const sameOwnerIds = new Set(
+      localTargetIds.filter((targetId) => getOwningClassId(targetId) === callerOwnerId)
+    );
+    if (sameOwnerIds.size === 0) return targetCandidates;
+
+    const narrowed = targetCandidates.filter(
+      (candidate) => !localTargetIdSet.has(candidate.id) || sameOwnerIds.has(candidate.id)
+    );
+    return narrowed.length > 0 ? narrowed : targetCandidates;
+  };
+
   for (const imp of parseResult.imports) {
     if (imp.isReExport) continue;
     const pairs = importNamePairs(imp);
@@ -701,7 +776,7 @@ function resolveEdges(
   }
 
   for (const frameworkCall of parseResult.frameworkCalls) {
-    const callerId = symbolMap.get(frameworkCall.callerSymbol);
+    const callerId = resolveCallerId(frameworkCall.callerSymbol, frameworkCall.line);
     if (!callerId) continue;
 
     const targetIds = resolveFrameworkTargets(frameworkCall, {
@@ -721,10 +796,14 @@ function resolveEdges(
   }
 
   for (const call of parseResult.calls) {
-    const callerId = symbolMap.get(call.callerSymbol);
+    const callerId = resolveCallerId(call.callerSymbol, call.line);
     if (!callerId) continue;
 
-    const targetCandidates = pickTargets(call.calleeName);
+    const targetCandidates = narrowToSameOwnerLocalTargets(
+      callerId,
+      call.calleeName,
+      pickTargets(call.calleeName)
+    );
     const kind = call.edgeKind ?? "call";
     for (const target of targetCandidates) {
       if (callerId === target.id) continue;
