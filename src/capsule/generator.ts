@@ -350,6 +350,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     intent === "narrow"
       ? exactQueryTerms
       : expandedQueryTerms;
+  const memorySearch = new MemorySearch(db);
+  const observationBudget = Math.floor(tokenBudget * OBSERVATION_BUDGET_FRACTION);
+  const { observations } = memorySearch.getRelevantForCapsule(query, observationBudget);
   const typeFocusedQuery = allQueryTerms.some((term) => TYPE_FOCUSED_TERMS.has(term));
   const runtimeFocusedQuery = pivotQueryTerms.some((term) => RUNTIME_QUERY_TERMS.has(term));
   const hasRuntimeCandidateFile = candidateFiles.some((candidate) => isRuntimeCodePath(candidate.path));
@@ -415,6 +418,33 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       : intent === "broad"
         ? Math.max(120, Math.floor(retrievalBudget / 140))
         : Math.max(160, Math.floor(retrievalBudget / 120));
+  const memoryBridgeSymbolCap = intent === "narrow" ? 2 : 3;
+  const memoryCandidateSymbolIds = new Set<number>();
+  const selectMemorySeedSymbols = (fileId: number): number[] =>
+    symbols
+      .getByFileIdLight(fileId)
+      .sort((a, b) => {
+        if (a.isExported !== b.isExported) {
+          return a.isExported ? -1 : 1;
+        }
+        if (b.centrality !== a.centrality) {
+          return b.centrality - a.centrality;
+        }
+        return a.startLine - b.startLine;
+      })
+      .slice(0, memoryBridgeSymbolCap)
+      .map((symbol) => symbol.id);
+
+  for (const observation of observations) {
+    if (observation.symbolId != null) {
+      memoryCandidateSymbolIds.add(observation.symbolId);
+    }
+    if (observation.fileId != null) {
+      for (const symbolId of selectMemorySeedSymbols(observation.fileId)) {
+        memoryCandidateSymbolIds.add(symbolId);
+      }
+    }
+  }
 
   if (intent !== "narrow" && candidateFiles.length > 0) {
     const seedFileLimit = intent === "broad" ? 6 : 8;
@@ -568,6 +598,23 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
   }
 
+  if (rawPivotIds.size < 3 && memoryCandidateSymbolIds.size > 0) {
+    let added = 0;
+    for (const symbolId of memoryCandidateSymbolIds) {
+      const symbol = symbols.getByIdLight(symbolId);
+      if (!symbol) continue;
+      const file = files.getById(symbol.fileId);
+      if (!file) continue;
+      if (suppressTypeDeclarations && isTypeDeclarationPath(file.path)) continue;
+      rawPivotIds.add(symbolId);
+      added += 1;
+      if (rawPivotIds.size >= maxStageARaw) break;
+    }
+    if (added > 0) {
+      logger.info("memory bridge activated", { addedPivots: added, totalPivots: rawPivotIds.size });
+    }
+  }
+
   logger.debug("raw pivot candidates", { count: rawPivotIds.size });
 
   const MAX_PIVOTS =
@@ -645,6 +692,18 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     pivotScores = [...rankedPivots.values()].sort((a, b) => b - a);
   }
 
+  if (rankedPivots.size < 3 && memoryCandidateSymbolIds.size > 0) {
+    const topScore = [...rankedPivots.values()].sort((a, b) => b - a)[0] ?? 0;
+    const memoryFallbackScore = topScore > 0 ? Math.max(0.9, topScore * 0.42) : 1.1;
+    for (const symbolId of memoryCandidateSymbolIds) {
+      if (rankedPivots.has(symbolId)) continue;
+      const candidate = pivotCandidates.find((entry) => entry.id === symbolId);
+      if (!candidate) continue;
+      rankedPivots.set(symbolId, memoryFallbackScore * getPivotKindWeight(candidate.kind, preferRuntimeKinds));
+    }
+    pivotScores = [...rankedPivots.values()].sort((a, b) => b - a);
+  }
+
   if (intent !== "narrow" && rankedPivots.size > 0) {
     const rankedEntries = [...rankedPivots.entries()].sort((a, b) => b[1] - a[1]);
     const topScore = rankedEntries[0]?.[1] ?? 0;
@@ -712,15 +771,15 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   logger.debug("pivot symbols after ranking", { raw: rawPivotIds.size, ranked: pivotSymbolIds.size, relevant: relevantPivotIds.size });
 
-  const memorySearch = new MemorySearch(db);
-  const observationBudget = Math.floor(tokenBudget * OBSERVATION_BUDGET_FRACTION);
-  const { observations } = memorySearch.getRelevantForCapsule(query, observationBudget);
-
-  // Build symbol → observation count map so scoreNode can use memory signal
+  // Build symbol/file → observation count maps so scoreNode can use durable memory signals.
   const observationCountBySymbol = new Map<number, number>();
+  const observationCountByFile = new Map<number, number>();
   for (const obs of observations) {
     if (obs.symbolId != null) {
       observationCountBySymbol.set(obs.symbolId, (observationCountBySymbol.get(obs.symbolId) ?? 0) + 1);
+    }
+    if (obs.fileId != null) {
+      observationCountByFile.set(obs.fileId, (observationCountByFile.get(obs.fileId) ?? 0) + 1);
     }
   }
 
@@ -868,7 +927,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       distance: candidate.distance,
       centrality: candidate.symbol.centrality,
       lastSeen: candidate.symbol.lastSeen,
-      observationCount: observationCountBySymbol.get(candidate.symbol.id) ?? 0,
+      observationCount:
+        (observationCountBySymbol.get(candidate.symbol.id) ?? 0) +
+        (observationCountByFile.get(candidate.symbol.fileId) ?? 0),
       isExported: candidate.symbol.isExported,
       isPivot: candidate.isPivot,
       lexicalBoost,

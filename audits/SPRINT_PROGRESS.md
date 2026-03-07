@@ -34,7 +34,7 @@ Execution mode: single-agent (with exploratory subagents)
 | CW-P1-006 | P1 | done | `npx vitest run tests/unit/parser.test.ts tests/core/indexer-edge-resolution.test.ts` => pass (34 tests); `npm run bench:product` => pass after CommonJS `require()` aliases resolve through module-level exported symbols and Express first-pass retrieval now keeps `lib/application.js` alongside `lib/express.js` |
 | CW-P1-007 | P1 | done | `npx vitest run tests/core/framework-entry-edges.test.ts tests/field/review-regressions.test.ts` => pass (19 tests); `npm test` => pass; Next framework plugins now trace pages-router loaders through `pages/api/**` default handlers and the new field fixture stays green end to end |
 | CW-P1-008 | P1 | done | `npx vitest run tests/unit/flow.test.ts tests/unit/impact.test.ts tests/integration/*.test.ts` => pass (18 files, 101 tests); `npm test` => pass (137 files, 684 tests); `npm run eval` => pass at `100.0%` first-pass / `0.0%` correction; `npm run bench:product` => pass after class-qualified symbol resolution and callback-heavy caller attribution fixes |
-| CW-P1-009 | P1 | todo | No evidence yet |
+| CW-P1-009 | P1 | done | `npx vitest run tests/memory/*.test.ts tests/integration/*.test.ts` => pass (20 files, 90 tests); `npm test` => pass (138 files, 686 tests); `npm run eval` => pass at `100.0%` first-pass / `0.0%` correction; `npm run bench:product` => pass after durable architecture memory can bridge weak first-pass retrieval without surfacing passive telemetry |
 | CW-P1-010 | P1 | todo | No evidence yet |
 | CW-P1-011 | P1 | todo | No evidence yet |
 | CW-P1-012 | P1 | todo | No evidence yet |
@@ -49,9 +49,9 @@ Execution mode: single-agent (with exploratory subagents)
 ## Completion Summary
 
 - P0: 15/15 done (100.0%)
-- P1: 8/13 done (61.5%)
+- P1: 9/13 done (69.2%)
 - P2: 3/9 done (33.3%)
-- Overall: 26/37 done (70.3%)
+- Overall: 27/37 done (73.0%)
 
 ## Implementation Summary
 
@@ -60,6 +60,7 @@ Execution mode: single-agent (with exploratory subagents)
 - Product benchmark drift was removed by pinning the upstream Express, Fastify, and Zod repos to specific commits and updating task expectations to the current repo-local runtime surfaces instead of removed/moved files.
 - HTTP/framework tracing, navigation/impact correctness, project profiling, non-code document indexing, passive-memory cleanup, parser gap coverage, semantic reranking, and framework plugin boundaries all landed in the runtime.
 - `CW-P1-008` is now closed: flow and impact now resolve class-qualified method names, follow JSX member-expression callbacks, and attribute framework/call edges to enclosing callable symbols instead of local variables, which keeps class-heavy callback chains accurate on the first pass.
+- `CW-P1-009` is now closed: durable architecture memory now bridges into Stage A retrieval when lexical/file-summary search is weak, and file-linked observations boost the linked runtime file without letting passive telemetry leak into capsule ranking by default.
 - Eval/baseline handling was versioned (`tests/eval/quality-baseline.json` version `2`) and `tests/integration/update-baseline.ts --replace` now supports deliberate baseline refreshes after methodology or scoring changes.
 - Phase 2 is now active. The priority is to turn first-pass quality into the release gate for a product-grade context engine that can replace expensive grep/explorer loops in agentic coding tools.
 - `CW-P0-006` and `CW-P0-013` are now complete. Eval and product-benchmark methodology no longer structurally force two-turn recovery, and both now gate on first-pass quality directly.
@@ -83,6 +84,7 @@ Execution mode: single-agent (with exploratory subagents)
   - `CW-P0-015` is now closed for this session: the newly diagnosed Express/CommonJS miss was encoded immediately into the product benchmark so external review findings continue to become gates instead of tribal knowledge.
   - `CW-P1-007` is now closed: Next framework tracing supports the older pages-router convention in addition to App Router, so `getServerSideProps` loaders can cross the `pages/api/**` default-handler boundary without injecting framework heuristics into the generic ranking path.
   - `CW-P1-008` is now closed: qualified MCP navigation queries like `ComposeModal.render` and `ComposeModal.handleSave` stay accurate through callback-heavy code because symbol resolution, edge extraction, and broad graph vocabulary all preserve the owning class and runtime callable instead of drifting to unrelated same-name helpers.
+  - `CW-P1-009` is now closed: when a relevant architecture observation is linked to a file, the capsule generator can now promote that file’s best symbols into Stage A and candidate scoring as a last-mile recovery path, while passive observations remain excluded from the same bridge.
 
 ## First-Pass Diagnosis
 
@@ -145,14 +147,16 @@ Execution mode: single-agent (with exploratory subagents)
   - 2 files, 19 tests
 - `npx vitest run tests/unit/flow.test.ts tests/unit/impact.test.ts tests/integration/*.test.ts` => pass
   - 18 files, 101 tests
+- `npx vitest run tests/memory/*.test.ts tests/integration/*.test.ts` => pass
+  - 20 files, 90 tests
 - `npm run eval` => pass
-  - Overall: precision `48.4%`, recall `88.5%`, avg confidence `94.2%`, token efficiency `82.9%`, p95 latency `21.2ms`, task success `100.0%`, first-pass `100.0%`, correction rate `0.0%`, avg task tokens `609.0`, turns to success `1.00`
-  - `contextweave-src`: precision `43.5%`, recall `81.7%`, avg confidence `90.7%`, token efficiency `96.1%`, avg task tokens `975.0`, first-pass `100.0%`
-  - `small-project`: precision `55.2%`, recall `100.0%`, avg confidence `100.0%`, token efficiency `69.7%`, avg task tokens `243.0`, first-pass `100.0%`
+  - Overall: precision `48.4%`, recall `88.5%`, avg confidence `94.1%`, token efficiency `82.9%`, p95 latency `16.8ms`, task success `100.0%`, first-pass `100.0%`, correction rate `0.0%`, avg task tokens `609.0`, turns to success `1.00`
+  - `contextweave-src`: precision `43.3%`, recall `81.7%`, avg confidence `90.5%`, token efficiency `98.4%`, avg task tokens `975.0`, first-pass `100.0%`
+  - `small-project`: precision `56.9%`, recall `100.0%`, avg confidence `100.0%`, token efficiency `56.9%`, avg task tokens `243.0`, first-pass `100.0%`
 - `npm run bench` => pass
   - Average reduction `72.5%` against target `>= 65%`
 - `npm test` => pass
-  - 137 files, 684 tests
+  - 138 files, 686 tests
 - `npm run lint` => pass
 - `npm run build` => pass
 - `npm run test:field` => pass
@@ -180,6 +184,6 @@ Execution mode: single-agent (with exploratory subagents)
 
 ## Next Actions
 
-1. Continue `CW-P1-009`: improve durable architecture-memory recall on the first pass while keeping passive logs suppressed by default.
-2. Continue `CW-P1-010` through `CW-P1-013` in order after the memory-retrieval stabilization work is merged.
+1. Continue `CW-P1-010`: improve first-pass retrieval for policy/config-heavy repos so non-code files help without overwhelming runtime code paths.
+2. Continue `CW-P1-011` through `CW-P1-013` in order after the non-code retrieval stabilization work is merged.
 3. Continue `CW-P2-004` through `CW-P2-009` after the remaining P1 stabilization work is complete.
