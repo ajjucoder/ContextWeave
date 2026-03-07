@@ -40,7 +40,7 @@ describe("multi-pass generator", () => {
     expect(task.content).toContain("Strategy:");
   });
 
-  it("uses at least 60% token budget for broad queries when candidates remain", () => {
+  it("keeps broad queries efficient when compression can cover the story cheaply", () => {
     const broad = generateCapsule(db, {
       query: "database schema migration tables indexes",
       tokenBudget: 10000,
@@ -48,11 +48,14 @@ describe("multi-pass generator", () => {
 
     expect(broad.metadata.strategy?.intent).toBe("broad");
     expect(broad.metadata.quality.retrieval.stageBSelectedCount).toBeGreaterThan(0);
-    const utilization = broad.metadata.tokensUsed / broad.metadata.tokenBudget;
-    if (broad.metadata.quality.retrieval.stageBSelectedCount >= 40) {
-      expect(utilization).toBeGreaterThan(0.6);
-    } else {
-      expect(utilization).toBeGreaterThan(0.15);
-    }
+    expect(broad.metadata.symbolCount).toBeGreaterThanOrEqual(10);
+    expect(broad.metadata.fileCount).toBeGreaterThanOrEqual(3);
+    expect(broad.metadata.quality.coverageConfidence).toBeGreaterThan(0.7);
+    expect(broad.metadata.tokensUsed).toBeLessThan(broad.metadata.tokenBudget * 0.15);
+    expect(
+      (broad.metadata.compressionBreakdown[1] ?? 0) +
+      (broad.metadata.compressionBreakdown[2] ?? 0) +
+      (broad.metadata.compressionBreakdown[3] ?? 0)
+    ).toBeGreaterThan(0);
   });
 });

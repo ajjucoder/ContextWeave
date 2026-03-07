@@ -116,7 +116,7 @@ describe("packNodesStoryMode", () => {
     const tightBudget = 400;
     const result = packNodesStoryMode(nodes, tightBudget, 0.9);
 
-    expect(result.packed.length).toBeLessThan(nodes.length);
+    expect(result.packed.some((node) => node.compressionLevel !== 0)).toBe(true);
     expect(result.tokensUsed).toBeGreaterThan(0);
     expect(result.tokensUsed).toBeLessThanOrEqual(Math.floor(tightBudget * 0.9));
   });
@@ -135,6 +135,28 @@ describe("packNodesStoryMode", () => {
     expect(pivot).toBeDefined();
     expect(pivot?.compressionLevel).toBe(0);
     expect(pivot?.tokenCount).toBeGreaterThan(0);
+  });
+
+  it("uses skeleton compression for secondary broad pivots once the L0 budget is spent", () => {
+    const file = makeFile(40, "src/service/runtime.ts");
+    const primary = makeNode(4001, file, 10, 0);
+    primary.symbol.name = "pipelineOverview";
+    primary.symbol.signature = "function pipelineOverview(): void";
+
+    const secondary = makeNode(4002, file, 9.4, 0);
+    secondary.symbol.name = "buildSchema";
+    secondary.symbol.signature = "function buildSchema(): Schema";
+
+    const tertiary = makeNode(4003, file, 9.1, 0);
+    tertiary.symbol.name = "serializeSchema";
+    tertiary.symbol.signature = "function serializeSchema(): string";
+
+    const result = packNodesStoryMode([primary, secondary, tertiary], 1600, 0.9);
+    const byId = new Map(result.packed.map((node) => [node.symbol.id, node]));
+
+    expect(byId.get(4001)?.compressionLevel).toBe(0);
+    expect(byId.get(4002)?.compressionLevel).toBe(1);
+    expect(byId.get(4003)?.compressionLevel).toBe(1);
   });
 
   it("respects preassigned compression levels for broad-query UI entrypoints", () => {

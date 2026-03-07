@@ -12,6 +12,43 @@ export interface PackResult {
 const COMPRESSION_LEVELS: CompressionLevel[] = [0, 1, 2, 3];
 const FILE_SUMMARY_MIN_SYMBOLS = 3;
 const UI_ENTRY_PATH_RE = /(^|\/)(components?|views?|templates?|marketing)(\/|$)|(^|\/)(page|layout)\.[cm]?[jt]sx?$/i;
+const ACTION_SIGNAL_TERMS = new Set([
+  "submit",
+  "create",
+  "send",
+  "load",
+  "get",
+  "save",
+  "persist",
+  "fetch",
+  "update",
+  "delete",
+  "exchange",
+  "verify",
+  "handle",
+  "route",
+  "authenticate",
+  "write",
+  "read",
+  "sync",
+  "callback",
+  "notify",
+  "parse",
+  "transform",
+  "compile",
+  "dispatch",
+]);
+
+function hasActionSignal(name: string, signature: string): boolean {
+  const tokens = `${name} ${signature}`
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+
+  return tokens.some((token) => ACTION_SIGNAL_TERMS.has(token));
+}
 
 function computeGroupPriority(nodes: ScoredNode[]): number {
   const topScore = nodes.reduce((max, node) => Math.max(max, node.score), Number.NEGATIVE_INFINITY);
@@ -197,6 +234,8 @@ export function packNodesStoryMode(
   const packed: ScoredNode[] = [];
   const packedIds = new Set<number>();
   let tokensUsed = 0;
+  const maxL0Nodes = Math.max(1, Math.min(3, Math.floor(codeBudget / 1800) + 1));
+  let usedL0Nodes = 0;
 
   for (let index = 0; index < primaryGroups.length; index++) {
     if (tokensUsed >= Math.floor(codeBudget * 0.9)) break;
@@ -221,7 +260,11 @@ export function packNodesStoryMode(
 
       let preferredLevel: CompressionLevel;
       if (node.distance === 0) {
-        preferredLevel = 0;
+        const actionSignal = hasActionSignal(node.symbol.name, node.symbol.signature);
+        preferredLevel =
+          usedL0Nodes === 0 || (actionSignal && usedL0Nodes < maxL0Nodes && node.score >= topScore * 0.85)
+            ? 0
+            : 1;
       } else if (node.score >= topScore * 0.65) {
         preferredLevel = 1;
       } else {
@@ -246,6 +289,9 @@ export function packNodesStoryMode(
         rendered,
         tokenCount: tokens,
       });
+      if (targetLevel === 0) {
+        usedL0Nodes += 1;
+      }
       packedIds.add(node.symbol.id);
       groupTokens += tokens;
       tokensUsed += tokens;
