@@ -68,6 +68,8 @@ const extensionToLanguage: Record<string, string> = {
   ".yaml": "yaml",
   ".yml": "yaml",
   ".json": "json",
+  ".toml": "toml",
+  ".ini": "ini",
 };
 
 const DOCUMENT_SOURCE_LIMIT = 6000;
@@ -141,7 +143,13 @@ function hashContent(source: string): string {
 }
 
 function isDocumentLanguage(language: string): boolean {
-  return language === "markdown" || language === "yaml" || language === "json";
+  return (
+    language === "markdown" ||
+    language === "yaml" ||
+    language === "json" ||
+    language === "toml" ||
+    language === "ini"
+  );
 }
 
 function trimDocumentSource(content: string): string {

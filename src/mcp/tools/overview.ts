@@ -21,6 +21,10 @@ interface QueryRow {
   start_line: number;
 }
 
+interface SummaryRow {
+  summary_text: string;
+}
+
 function formatTree(files: OverviewFile[], depth: number, maxLines: number): string[] {
   const counts = new Map<string, { files: number; symbols: number }>();
 
@@ -75,6 +79,7 @@ function approximateTokenTrim(text: string, maxTokens: number): string {
 
 export function registerOverviewTool(server: McpServer, db: Database.Database, projectRoot: string): void {
   let symbolStmt: Database.Statement<[string, number], QueryRow> | null = null;
+  let summaryStmt: Database.Statement<[number], SummaryRow> | null = null;
   const getSymbolStmt = () => {
     if (!symbolStmt) {
       symbolStmt = db.prepare<[string, number], QueryRow>(`
@@ -88,6 +93,36 @@ export function registerOverviewTool(server: McpServer, db: Database.Database, p
       `);
     }
     return symbolStmt;
+  };
+  const getSummaryStmt = () => {
+    if (!summaryStmt) {
+      summaryStmt = db.prepare<[number], SummaryRow>(`
+        SELECT summary_text
+        FROM file_summaries
+        WHERE file_id = ?
+      `);
+    }
+    return summaryStmt;
+  };
+
+  const buildSummarySnippet = (summaryText: string, queryTerm: string): string | null => {
+    const summaryTokens = summaryText
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(Boolean);
+    const queryTokens = queryTerm
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((token) => token.length >= 2);
+    if (summaryTokens.length === 0 || queryTokens.length === 0) return null;
+
+    const firstMatch = summaryTokens.findIndex((token) => queryTokens.includes(token));
+    if (firstMatch === -1) return null;
+
+    const start = Math.max(0, firstMatch - 1);
+    const end = Math.min(summaryTokens.length, start + 10);
+    return summaryTokens.slice(start, end).join(" ");
   };
 
   const registerTool = getRegisterTool(server);
@@ -167,11 +202,18 @@ export function registerOverviewTool(server: McpServer, db: Database.Database, p
           } else {
             const escaped = queryTerm.replace(/[\\%_]/g, "\\$&");
             for (const file of focusedFiles) {
-              lines.push(`- ${file.path}`);
+              const relativePath = toProjectRelativePath(projectRoot, file.path);
+              lines.push(`- ${relativePath}`);
 
               const rows = getSymbolStmt().all(`%${escaped}%`, file.fileId);
               if (rows.length === 0) {
-                lines.push("  · no direct symbol name match");
+                const summaryText = getSummaryStmt().get(file.fileId)?.summary_text ?? "";
+                const snippet = buildSummarySnippet(summaryText, queryTerm);
+                if (snippet) {
+                  lines.push(`  · summary match: ${snippet}`);
+                } else {
+                  lines.push("  · no direct symbol name match");
+                }
                 continue;
               }
 

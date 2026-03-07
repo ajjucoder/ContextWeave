@@ -257,13 +257,13 @@ Make ContextWeave reliably beat ad-hoc `grep` + `read` for real agent workflows 
 
 #### CW-P1-010
 - owner: codex
-- scope/files: `src/core/indexer.ts`, `src/mcp/tools/overview.ts`, `tests/core/`, `tests/integration/`
+- scope/files: `src/core/parser.ts`, `src/mcp/tools/overview.ts`, `tests/core/`, `tests/integration/`
 - acceptance criteria:
   - Non-code files contribute to first-pass correctness in policy/config-heavy repos without overwhelming source-code retrieval.
 - linked tests:
   - `npx vitest run tests/core/*.test.ts tests/integration/*.test.ts`
   - `npm run test:field`
-- status: todo
+- status: done
 
 #### CW-P1-011
 - owner: codex
