@@ -9,6 +9,7 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     strategy:
       matrix:
@@ -31,3 +32,4 @@ jobs:
         env:
           CW_P95_TARGET_MS: 200
       - run: npm run build
+      - run: npm run eval

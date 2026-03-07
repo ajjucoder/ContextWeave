@@ -1,0 +1,30 @@
+name: Product Bench
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
+  release:
+    types: [published]
+
+concurrency:
+  group: product-bench-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  product-bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+      - run: npm run eval
+      - run: npm run bench:product

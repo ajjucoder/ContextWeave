@@ -284,7 +284,7 @@ Make ContextWeave reliably beat ad-hoc `grep` + `read` for real agent workflows 
 - linked tests:
   - `npm run eval`
   - `npm run bench:product`
-- status: todo
+- status: done
 
 #### CW-P1-013
 - owner: codex
