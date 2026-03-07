@@ -172,6 +172,34 @@ function isAlwaysIgnored(relativePath: string): boolean {
   return ALWAYS_IGNORE_PATTERNS.some((re) => re.test(fileName) || re.test(normalizedPath));
 }
 
+function toRelativeProjectPath(filePath: string, projectRoot: string): string | null {
+  const resolvedPath = resolve(filePath);
+  const resolvedRoot = resolve(projectRoot);
+  if (!isPathWithinRoot(resolvedPath, resolvedRoot)) return null;
+  if (resolvedPath === resolvedRoot) return "";
+  const relative = resolvedPath.slice(`${resolvedRoot}${sep}`.length);
+  return relative.replace(/\\/g, "/");
+}
+
+export function isSecurityExcludedPath(filePath: string, projectRoot: string): boolean {
+  const relativePath = toRelativeProjectPath(filePath, projectRoot);
+  return relativePath !== null && isAlwaysIgnored(relativePath);
+}
+
+export function isIgnoredForIndexing(filePath: string, projectRoot: string, extraIgnore?: string[]): boolean {
+  const relativePath = toRelativeProjectPath(filePath, projectRoot);
+  if (relativePath === null) return true;
+  if (shouldIgnore(filePath)) return true;
+
+  const gitignorePatterns = loadGitignorePatterns(projectRoot);
+  if (gitignorePatterns.length > 0 && isIgnoredByGitignore(relativePath, gitignorePatterns)) return true;
+
+  const cwignorePatterns = loadCwignorePatterns(projectRoot);
+  if (cwignorePatterns.length > 0 && isIgnoredByGitignore(relativePath, cwignorePatterns)) return true;
+
+  return !!(extraIgnore && extraIgnore.length > 0 && isIgnoredByGitignore(relativePath, extraIgnore));
+}
+
 function summarizeUnsupportedFiles(unsupportedByExtension: Map<string, number>): string | null {
   if (unsupportedByExtension.size === 0) return null;
 
@@ -1129,7 +1157,8 @@ export function isPathWithinRoot(filePath: string, projectRoot: string): boolean
 export function indexSingleFile(
   db: Database.Database,
   filePath: string,
-  projectRoot: string
+  projectRoot: string,
+  extraIgnore?: string[]
 ): { symbolCount: number; errors: string[]; diff: IndexDiff | null } {
   const resolvedPath = resolve(filePath);
 
@@ -1153,8 +1182,12 @@ export function indexSingleFile(
     return { symbolCount: 0, errors: [`Failed to check symlink for "${filePath}"`], diff: null };
   }
 
-  if (isAlwaysIgnored(resolvedPath)) {
+  if (isSecurityExcludedPath(resolvedPath, projectRoot)) {
     return { symbolCount: 0, errors: [`File "${filePath}" matches security exclusion pattern`], diff: null };
+  }
+
+  if (isIgnoredForIndexing(resolvedPath, projectRoot, extraIgnore)) {
+    return { symbolCount: 0, errors: [`File "${filePath}" is excluded by ignore rules`], diff: null };
   }
 
   const files = fileQueries(db);

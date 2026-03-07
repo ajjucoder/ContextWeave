@@ -1,3 +1,6 @@
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockSubscribe = vi.fn();
@@ -13,12 +16,16 @@ vi.mock("@parcel/watcher", () => ({
   subscribe: mockSubscribe,
 }));
 
-vi.mock("../../src/core/indexer.js", () => ({
-  BUILTIN_IGNORE_PATTERNS: ["node_modules", "dist", "build"],
-  indexSingleFile: mockIndexSingleFile,
-  removeFile: mockRemoveFile,
-  indexProject: mockIndexProject,
-}));
+vi.mock("../../src/core/indexer.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/core/indexer.js")>();
+  return {
+    ...actual,
+    BUILTIN_IGNORE_PATTERNS: ["node_modules", "dist", "build"],
+    indexSingleFile: mockIndexSingleFile,
+    removeFile: mockRemoveFile,
+    indexProject: mockIndexProject,
+  };
+});
 
 vi.mock("../../src/core/parser.js", () => ({
   detectLanguage: mockDetectLanguage,
@@ -74,7 +81,7 @@ describe("watcher behavior", () => {
     callback?.(null, [{ type: "update", path: "/repo/src/file.ts" }]);
     callback?.(null, [{ type: "delete", path: "/repo/src/file.ts" }]);
 
-    expect(mockIndexSingleFile).toHaveBeenCalledWith(db, "/repo/src/file.ts", "/repo");
+    expect(mockIndexSingleFile).toHaveBeenCalledWith(db, "/repo/src/file.ts", "/repo", undefined);
     expect(onReindex).toHaveBeenCalledWith("/repo/src/file.ts", 3);
     expect(mockRemoveFile).toHaveBeenCalledWith(db, "/repo/src/file.ts");
     expect(onRemove).toHaveBeenCalledWith("/repo/src/file.ts");
@@ -151,5 +158,37 @@ describe("watcher behavior", () => {
       "/repo"
     );
     expect(onDiff).toHaveBeenCalledWith("/repo/src/file.ts", diff, 42);
+  });
+
+  it("skips changed files that become ignored after .gitignore updates", async () => {
+    let callback: ((err: unknown, events: Array<{ type: string; path: string }>) => void) | undefined;
+    mockSubscribe.mockImplementation(async (_root: string, cb: typeof callback) => {
+      callback = cb;
+      return { unsubscribe: vi.fn(async () => undefined) };
+    });
+
+    mockIndexProject.mockResolvedValue({ filesIndexed: 2, symbolsFound: 4, errors: [] });
+    mockIndexSingleFile.mockReturnValue({ symbolCount: 1, errors: [], diff: null });
+
+    const root = mkdtempSync(join(tmpdir(), "cw-watcher-ignore-"));
+    writeFileSync(join(root, ".gitignore"), "");
+
+    const { startWatcher } = await import("../../src/core/watcher.js");
+    await startWatcher({
+      projectRoot: root,
+      db: {} as never,
+      ignore: [],
+    });
+
+    writeFileSync(join(root, ".gitignore"), "generated/\n");
+    callback?.(null, [{ type: "update", path: join(root, ".gitignore") }]);
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    callback?.(null, [{ type: "update", path: join(root, "generated", "ignored.ts") }]);
+
+    expect(mockIndexProject).toHaveBeenCalledWith({} as never, root, []);
+    expect(mockIndexSingleFile).not.toHaveBeenCalled();
   });
 });

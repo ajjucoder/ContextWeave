@@ -2,7 +2,7 @@ import * as parcelWatcher from "@parcel/watcher";
 import type Database from "better-sqlite3";
 import { basename, resolve } from "node:path";
 import type { IndexDiff } from "./types.js";
-import { BUILTIN_IGNORE_PATTERNS, indexProject, indexSingleFile, removeFile } from "./indexer.js";
+import { BUILTIN_IGNORE_PATTERNS, indexProject, indexSingleFile, isIgnoredForIndexing, isSecurityExcludedPath, removeFile } from "./indexer.js";
 import { detectLanguage } from "./parser.js";
 import { StalenessEngine } from "../memory/staleness.js";
 import { fileQueries } from "../db/queries/files.js";
@@ -73,11 +73,16 @@ export async function startWatcher(options: WatcherOptions): Promise<void> {
   };
 
   const handleChange = (filePath: string) => {
+    if (isSecurityExcludedPath(filePath, projectRoot) || isIgnoredForIndexing(filePath, projectRoot, ignore)) {
+      log.debug(`skipping ignored file change ${filePath}`);
+      return;
+    }
+
     const language = detectLanguage(filePath);
     if (!language) return;
 
     try {
-      const result = indexSingleFile(db, filePath, projectRoot);
+      const result = indexSingleFile(db, filePath, projectRoot, ignore);
       log.debug(`reindexed ${filePath}: ${result.symbolCount} symbols`);
 
       if (result.diff) {

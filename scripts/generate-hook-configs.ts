@@ -3,13 +3,13 @@ const hookConfig = {
     PostToolUse: [
       {
         matcher: "Write|Edit|MultiEdit|Read",
-        command: "echo '{\"tool_name\": \"$TOOL_NAME\", \"tool_input\": $TOOL_INPUT}' | node dist/hooks/post-tool-use.js",
+        command: "node -e \"const payload = { tool_name: process.env.TOOL_NAME ?? '', tool_input: JSON.parse(process.env.TOOL_INPUT ?? '{}') }; process.stdout.write(JSON.stringify(payload));\" | node dist/hooks/post-tool-use.js",
       },
     ],
     SessionEnd: [
       {
         matcher: ".*",
-        command: "echo '{\"session_id\": \"$SESSION_ID\"}' | node dist/hooks/session-end.js",
+        command: "node -e \"process.stdout.write(JSON.stringify({ session_id: process.env.SESSION_ID ?? '' }));\" | node dist/hooks/session-end.js",
       },
     ],
   },

@@ -1,6 +1,6 @@
 # Sprint Progress
 
-Date: 2026-03-06
+Date: 2026-03-07
 Branch: main
 Execution mode: single-agent (with exploratory subagents)
 
@@ -29,7 +29,7 @@ Execution mode: single-agent (with exploratory subagents)
 | CW-P0-011 | P0 | todo | No evidence yet |
 | CW-P0-012 | P0 | todo | No evidence yet |
 | CW-P0-013 | P0 | done | `npm run bench:product` => pass with first-pass rate `100.0%`, correction rate `0.0%`, avg tokens to first correct context `1137.3`; product bench now fails on first-pass/correction regressions instead of only eventual success |
-| CW-P0-014 | P0 | todo | No evidence yet |
+| CW-P0-014 | P0 | in_progress | `tests/integration/mcp-server.test.ts`, `tests/integration/mcp-navigation-tools.test.ts`, and `tests/integration/mcp-tool-schema-compat.test.ts` now cover MCP startup/wiring plus `cw_capsule`, `cw_status`, and `cw_stats` registration/runtime paths; remaining acceptance work is output-shaping for follow-up guidance |
 | CW-P0-015 | P0 | todo | No evidence yet |
 | CW-P1-006 | P1 | todo | No evidence yet |
 | CW-P1-007 | P1 | todo | No evidence yet |
@@ -69,6 +69,11 @@ Execution mode: single-agent (with exploratory subagents)
 - Broad capsule-pipeline prompts no longer drift into `db/queries/*` helper files on first pass. Concept terms like `generation`, `scoring`, and `compression` now expand into the actual pipeline surfaces (`generator`, `pivot-scorer`, `packer`, `formatter`, `compressor`), which lifted `capsule generation pipeline scoring compression` from `53.7%` confidence to `67.9%` and restored the broad-query gate.
 - The remaining eval miss was the indexing task’s first attempt, `index project parser pipeline`. The query already found `core/indexer.ts` and `core/parser.ts`, but it preferred `initParser` over `parseFile`. Expanding `index` -> `indexer/indexProject` and `parser` -> `parse/parseFile` fixed that first-pass miss and moved `npm run eval` back to `100.0%` first-pass / `0.0%` correction.
 - The ratchet harness itself had a logic bug after first-pass recovery improvements: it treated lower `correctionRate` values as regressions. `tests/integration/threshold-ratchet.test.ts` now correctly treats lower correction as better, so the quality gate follows product reality instead of forcing a worse baseline.
+- New hardening fixes landed in this session:
+  - Claude hook config generation now emits shell-valid JSON payload commands for `PostToolUse` and `SessionEnd`, so environment variables expand correctly before reaching the hook handlers.
+  - Live watcher updates now honor `.gitignore`, `.cwignore`, and config ignore rules on each file event instead of only at initial subscription time, preventing ignored files from being reintroduced after edits.
+  - `post-tool-use` capsule follow-up telemetry now matches file paths exactly after normalization, eliminating false positives from substring path collisions.
+  - MCP runtime coverage now exercises `startMcpServer()` primary/secondary startup paths and handler-level `cw_capsule`, `cw_status`, and `cw_stats` execution through real MCP registration.
 
 ## First-Pass Diagnosis
 
@@ -117,14 +122,20 @@ Execution mode: single-agent (with exploratory subagents)
   - 1 file, 3 tests
 - `npx vitest run tests/unit/synonyms.test.ts tests/integration/task-query-quality.test.ts` => pass
   - 2 files, 32 tests
+- `npx vitest run tests/unit/hook-configs.test.ts tests/core/watcher-behavior.test.ts tests/integration/post-tool-use.test.ts tests/integration/mcp-navigation-tools.test.ts tests/integration/mcp-tool-schema-compat.test.ts tests/integration/mcp-server.test.ts tests/security/gitignore-filtering.test.ts` => pass
+  - 7 files, 25 tests
 - `npm run eval` => pass
-  - Overall: precision `49.0%`, recall `88.5%`, avg confidence `94.6%`, token efficiency `77.4%`, p95 latency `16.2ms`, task success `100.0%`, first-pass `100.0%`, correction rate `0.0%`, avg task tokens `2276.5`, turns to success `1.00`
-  - `contextweave-src`: precision `44.2%`, recall `81.7%`, avg confidence `91.4%`, token efficiency `97.8%`, avg task tokens `3507.5`, first-pass `100.0%`
-  - `small-project`: precision `56.9%`, recall `100.0%`, avg confidence `100.0%`, token efficiency `43.3%`, avg task tokens `1141.0`, first-pass `100.0%`
+  - Overall: precision `49.0%`, recall `88.5%`, avg confidence `94.2%`, token efficiency `77.3%`, p95 latency `16.1ms`, task success `100.0%`, first-pass `100.0%`, correction rate `0.0%`, avg task tokens `2276.5`, turns to success `1.00`
+  - `contextweave-src`: precision `44.2%`, recall `81.7%`, avg confidence `90.8%`, token efficiency `97.8%`, avg task tokens `3507.5`, first-pass `100.0%`
+  - `small-project`: precision `56.9%`, recall `100.0%`, avg confidence `100.0%`, token efficiency `43.3%`, avg task tokens `1045.5`, first-pass `100.0%`
 - `npm run bench` => pass
   - Average reduction `72.5%` against target `>= 65%`
 - `npm test` => pass
-  - 133 files, 638 tests
+  - 136 files, 665 tests
+- `npm run lint` => pass
+- `npm run build` => pass
+- `npm run test:field` => pass
+  - 1 file, 12 tests
 
 ## Additional Benchmark Evidence
 
@@ -145,9 +156,11 @@ Execution mode: single-agent (with exploratory subagents)
 
 - No blocking implementation blockers are known right now. The active gap has moved from first-pass recovery to the next batch of broader product-grade regressions and confidence calibration work.
 - `session entry lifecycle` still returns medium uncertainty even though retrieval is correct on the first pass. This is now a confidence-calibration gap, not a retrieval-correctness gap.
+- `CW-P0-014` is still open because the MCP handlers are now covered, but the tool output itself still needs stronger follow-up guidance when confidence is not yet strong enough.
 
 ## Next Actions
 
-1. Continue `CW-P0-010` and `CW-P0-011`: improve bridge-node retention and packing/compression so broad/task capsules spend less budget on secondary helpers while preserving the current first-pass wins.
-2. Continue `CW-P0-012`: calibrate confidence for broad semantic prompts that now retrieve correctly but still report medium uncertainty.
-3. Continue `CW-P0-014` and `CW-P0-015`: make MCP tool output safer for external agents and keep converting new real-world misses into gated fixtures in the same session.
+1. Continue `CW-P0-014`: add explicit next-step/follow-up guidance to MCP tool output when capsule confidence is medium or worse.
+2. Continue `CW-P0-010` and `CW-P0-011`: improve bridge-node retention and packing/compression so broad/task capsules spend less budget on secondary helpers while preserving the current first-pass wins.
+3. Continue `CW-P0-012`: calibrate confidence for broad semantic prompts that now retrieve correctly but still report medium uncertainty.
+4. Continue `CW-P0-015`: keep converting new real-world misses and integration hazards into gated fixtures in the same session.

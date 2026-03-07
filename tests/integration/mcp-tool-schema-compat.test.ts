@@ -11,6 +11,7 @@ import { registerOverviewTool } from "../../src/mcp/tools/overview.js";
 import { registerFilesTool } from "../../src/mcp/tools/files.js";
 import { registerSearchTool } from "../../src/mcp/tools/search.js";
 import { registerReadTool } from "../../src/mcp/tools/read.js";
+import { registerStatsTool } from "../../src/mcp/tools/stats.js";
 
 type RegisteredTool = {
   inputSchema?: {
@@ -157,6 +158,16 @@ describe("MCP tool schema compatibility", () => {
       end_line: 60,
       max_lines: 200,
       symbol: "generateCapsule",
+    });
+    expect(parseResult?.success).toBe(true);
+  });
+
+  it("cw_stats input schema parses valid args", async () => {
+    const server = new McpServer({ name: "contextweave-test", version: "0.0.0" });
+    registerStatsTool(server, null as never, "/tmp/project", "session-default");
+
+    const parseResult = await getRegisteredTool(server, "cw_stats").inputSchema?.safeParseAsync({
+      session_id: "session-override",
     });
     expect(parseResult?.success).toBe(true);
   });

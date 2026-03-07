@@ -15,6 +15,10 @@ interface HookInput {
   project_root?: string;
 }
 
+function normalizeTrackedFilePath(projectRoot: string, filePath: string): string {
+  return resolve(projectRoot, filePath).replace(/\\/g, "/");
+}
+
 export async function handlePostToolUse(input: HookInput): Promise<void> {
   const projectRoot = input.project_root ?? process.cwd();
   const cwDir = resolve(projectRoot, ".contextweave");
@@ -54,7 +58,10 @@ export async function handlePostToolUse(input: HookInput): Promise<void> {
   const latest = capsuleLogs.getLatest();
 
   if (latest && !latest.followedUp) {
-    const wasInCapsule = latest.filesIncluded.some((f) => filePath.includes(f) || f.includes(filePath));
+    const normalizedFilePath = normalizeTrackedFilePath(projectRoot, filePath);
+    const wasInCapsule = latest.filesIncluded.some((candidatePath) => (
+      normalizeTrackedFilePath(projectRoot, candidatePath) === normalizedFilePath
+    ));
 
     if (isRead && !wasInCapsule) {
       const currentMiss = latest.missRatio ?? 0;
