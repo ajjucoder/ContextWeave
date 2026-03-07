@@ -32,7 +32,7 @@ Execution mode: single-agent (with exploratory subagents)
 | CW-P0-014 | P0 | done | `tests/integration/mcp-server.test.ts`, `tests/integration/mcp-navigation-tools.test.ts`, `tests/integration/mcp-tool-schema-compat.test.ts`, `tests/unit/formatter-followup.test.ts`, `npm test`, and `npm run eval` => pass after adding explicit next-step guidance to low-confidence capsule/read/overview output |
 | CW-P0-015 | P0 | done | `npm run test:field` => pass (12 tests); `npm run eval` => pass at `100.0%` first-pass / `0.0%` correction; `npm run bench:product` => pass after encoding the new Express/CommonJS module-wiring miss into `bench/cross-project-qa.ts` and keeping the product gate green in the same session |
 | CW-P1-006 | P1 | done | `npx vitest run tests/unit/parser.test.ts tests/core/indexer-edge-resolution.test.ts` => pass (34 tests); `npm run bench:product` => pass after CommonJS `require()` aliases resolve through module-level exported symbols and Express first-pass retrieval now keeps `lib/application.js` alongside `lib/express.js` |
-| CW-P1-007 | P1 | todo | No evidence yet |
+| CW-P1-007 | P1 | done | `npx vitest run tests/core/framework-entry-edges.test.ts tests/field/review-regressions.test.ts` => pass (19 tests); `npm test` => pass; Next framework plugins now trace pages-router loaders through `pages/api/**` default handlers and the new field fixture stays green end to end |
 | CW-P1-008 | P1 | todo | No evidence yet |
 | CW-P1-009 | P1 | todo | No evidence yet |
 | CW-P1-010 | P1 | todo | No evidence yet |
@@ -49,9 +49,9 @@ Execution mode: single-agent (with exploratory subagents)
 ## Completion Summary
 
 - P0: 15/15 done (100.0%)
-- P1: 6/13 done (46.2%)
+- P1: 7/13 done (53.8%)
 - P2: 3/9 done (33.3%)
-- Overall: 24/37 done (64.9%)
+- Overall: 25/37 done (67.6%)
 
 ## Implementation Summary
 
@@ -80,6 +80,7 @@ Execution mode: single-agent (with exploratory subagents)
   - `CW-P0-012` is now closed: broad/task confidence now respects strong structural retrieval even when lexical overlap is weak, and diagnostics explicitly identify lexical-semantic mismatch when low-confidence broad capsules are structurally healthy.
   - `CW-P1-006` is now closed: CommonJS `require()` aliases are treated as default module imports, exported member-assignment functions like `app.init = function init()` are indexed as exported symbols, and default-module imports now recover exported targets strongly enough for Express architecture queries to keep both `lib/express.js` and `lib/application.js` on the first pass.
   - `CW-P0-015` is now closed for this session: the newly diagnosed Express/CommonJS miss was encoded immediately into the product benchmark so external review findings continue to become gates instead of tribal knowledge.
+  - `CW-P1-007` is now closed: Next framework tracing supports the older pages-router convention in addition to App Router, so `getServerSideProps` loaders can cross the `pages/api/**` default-handler boundary without injecting framework heuristics into the generic ranking path.
 
 ## First-Pass Diagnosis
 
@@ -138,14 +139,16 @@ Execution mode: single-agent (with exploratory subagents)
   - 2 files, 12 tests
 - `npx vitest run tests/unit/parser.test.ts tests/core/indexer-edge-resolution.test.ts` => pass
   - 2 files, 34 tests
+- `npx vitest run tests/core/framework-entry-edges.test.ts tests/field/review-regressions.test.ts` => pass
+  - 2 files, 19 tests
 - `npm run eval` => pass
-  - Overall: precision `49.0%`, recall `88.5%`, avg confidence `94.1%`, token efficiency `82.8%`, p95 latency `16.2ms`, task success `100.0%`, first-pass `100.0%`, correction rate `0.0%`, avg task tokens `516.8`, turns to success `1.00`
-  - `contextweave-src`: precision `44.2%`, recall `81.7%`, avg confidence `90.6%`, token efficiency `98.4%`, avg task tokens `791.0`, first-pass `100.0%`
+  - Overall: precision `49.0%`, recall `88.5%`, avg confidence `94.3%`, token efficiency `82.8%`, p95 latency `16.2ms`, task success `100.0%`, first-pass `100.0%`, correction rate `0.0%`, avg task tokens `516.8`, turns to success `1.00`
+  - `contextweave-src`: precision `44.2%`, recall `81.7%`, avg confidence `90.9%`, token efficiency `98.4%`, avg task tokens `791.0`, first-pass `100.0%`
   - `small-project`: precision `56.9%`, recall `100.0%`, avg confidence `100.0%`, token efficiency `56.9%`, avg task tokens `242.5`, first-pass `100.0%`
 - `npm run bench` => pass
   - Average reduction `72.5%` against target `>= 65%`
 - `npm test` => pass
-  - 136 files, 675 tests
+  - 136 files, 678 tests
 - `npm run lint` => pass
 - `npm run build` => pass
 - `npm run test:field` => pass
@@ -173,6 +176,6 @@ Execution mode: single-agent (with exploratory subagents)
 
 ## Next Actions
 
-1. Continue `CW-P1-007`: extend framework-plugin route and loader coverage behind core/field tests.
-2. Continue `CW-P1-008` through `CW-P1-013` in order once the framework-plugin stabilization work is merged.
+1. Continue `CW-P1-008`: harden flow and impact on class-heavy and callback-heavy repos without regressing the current first-pass wins.
+2. Continue `CW-P1-009` through `CW-P1-013` in order after the navigation stabilization work is merged.
 3. Continue `CW-P2-004` through `CW-P2-009` after the remaining P1 stabilization work is complete.

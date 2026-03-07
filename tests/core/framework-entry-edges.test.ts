@@ -177,6 +177,62 @@ export async function GET() {
     db.close();
   });
 
+  it("maps Next.js pages-router loaders to pages/api default handlers", async () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "src", "pages", "users", "[userId]"), { recursive: true });
+    mkdirSync(join(root, "src", "pages", "api", "users"), { recursive: true });
+    mkdirSync(join(root, "src", "lib", "server"), { recursive: true });
+
+    writeFileSync(
+      join(root, "src", "pages", "users", "[userId]", "page.tsx"),
+      `export async function getServerSideProps(context) {
+  const response = await fetch(\`/api/users/\${context.params.userId}\`);
+  const user = await response.json();
+  return { props: { user } };
+}
+`
+    );
+
+    writeFileSync(
+      join(root, "src", "lib", "server", "user-service.ts"),
+      `export async function getUserDetail(userId: string) {
+  return { id: userId };
+}
+`
+    );
+
+    writeFileSync(
+      join(root, "src", "pages", "api", "users", "[userId].ts"),
+      `import { getUserDetail } from "../../../lib/server/user-service";
+
+export default async function handler(req, res) {
+  const user = await getUserDetail(req.query.userId);
+  return res.json(user);
+}
+`
+    );
+
+    const db = new Database(":memory:");
+    runMigrations(db);
+    await indexProject(db, root);
+
+    const symbols = symbolQueries(db);
+    const edges = edgeQueries(db);
+
+    const getServerSideProps = symbols.getByName("getServerSideProps").find((s) => s.kind === "function");
+    const handler = symbols.getByName("handler").find((s) => s.kind === "function");
+    expect(getServerSideProps).toBeDefined();
+    expect(handler).toBeDefined();
+
+    const outgoing = edges.getBySource(getServerSideProps!.id);
+    const frameworkTargets = new Set(
+      outgoing.filter((edge) => edge.kind === "framework_entry").map((edge) => edge.targetSymbolId)
+    );
+
+    expect(frameworkTargets.has(handler!.id)).toBe(true);
+    db.close();
+  });
+
   it("adds framework_entry edges from Express route registrars to CommonJS controller handlers", async () => {
     const root = makeTempProject();
     mkdirSync(join(root, "src", "routes"), { recursive: true });

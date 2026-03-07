@@ -1,8 +1,9 @@
 const FRAMEWORK_ENTRY_EXT = String.raw`\.(ts|tsx|js|jsx|mts|cts|mjs|cjs)$`;
 const FRAMEWORK_ENTRY_RE = new RegExp(
-  `(^|/)middleware${FRAMEWORK_ENTRY_EXT}|/app/.+/route${FRAMEWORK_ENTRY_EXT}|/app/.+/(page|layout)${FRAMEWORK_ENTRY_EXT}`
+  `(^|/)middleware${FRAMEWORK_ENTRY_EXT}|/app/.+/route${FRAMEWORK_ENTRY_EXT}|/app/.+/(page|layout)${FRAMEWORK_ENTRY_EXT}|/pages/api/.+${FRAMEWORK_ENTRY_EXT}|/pages/.+${FRAMEWORK_ENTRY_EXT}`
 );
-const NEXT_ROUTE_FILE_RE = new RegExp(`/app/api/.+/route${FRAMEWORK_ENTRY_EXT}`);
+const NEXT_APP_ROUTE_FILE_RE = new RegExp(`/app/api/.+/route${FRAMEWORK_ENTRY_EXT}`);
+const NEXT_PAGES_API_FILE_RE = new RegExp(`/pages/api/.+${FRAMEWORK_ENTRY_EXT}`);
 const REQUEST_DYNAMIC_SEGMENT = "__cw_dynamic__";
 
 export function normalizeRetrievalPath(filePath: string, maxSegments = 4): string {
@@ -34,9 +35,18 @@ function splitRequestSegments(requestPath: string): string[] {
 
 function splitNextRouteSegments(filePath: string): string[] {
   const normalized = filePath.replace(/\\/g, "/");
-  const match = normalized.match(/\/app\/api\/(.+)\/route\.[^/]+$/i);
-  if (!match) return [];
-  return match[1]?.split("/").filter(Boolean) ?? [];
+  const appMatch = normalized.match(/\/app\/api\/(.+)\/route\.[^/]+$/i);
+  if (appMatch) {
+    return appMatch[1]?.split("/").filter(Boolean) ?? [];
+  }
+
+  const pagesMatch = normalized.match(/\/pages\/api\/(.+)\.[^/]+$/i);
+  if (!pagesMatch) return [];
+  const segments = pagesMatch[1]?.split("/").filter(Boolean) ?? [];
+  if (segments[segments.length - 1] === "index") {
+    return segments.slice(0, -1);
+  }
+  return segments;
 }
 
 function isDynamicRouteSegment(segment: string): boolean {
@@ -45,7 +55,7 @@ function isDynamicRouteSegment(segment: string): boolean {
 
 export function matchesNextApiRouteFile(filePath: string, requestPath: string): boolean {
   const normalizedPath = filePath.replace(/\\/g, "/");
-  if (!NEXT_ROUTE_FILE_RE.test(normalizedPath)) {
+  if (!NEXT_APP_ROUTE_FILE_RE.test(normalizedPath) && !NEXT_PAGES_API_FILE_RE.test(normalizedPath)) {
     return false;
   }
 

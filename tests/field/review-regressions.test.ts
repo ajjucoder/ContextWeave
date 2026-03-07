@@ -11,6 +11,7 @@ let sitecraft: FieldProject;
 let claudometer: FieldProject;
 let gravityProxy: FieldProject;
 let ebps: FieldProject;
+let nextPagesRouter: FieldProject;
 
 beforeAll(async () => {
   sitecraft = await openFieldProject("sitecraft", ({ db, sessionId }) => {
@@ -37,6 +38,7 @@ beforeAll(async () => {
   claudometer = await openFieldProject("claudometer");
   gravityProxy = await openFieldProject("gravity-proxy");
   ebps = await openFieldProject("ebps");
+  nextPagesRouter = await openFieldProject("next-pages-router");
 }, 60000);
 
 afterAll(() => {
@@ -44,6 +46,7 @@ afterAll(() => {
   claudometer.close();
   gravityProxy.close();
   ebps.close();
+  nextPagesRouter.close();
 });
 
 describe("Sitecraft field regression", () => {
@@ -119,6 +122,29 @@ describe("Claud-ometer field regression", () => {
       "Symbol: function GET",
       "getSessionDetail",
     ]);
+  });
+});
+
+describe("Next pages-router field regression", () => {
+  it("capsule surfaces the pages loader, api handler, and server resolver before UI widgets", () => {
+    const result = nextPagesRouter.capsule("user detail page load flow", 1200);
+    expectTextIncludes(result.content, [
+      "pages/users/[userId].tsx",
+      "getServerSideProps",
+      "pages/api/users/[userId].ts",
+      "getUserDetail",
+    ]);
+    expectTextExcludes(result.content, ["UserProfileCard", "UserTimeline"]);
+  });
+
+  it("cw_flow traces the pages loader across the pages/api boundary", async () => {
+    const text = await nextPagesRouter.runTool("cw_flow", {
+      source: "getServerSideProps",
+      target: "getUserDetail",
+      max_hops: 6,
+    });
+
+    expectTextIncludes(text, ["getServerSideProps", "handler", "getUserDetail"]);
   });
 });
 

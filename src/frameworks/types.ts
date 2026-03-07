@@ -6,6 +6,7 @@ export interface FrameworkResolveContext {
   };
   symbols: {
     getByFileAndName(fileId: number, name: string): SymbolRecord | undefined;
+    getByFileId(fileId: number): SymbolRecord[];
   };
   pickTargets: (queryName: string, lookupName?: string) => Array<{ id: number }>;
 }

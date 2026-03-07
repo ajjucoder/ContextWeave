@@ -62,14 +62,27 @@ export const nextFrameworkPlugin: FrameworkTracePlugin = {
     if (!routePath) return [];
 
     const targetIds = new Set<number>();
-    const routeFiles = context.files.searchByPath("app/api", 500).filter((candidate) =>
-      matchesNextApiRouteFile(candidate.path, routePath)
+    const routeFiles = [
+      ...context.files.searchByPath("app/api", 500),
+      ...context.files.searchByPath("pages/api", 500),
+    ].filter((candidate, index, all) =>
+      all.findIndex((other) => other.id === candidate.id) === index && matchesNextApiRouteFile(candidate.path, routePath)
     );
 
     for (const routeFile of routeFiles) {
       const handler = context.symbols.getByFileAndName(routeFile.id, call.targetName);
       if (handler) {
         targetIds.add(handler.id);
+        continue;
+      }
+
+      if (!routeFile.path.replace(/\\/g, "/").includes("/pages/api/")) continue;
+      const exportedHandlers = context.symbols
+        .getByFileId(routeFile.id)
+        .filter((symbol) => symbol.isExported && (symbol.kind === "function" || symbol.kind === "arrow"));
+
+      for (const exportedHandler of exportedHandlers) {
+        targetIds.add(exportedHandler.id);
       }
     }
 
