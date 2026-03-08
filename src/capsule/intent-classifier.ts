@@ -1,4 +1,4 @@
-export type QueryIntent = "narrow" | "broad" | "task";
+export type QueryIntent = "symbol-lookup" | "narrow" | "broad" | "debug" | "task";
 
 export interface ClassifiedQuery {
   intent: QueryIntent;
@@ -66,6 +66,15 @@ const STOP_WORDS = new Set([
 // "how does auth work" should classify as narrow/broad, not task.
 const QUESTION_WORDS = new Set(["how", "what", "why", "where", "when"]);
 const FLOW_SCOPE_TERMS = new Set(["flow", "pipeline", "architecture", "lifecycle", "journey", "boundary"]);
+const LOOKUP_LEADERS = [/^where\b/i, /^find\b/i, /^show me\b/i, /^what is\b/i, /^what's\b/i, /^locate\b/i];
+const BROAD_PATTERNS = [
+  /\bexplain\b/i,
+  /\barchitecture\b/i,
+  /\bend to end\b/i,
+  /\bflow\b/i,
+  /\bconnect(?:s|ed|ing)?\b/i,
+];
+const DEBUG_PATTERNS = [/\berror\b/i, /\bbug\b/i, /\bbroken\b/i, /\bfailing\b/i, /\bfix\b/i];
 
 export const TASK_VERBS = new Set([
   "find",
@@ -131,24 +140,65 @@ function inferModules(terms: string[]): string[] {
   return uniq(implied);
 }
 
-function classifyIntent(actionVerbs: string[], normalizedTerms: string[], hasQuestionWord: boolean): QueryIntent {
-  // Real action verbs (not question words) → task intent with multi-pass pipeline
+function looksLikeSymbolLookup(query: string, tokens: Token[], normalizedTerms: string[]): boolean {
+  const trimmed = query.trim();
+  if (trimmed.length === 0) return false;
+  if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(trimmed) && tokens.length === 1) {
+    return true;
+  }
+  if (/^[A-Za-z0-9_./-]+\.[A-Za-z0-9]+(?::[A-Za-z_$][A-Za-z0-9_$]*)?$/.test(trimmed)) {
+    return true;
+  }
+  if (tokens.length === 1 && (/[A-Z]/.test(trimmed) || trimmed.includes("_"))) {
+    return true;
+  }
+  return normalizedTerms.length === 1 && normalizedTerms[0]!.length >= 6 && tokens.length === 1;
+}
+
+function classifyIntent(
+  query: string,
+  tokens: Token[],
+  actionVerbs: string[],
+  normalizedTerms: string[],
+  hasQuestionWord: boolean
+): QueryIntent {
+  if (looksLikeSymbolLookup(query, tokens, normalizedTerms)) return "symbol-lookup";
+  if (DEBUG_PATTERNS.some((pattern) => pattern.test(query))) return "debug";
   if (actionVerbs.length > 0) return "task";
+
+  const lookupStyle = LOOKUP_LEADERS.some((pattern) => pattern.test(query));
+  if (lookupStyle && normalizedTerms.length > 0 && normalizedTerms.length < 5) {
+    return "narrow";
+  }
+
+  if (/\bhow does\b/i.test(query)) {
+    const connective = /\b(connect|connected|connecting|flow|architecture|end to end|pipeline|journey)\b/i.test(query);
+    if (connective || normalizedTerms.length >= 4) {
+      return "broad";
+    }
+    return "narrow";
+  }
+
+  if (BROAD_PATTERNS.some((pattern) => pattern.test(query))) {
+    return "broad";
+  }
+
   if (!hasQuestionWord && normalizedTerms.length >= 3 && normalizedTerms.some((term) => FLOW_SCOPE_TERMS.has(term))) {
     return "broad";
   }
-  // Question-word queries are exploration: use term count to decide narrow vs broad
+
   if (hasQuestionWord) {
     return normalizedTerms.length >= 4 ? "broad" : "narrow";
   }
-  if (normalizedTerms.length <= 2) return "narrow";
+  if (normalizedTerms.length < 4) return "narrow";
   if (normalizedTerms.length >= 4) return "broad";
   return "narrow";
 }
 
 function budgetMultiplier(intent: QueryIntent): number {
-  if (intent === "narrow") return 1.0;
+  if (intent === "symbol-lookup" || intent === "narrow") return 1.0;
   if (intent === "broad") return 1.5;
+  if (intent === "debug") return 1.35;
   return 2.0;
 }
 
@@ -169,7 +219,7 @@ export function classifyQueryIntent(query: string): ClassifiedQuery {
       .map((token) => token.normalized)
   );
 
-  const intent = classifyIntent(actionVerbs, normalizedTerms, hasQuestionWord);
+  const intent = classifyIntent(query, tokens, actionVerbs, normalizedTerms, hasQuestionWord);
 
   const signalTerms = uniq(
     filtered
@@ -177,7 +227,7 @@ export function classifyQueryIntent(query: string): ClassifiedQuery {
       .map((token) => token.normalized)
   );
 
-  const fallbackFocusCount = intent === "task" ? 3 : 2;
+  const fallbackFocusCount = intent === "task" || intent === "debug" ? 3 : 2;
   const focusTerms = signalTerms.length > 0 ? signalTerms : normalizedTerms.slice(0, fallbackFocusCount);
 
   return {

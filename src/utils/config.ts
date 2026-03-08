@@ -10,6 +10,8 @@ export interface ProjectConfig {
   confidenceDecay: number;
   gcThreshold: number;
   embeddingModel?: string;
+  primaryDirs: string[];
+  archiveDirs: string[];
 }
 
 const DEFAULTS: ProjectConfig = {
@@ -20,6 +22,8 @@ const DEFAULTS: ProjectConfig = {
   stalenessDepth: 2,
   confidenceDecay: 0.1,
   gcThreshold: 0.1,
+  primaryDirs: [],
+  archiveDirs: [],
 };
 
 function sanitizePatterns(value: unknown): string[] {
@@ -51,6 +55,8 @@ export function loadConfig(projectRoot: string): ProjectConfig {
       ...raw,
       ignore: [...new Set([...ignore, ...exclude, ...excludePatterns])],
       embeddingModel: sanitizeOptionalString(raw.embeddingModel),
+      primaryDirs: sanitizePatterns(raw.primaryDirs),
+      archiveDirs: sanitizePatterns(raw.archiveDirs),
     } as ProjectConfig;
   } catch {
     process.stderr.write(`[contextweave] Warning: could not parse config at ${configPath}, using defaults\n`);

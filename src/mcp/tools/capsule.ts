@@ -43,6 +43,7 @@ export function registerCapsuleTool(
 
         return {
           content: [{ type: "text" as const, text: result.content }],
+          structuredContent: result.structuredContent,
         };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

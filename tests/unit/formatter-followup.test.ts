@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { formatCapsule } from "../../src/capsule/formatter.js";
+import { buildStructuredCapsuleOutput, formatCapsule } from "../../src/capsule/formatter.js";
 import type { ScoredNode, ObservationRecord, CapsuleMetadata } from "../../src/core/types.js";
 
 function makeNode(overrides: Partial<ScoredNode> & { compressionLevel: 0 | 1 | 2 | 3 }): ScoredNode {
@@ -31,10 +31,10 @@ function makeNode(overrides: Partial<ScoredNode> & { compressionLevel: 0 | 1 | 2
     },
     score: 1.0,
     distance: 0,
-    compressionLevel: overrides.compressionLevel,
     rendered: `// rendered for ${overrides.symbol?.name ?? "mySymbol"}`,
     tokenCount: 50,
     ...overrides,
+    compressionLevel: overrides.compressionLevel,
   };
 }
 
@@ -65,6 +65,7 @@ function makeMetadata(overrides: Partial<CapsuleMetadata> = {}): CapsuleMetadata
     tokensUsed: 500,
     symbolCount: 1,
     fileCount: 1,
+    filesIncluded: ["src/core/myFile.ts"],
     compressionBreakdown: { 0: 0, 1: 0, 2: 0, 3: 0 },
     observationCount: 0,
     quality: {
@@ -97,8 +98,8 @@ describe("formatCapsule — follow-up hints", () => {
 
     const result = formatCapsule(nodes, [], makeMetadata());
     expect(result).toContain("Follow-Up Reads");
-    expect(result).toContain('cw_read(symbol: "skeletonFn")');
-    expect(result).toContain('cw_read(symbol: "summaryFn")');
+    expect(result).toContain('cw_read(symbol: "src/core/myFile.ts:skeletonFn")');
+    expect(result).toContain('cw_read(symbol: "src/core/myFile.ts:summaryFn")');
     expect(result).toContain("These symbols were compressed. Use cw_read for full source:");
   });
 
@@ -137,6 +138,83 @@ describe("formatCapsule — follow-up hints", () => {
     const result = formatCapsule(nodes, [], makeMetadata());
     const matches = result.match(/cw_read\(symbol:/g) ?? [];
     expect(matches.length).toBe(5);
+  });
+
+  it("prioritizes follow-ups that cover unresolved query terms", () => {
+    const nodes = [
+      makeNode({
+        compressionLevel: 0,
+        score: 1.2,
+        symbol: {
+          id: 1,
+          fileId: 1,
+          name: "AuthService",
+          kind: "class",
+          startLine: 1,
+          endLine: 20,
+          signature: "class AuthService",
+          bodyHash: "",
+          fullSource: "",
+          isExported: true,
+          docComment: null,
+          centrality: 0.5,
+          lastSeen: 0,
+        },
+      }),
+      makeNode({
+        compressionLevel: 1,
+        score: 0.8,
+        file: {
+          ...makeNode({ compressionLevel: 1 }).file,
+          path: "src/server/session-guard.ts",
+        },
+        symbol: {
+          id: 2,
+          fileId: 2,
+          name: "SessionGuard",
+          kind: "function",
+          startLine: 4,
+          endLine: 18,
+          signature: "function SessionGuard()",
+          bodyHash: "",
+          fullSource: "",
+          isExported: true,
+          docComment: null,
+          centrality: 0.5,
+          lastSeen: 0,
+        },
+      }),
+      makeNode({
+        compressionLevel: 1,
+        score: 1.1,
+        file: {
+          ...makeNode({ compressionLevel: 1 }).file,
+          path: "src/core/helper.ts",
+        },
+        symbol: {
+          id: 3,
+          fileId: 3,
+          name: "CoreHelper",
+          kind: "function",
+          startLine: 2,
+          endLine: 10,
+          signature: "function CoreHelper()",
+          bodyHash: "",
+          fullSource: "",
+          isExported: true,
+          docComment: null,
+          centrality: 0.5,
+          lastSeen: 0,
+        },
+      }),
+    ];
+
+    const result = formatCapsule(nodes, [], makeMetadata({ query: "auth session guard" }));
+    const guardIndex = result.indexOf('cw_read(symbol: "src/server/session-guard.ts:SessionGuard")');
+    const helperIndex = result.indexOf('cw_read(symbol: "src/core/helper.ts:CoreHelper")');
+    expect(guardIndex).toBeGreaterThan(-1);
+    expect(helperIndex).toBeGreaterThan(-1);
+    expect(guardIndex).toBeLessThan(helperIndex);
   });
 
   it("includes line count and score in follow-up hints", () => {
@@ -201,8 +279,42 @@ describe("formatCapsule — follow-up hints", () => {
     }));
 
     expect(result).toContain("--- Next Actions ---");
-    expect(result).toContain('cw_read(symbol: "targetFn")');
+    expect(result).toContain('cw_read(symbol: "src/core/myFile.ts:targetFn")');
     expect(result).toContain('cw_capsule(query: "test query", path: "src/core")');
+  });
+});
+
+describe("buildStructuredCapsuleOutput", () => {
+  it("returns structured files and suggested reads", () => {
+    const nodes = [
+      makeNode({ compressionLevel: 0, score: 1.1 }),
+      makeNode({
+        compressionLevel: 1,
+        score: 0.9,
+        symbol: {
+          id: 2,
+          fileId: 1,
+          name: "sessionGuard",
+          kind: "function",
+          startLine: 11,
+          endLine: 22,
+          signature: "function sessionGuard()",
+          bodyHash: "",
+          fullSource: "",
+          isExported: true,
+          docComment: null,
+          centrality: 0.5,
+          lastSeen: 0,
+        },
+      }),
+    ];
+
+    const result = buildStructuredCapsuleOutput(nodes, [], makeMetadata({ query: "auth session guard" }));
+    expect(result.text).toContain("ContextWeave Capsule");
+    expect(result.files[0]?.path).toBe("src/core/myFile.ts");
+    expect(result.suggestedReads[0]?.tool).toBe("cw_read");
+    expect(result.suggestedReads[0]?.args.file).toBe("src/core/myFile.ts");
+    expect(result.suggestedReads[0]?.args.symbol).toBe("sessionGuard");
   });
 });
 

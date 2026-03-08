@@ -23,7 +23,7 @@ export function renderSymbol(
     const sigLine = lines[0] ?? "";
     const tailLines = lines.slice(-3);
     const headLines: string[] = [sigLine];
-    const truncMsg = `// ... truncated — use cw_read(symbol: "${symbol.name}") for full source`;
+    const truncMsg = `// ... truncated — use cw_read(symbol: "${file.path}:${symbol.name}") for full source`;
     let tokens = countTokens([header, sigLine, truncMsg, ...tailLines].join("\n"));
 
     for (let i = 1; i < lines.length - 3; i++) {
@@ -37,7 +37,7 @@ export function renderSymbol(
     const omitted = lines.length - headLines.length - tailLines.length;
     if (omitted <= 0) return full;
 
-    return [header, ...headLines, `// ... ${omitted} more lines — use cw_read(symbol: "${symbol.name}") for full source`, ...tailLines].join("\n");
+    return [header, ...headLines, `// ... ${omitted} more lines — use cw_read(symbol: "${file.path}:${symbol.name}") for full source`, ...tailLines].join("\n");
   }
 
   if (level === 1) {

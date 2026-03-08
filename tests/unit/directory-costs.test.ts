@@ -24,4 +24,26 @@ describe("getDirectoryWeight", () => {
     expect(getDirectoryWeight("examples/basic/index.ts")).toBeLessThan(0.5);
     expect(getDirectoryWeight("demo/app/main.ts")).toBeLessThan(0.5);
   });
+
+  it("upweights primary runtime directories and downweights static/archive paths", () => {
+    expect(getDirectoryWeight("src/main/java/com/acme/CheckoutController.java")).toBeGreaterThanOrEqual(1.5);
+    expect(getDirectoryWeight("packages/payments/src/index.ts")).toBeGreaterThanOrEqual(1.5);
+    expect(getDirectoryWeight("src/main/resources/static/js/checkout-flow.js")).toBeLessThanOrEqual(0.3);
+    expect(getDirectoryWeight("templates/vendor/admin/index.html")).toBeLessThanOrEqual(0.3);
+  });
+
+  it("honors explicit primaryDirs and archiveDirs overrides", () => {
+    expect(
+      getDirectoryWeight("custom/runtime/checkout-service.ts", {
+        primaryDirs: ["custom/runtime"],
+        archiveDirs: ["legacy/payments"],
+      })
+    ).toBeGreaterThanOrEqual(1.5);
+    expect(
+      getDirectoryWeight("legacy/payments/checkout-service.ts", {
+        primaryDirs: ["custom/runtime"],
+        archiveDirs: ["legacy/payments"],
+      })
+    ).toBeLessThanOrEqual(0.3);
+  });
 });

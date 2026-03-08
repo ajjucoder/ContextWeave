@@ -19,6 +19,10 @@ import type { ChunkEmbeddingEntry, EmbeddingRuntime } from "../../src/core/types
 type ToolResult = {
   content: Array<{ type: string; text: string }>;
   isError?: boolean;
+  structuredContent?: {
+    text: string;
+    files: unknown[];
+  };
 };
 
 type RegisteredTool = {
@@ -46,7 +50,7 @@ beforeAll(async () => {
 
   server = new McpServer({ name: "contextweave-test", version: "0.0.0" });
   registerStatusTool(server, db, FIXTURE_DIR);
-  registerCapsuleTool(server, db, FIXTURE_DIR, { version: 1, ignore: [], tokenBudget: 2400, defaultMode: "feature", stalenessDepth: 2, confidenceDecay: 0.1, gcThreshold: 0.1 }, "session-1");
+  registerCapsuleTool(server, db, FIXTURE_DIR, { version: 1, ignore: [], tokenBudget: 2400, defaultMode: "feature", stalenessDepth: 2, confidenceDecay: 0.1, gcThreshold: 0.1, primaryDirs: [], archiveDirs: [] }, "session-1");
   registerStatsTool(server, db, FIXTURE_DIR, "session-1");
   registerOverviewTool(server, db, FIXTURE_DIR);
   registerFilesTool(server, db, FIXTURE_DIR);
@@ -310,9 +314,13 @@ describe("mcp navigation tools", () => {
     });
 
     const text = result.content[0]?.text ?? "";
+    const structured = result.structuredContent;
     expect(result.isError).not.toBe(true);
     expect(text).toContain("ContextWeave Capsule");
     expect(text).toContain("sample.ts");
+    expect(structured).toBeTruthy();
+    expect(structured?.text).toContain("ContextWeave Capsule");
+    expect(Array.isArray(structured?.files)).toBe(true);
   });
 
   it("cw_capsule includes next-step commands when confidence is low", async () => {

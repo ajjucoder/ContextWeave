@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import DatabaseConstructor from "better-sqlite3";
 import type Database from "better-sqlite3";
 import { runMigrations } from "../../src/db/migrations.js";
-import { contentFallbackSearch } from "../../src/capsule/content-fallback.js";
+import { contentFallbackSearch, shouldSkipContentFallback } from "../../src/capsule/content-fallback.js";
 
 describe("content fallback search", () => {
   let db: Database.Database;
@@ -55,6 +55,16 @@ describe("content fallback search", () => {
   it("returns empty for empty terms", () => {
     const results = contentFallbackSearch(db, []);
     expect(results).toEqual([]);
+  });
+
+  it("skips fallback for narrow exact-match capsules with one or two pivots", () => {
+    expect(shouldSkipContentFallback({ pivotCount: 1, hasExactNameMatch: true })).toBe(true);
+    expect(shouldSkipContentFallback({ pivotCount: 2, hasExactNameMatch: true })).toBe(true);
+  });
+
+  it("does not skip fallback when there is no exact symbol match or the pivot set is larger", () => {
+    expect(shouldSkipContentFallback({ pivotCount: 2, hasExactNameMatch: false })).toBe(false);
+    expect(shouldSkipContentFallback({ pivotCount: 3, hasExactNameMatch: true })).toBe(false);
   });
 
   it("respects maxFiles limit", () => {

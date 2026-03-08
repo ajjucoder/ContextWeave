@@ -22,10 +22,10 @@ import { buildQueryCoverageGroups, expandQueryWithSynonyms } from "../utils/syno
 import { getDirectoryWeight } from "../utils/directory-weights.js";
 import { isFrameworkEntryPath } from "../utils/path-retrieval.js";
 import { scoreNode, assignCompressionLevel } from "./scorer.js";
-import { rankPivotsWithScores, scorePivotRelevance } from "./pivot-scorer.js";
+import { getPivotMatchSignals, rankPivotsWithScores, scorePivotRelevance } from "./pivot-scorer.js";
 import { renderSymbol, type EdgeSummary } from "./compressor.js";
 import { packNodes, packNodesStoryMode, enrichL2WithDeps } from "./packer.js";
-import { formatCapsule } from "./formatter.js";
+import { buildStructuredCapsuleOutput, formatCapsule } from "./formatter.js";
 import { diagnose } from "./diagnostics.js";
 import { classifyQueryIntent } from "./intent-classifier.js";
 import { createLogger } from "../utils/logger.js";
@@ -46,7 +46,7 @@ import { searchFilesByQuery } from "../core/file-summaries.js";
 import { getFileClusterId, getClusterFileIds } from "../core/clusters.js";
 import { buildUncertainty, computeCoverageConfidence } from "./confidence.js";
 import { extractPathTerms, filePathMatchesQueryTerms, normalizeRetrievalPath } from "../utils/path-retrieval.js";
-import { contentFallbackSearch } from "./content-fallback.js";
+import { contentFallbackSearch, shouldSkipContentFallback } from "./content-fallback.js";
 import {
   getCommonDisplayRoot,
   getLexicalScore,
@@ -278,7 +278,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const symbols = symbolQueries(db);
   const files = fileQueries(db);
   const classified = classifyQueryIntent(query);
-  const intent = classified.intent;
+  const queryIntent = classified.intent;
+  const intent = queryIntent === "symbol-lookup" ? "narrow" : queryIntent === "debug" ? "task" : queryIntent;
   const retrievalBudget = Math.max(
     tokenBudget,
     Math.round(tokenBudget * classified.suggestedBudgetMultiplier)
@@ -305,6 +306,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       : classified.normalizedTerms;
   const baseQueryTerms = intentTerms.length > 0 ? intentTerms : fallbackTerms;
   const rawPivotIds = new Set<number>();
+  const exactPivotIds = new Set<number>();
   const seededPivotIdsByFile = new Map<number, number[]>();
 
   const FILE_SEARCH_LIMIT = intent === "narrow" ? 50 : 80;
@@ -529,13 +531,29 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     const exactFiltered = candidateFileIds
       ? exactMatches.filter((s) => candidateFileIds.has(s.fileId))
       : exactMatches;
+    let exactNameMatchedThisTerm = false;
     for (const symbol of exactFiltered.slice(0, perTermSymbolCap)) {
       rawPivotIds.add(symbol.id);
+      const filePath = files.getById(symbol.fileId)?.path ?? "";
+      if (
+        getPivotMatchSignals(
+          {
+            name: symbol.name,
+            signature: symbol.signature,
+            kind: symbol.kind,
+            filePath,
+          },
+          exactQueryTerms
+        ).highPrecisionExactNameMatch
+      ) {
+        exactPivotIds.add(symbol.id);
+        exactNameMatchedThisTerm = true;
+      }
       if (rawPivotIds.size >= maxStageARaw) break;
     }
 
     // Phase 2: FTS — only if exact match didn't find enough results
-    if (exactFiltered.length < EXACT_MATCH_THRESHOLD && term.length >= 3) {
+    if (!exactNameMatchedThisTerm && exactFiltered.length < EXACT_MATCH_THRESHOLD && term.length >= 3) {
       const ftsMatches = symbols.searchFTS(term, perTermSymbolCap);
       const filtered = candidateFileIds
         ? ftsMatches.filter((s) => candidateFileIds.has(s.fileId))
@@ -547,6 +565,10 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
 
     if (rawPivotIds.size >= maxStageARaw) break;
+
+    if (intent === "narrow" && exactNameMatchedThisTerm) {
+      continue;
+    }
 
     const pathCandidates = getPathCandidates(term);
     const pathMatches = fuzzyMatch(term, pathCandidates, 0.4);
@@ -609,7 +631,14 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
   }
 
-  if (rawPivotIds.size < 3 && !hybridSearchEnabled) {
+  const exactMatchFastPathCandidate =
+    intent === "narrow" &&
+    shouldSkipContentFallback({
+      pivotCount: rawPivotIds.size,
+      hasExactNameMatch: [...rawPivotIds].some((id) => exactPivotIds.has(id)),
+    });
+
+  if (rawPivotIds.size < 3 && !hybridSearchEnabled && !exactMatchFastPathCandidate) {
     const contentMatches = contentFallbackSearch(db, expandedQueryTerms);
     let added = 0;
     for (const match of contentMatches) {
@@ -630,7 +659,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
   }
 
-  if (rawPivotIds.size < 3 && memoryCandidateSymbolIds.size > 0) {
+  if (rawPivotIds.size < 3 && memoryCandidateSymbolIds.size > 0 && !exactMatchFastPathCandidate) {
     let added = 0;
     for (const symbolId of memoryCandidateSymbolIds) {
       const symbol = symbols.getByIdLight(symbolId);
@@ -689,6 +718,61 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   );
   let rankedPivots = pivotRanking.ranked;
   let pivotScores = pivotRanking.scores;
+  const exactMatchFastPath =
+    intent === "narrow" && rankedPivots.size > 0 && rankedPivots.size <= 2 && [...rankedPivots.keys()].some((id) => exactPivotIds.has(id));
+  const exactFastPathNeighborIds = (() => {
+    if (!exactMatchFastPath) {
+      return new Set<number>();
+    }
+
+    const pivotIds = [...rankedPivots.keys()];
+    const placeholders = pivotIds.map(() => "?").join(",");
+    const exactEdgeKinds = queryIntent === "symbol-lookup" ? ["call"] : ["call", "import"];
+    const edgeKindPlaceholders = exactEdgeKinds.map(() => "?").join(",");
+    const rows = db
+      .prepare(
+        `SELECT source_symbol_id, target_symbol_id
+         FROM edges
+         WHERE kind IN (${edgeKindPlaceholders})
+           AND (source_symbol_id IN (${placeholders}) OR target_symbol_id IN (${placeholders}))`
+      )
+      .all(...exactEdgeKinds, ...pivotIds, ...pivotIds) as Array<{ source_symbol_id: number; target_symbol_id: number }>;
+
+    const neighborIds = new Set<number>();
+    for (const row of rows) {
+      neighborIds.add(row.source_symbol_id);
+      neighborIds.add(row.target_symbol_id);
+    }
+    return neighborIds;
+  })();
+
+  if (exactMatchFastPath && exactFastPathNeighborIds.size > 0) {
+    const topPivotScore = [...rankedPivots.values()].sort((a, b) => b - a)[0] ?? 1;
+    const neighborScore = Math.max(1.5, topPivotScore * 0.52);
+    for (const neighborId of exactFastPathNeighborIds) {
+      if (rankedPivots.has(neighborId)) {
+        continue;
+      }
+      const neighborSymbol = symbols.getByIdLight(neighborId);
+      if (!neighborSymbol) {
+        continue;
+      }
+      rankedPivots.set(
+        neighborId,
+        neighborScore * getPivotKindWeight(neighborSymbol.kind, preferRuntimeKinds)
+      );
+    }
+    pivotScores = [...rankedPivots.values()].sort((a, b) => b - a);
+  }
+  const exactFastPathAllowedIds = (() => {
+    if (!exactMatchFastPath) {
+      return null;
+    }
+
+    const allowedIds = new Set<number>([...rankedPivots.keys(), ...exactFastPathNeighborIds]);
+
+    return allowedIds;
+  })();
 
   if (intent !== "narrow" && rankedPivots.size > 0) {
     const pivotKinds = new Map(pivotCandidates.map((candidate) => [candidate.id, candidate.kind]));
@@ -884,6 +968,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   for (const [symbolId, distance] of visited) {
     const symbol = symbols.getByIdLight(symbolId);
     if (!symbol) continue;
+    if (exactFastPathAllowedIds && !exactFastPathAllowedIds.has(symbolId)) continue;
     const file = getFile(symbol.fileId);
     if (!file) continue;
     if (suppressTypeDeclarations && isTypeDeclarationPath(file.path)) continue;
@@ -922,11 +1007,22 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     const fileSearchBoost = candidateFileBoostById.get(candidate.file.id) ?? 1;
     const testFilePenalty =
       !queryLooksTestFocused && isTestFile(candidate.file.path) ? 0.5 : 1;
+    const actionSignal = hasActionSignal(candidate.symbol.name, candidate.symbol.signature);
+    const runtimeUiPenalty =
+      runtimeFocusedQuery &&
+      intent !== "narrow" &&
+      !actionSignal &&
+      (PAGE_ENTRY_PATH_RE.test(normalizedPath) || UI_COMPONENT_PATH_RE.test(normalizedPath))
+        ? PAGE_ENTRY_PATH_RE.test(normalizedPath)
+          ? 0.45
+          : 0.3
+        : 1;
     const localityBoost =
       (sameFileAsPivot ? 1.35 : sameDirAsPivot ? 1.2 : 1) *
       directoryWeight *
       testFilePenalty *
-      fileSearchBoost;
+      fileSearchBoost *
+      runtimeUiPenalty;
     const lexicalBoost = 1 + Math.min(1.5, candidate.lexicalScore * 0.3);
 
     let hubPenalty = 1;
@@ -1214,7 +1310,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const shouldDedupRecentSymbols =
     recentSymbolIds.size > 0 && (intent !== "narrow" || previousSameQueryTokens !== null);
 
-  const baseMaxDistance = intent === "task" ? 0 : intent === "broad" ? 1 : isSingleFocusNarrowQuery ? 0 : 1;
+  const baseMaxDistance =
+    exactMatchFastPath ? 1 : intent === "task" ? 0 : intent === "broad" ? 1 : isSingleFocusNarrowQuery ? 0 : 1;
   let selected = pruneByFileDiversity(
     selectCandidates(baseLexThreshold, baseMaxDistance, baseCandidateLimit)
   );
@@ -1461,6 +1558,49 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
   }
 
+  if (runtimeFocusedQuery && intent !== "narrow") {
+    const filtered = packed.filter((node) => {
+      const path = canonicalFilePath(node);
+      if (!(UI_COMPONENT_PATH_RE.test(path) || PAGE_ENTRY_PATH_RE.test(path))) {
+        return true;
+      }
+      if (hasActionSignal(node.symbol.name, node.symbol.signature)) {
+        return true;
+      }
+      return node.compressionLevel < 3;
+    });
+    if (filtered.length !== packed.length) {
+      packed = filtered;
+      tokensUsed = packed.reduce((sum, node) => sum + node.tokenCount, 0);
+    }
+  }
+
+  if (intent === "broad" && tokenBudget >= 5000 && packed.length < 10 && tokensUsed < tokenBudget * 0.2) {
+    const packedIds = new Set(packed.map((node) => node.symbol.id));
+    const augmented = [...packed];
+    for (const candidate of scoredNodes) {
+      if (augmented.length >= 10) break;
+      if (packedIds.has(candidate.symbol.id)) continue;
+
+      const renderLevel: CompressionLevel = candidate.compressionLevel <= 1 ? 2 : candidate.compressionLevel;
+      const rendered = renderSymbol(candidate.symbol, candidate.file, renderLevel, candidate.outgoingEdges);
+      const tokenCount = countTokens(rendered);
+      if (tokensUsed + tokenCount > tokenBudget * 0.2) {
+        continue;
+      }
+
+      augmented.push({
+        ...candidate,
+        compressionLevel: renderLevel,
+        rendered,
+        tokenCount,
+      });
+      packedIds.add(candidate.symbol.id);
+      tokensUsed += tokenCount;
+    }
+    packed = augmented;
+  }
+
   // Phase 7: Quality gate + format + return
   const compressionBreakdown: Record<CompressionLevel, number> = { 0: 0, 1: 0, 2: 0, 3: 0 };
   for (const node of packed) {
@@ -1635,7 +1775,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       },
     },
     strategy: {
-      intent,
+      intent: queryIntent,
       mode: useMultiPass ? "multi-pass" : "single-pass",
       subQueryCount: useMultiPass ? subQueries.length : 1,
       hybridSearch: hybridStrategy,
@@ -1653,6 +1793,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   };
 
   const content = formatCapsule(packed, observations, metadata, fileSummaries);
+  const structuredContent = buildStructuredCapsuleOutput(packed, observations, metadata, fileSummaries);
 
   logger.info("capsule generated", {
     symbolCount: packed.length,
@@ -1706,7 +1847,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     });
   }
 
-  return { content, metadata };
+  return { content, metadata, structuredContent };
 }
 
 export async function generateCapsuleWithRuntime(

@@ -6,6 +6,15 @@ export interface ContentMatch {
   filePath: string;
 }
 
+export interface ContentFallbackDecision {
+  pivotCount: number;
+  hasExactNameMatch: boolean;
+}
+
+export function shouldSkipContentFallback(decision: ContentFallbackDecision): boolean {
+  return decision.hasExactNameMatch && decision.pivotCount > 0 && decision.pivotCount <= 2;
+}
+
 export function contentFallbackSearch(
   db: Database.Database,
   queryTerms: string[],

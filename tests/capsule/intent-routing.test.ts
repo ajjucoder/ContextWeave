@@ -30,7 +30,7 @@ describe("intent routing", () => {
       tokenBudget: 2500,
     });
 
-    expect(result.metadata.strategy?.intent).toBe("narrow");
+    expect(result.metadata.strategy?.intent).toBe("symbol-lookup");
     expect(result.metadata.strategy?.mode).toBe("single-pass");
   });
 

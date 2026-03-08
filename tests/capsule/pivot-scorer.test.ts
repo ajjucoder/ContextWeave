@@ -36,6 +36,75 @@ describe("scorePivotRelevance", () => {
     expect(withPath).toBeGreaterThan(withoutPath);
   });
 
+  it("gives exact symbol-name matches a dominant boost over partial matches", () => {
+    const exactScore = scorePivotRelevance(
+      {
+        name: "useDataLayer",
+        signature: "function useDataLayer(): DataLayer",
+        kind: "function",
+        filePath: "src/lib/data-layer.ts",
+      },
+      ["usedatalayer"]
+    );
+    const partialScore = scorePivotRelevance(
+      {
+        name: "useDataLayerCache",
+        signature: "function useDataLayerCache(): Cache",
+        kind: "function",
+        filePath: "src/lib/data-layer-cache.ts",
+      },
+      ["usedatalayer"]
+    );
+
+    expect(exactScore).toBeGreaterThan(partialScore + 40);
+  });
+
+  it("gives camelCase-equivalent phrase matches an explicit secondary boost", () => {
+    const camelCaseScore = scorePivotRelevance(
+      {
+        name: "useDataLayer",
+        signature: "function useDataLayer(): DataLayer",
+        kind: "function",
+        filePath: "src/lib/data-layer.ts",
+      },
+      ["data", "layer"]
+    );
+    const weakerScore = scorePivotRelevance(
+      {
+        name: "useDashboardStore",
+        signature: "function useDashboardStore(): Store",
+        kind: "function",
+        filePath: "src/lib/dashboard-store.ts",
+      },
+      ["data", "layer"]
+    );
+
+    expect(camelCaseScore).toBeGreaterThan(weakerScore + 20);
+  });
+
+  it("gives path-segment matches an explicit secondary boost for generic symbol names", () => {
+    const pathMatchedScore = scorePivotRelevance(
+      {
+        name: "handler",
+        signature: "function handler(): void",
+        kind: "function",
+        filePath: "src/hooks/use-data-layer/handler.ts",
+      },
+      ["data", "layer"]
+    );
+    const unrelatedPathScore = scorePivotRelevance(
+      {
+        name: "handler",
+        signature: "function handler(): void",
+        kind: "function",
+        filePath: "src/utils/handler.ts",
+      },
+      ["data", "layer"]
+    );
+
+    expect(pathMatchedScore).toBeGreaterThan(unrelatedPathScore + 8);
+  });
+
   it("returns 0 for no matches", () => {
     const score = scorePivotRelevance(
       { name: "hashFile", signature: "function hashFile(content)", kind: "function", filePath: "src/utils/hash.ts" },

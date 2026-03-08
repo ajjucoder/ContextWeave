@@ -11,6 +11,8 @@ export interface PackResult {
 
 const COMPRESSION_LEVELS: CompressionLevel[] = [0, 1, 2, 3];
 const FILE_SUMMARY_MIN_SYMBOLS = 3;
+const REFILL_TRIGGER_UTILIZATION = 0.6;
+const REFILL_TARGET_UTILIZATION = 0.85;
 const UI_ENTRY_PATH_RE = /(^|\/)(components?|views?|templates?|marketing)(\/|$)|(^|\/)(page|layout)\.[cm]?[jt]sx?$/i;
 const ACTION_SIGNAL_TERMS = new Set([
   "submit",
@@ -102,6 +104,97 @@ function summarizeUnpacked(
   return { fileSummaries, tokensUsed };
 }
 
+function refillPackedBudget(
+  scoredNodes: ScoredNode[],
+  packed: ScoredNode[],
+  tokensUsed: number,
+  codeBudget: number
+): { packed: ScoredNode[]; tokensUsed: number } {
+  if (codeBudget <= 0 || tokensUsed / codeBudget >= REFILL_TRIGGER_UTILIZATION) {
+    return { packed, tokensUsed };
+  }
+
+  const targetTokens = Math.floor(codeBudget * REFILL_TARGET_UTILIZATION);
+  const packedIds = new Set(packed.map((node) => node.symbol.id));
+  const promotionOrder = packed
+    .map((node, index) => ({ node, index }))
+    .sort((a, b) => {
+      if (b.node.score !== a.node.score) return b.node.score - a.node.score;
+      return a.node.distance - b.node.distance;
+    });
+
+  let changed = true;
+  while (tokensUsed < targetTokens && changed) {
+    changed = false;
+
+    for (const entry of promotionOrder) {
+      const current = packed[entry.index];
+      if (!current || current.compressionLevel === 0) continue;
+      if (
+        current.distance === 0 &&
+        current.compressionLevel > 0 &&
+        UI_ENTRY_PATH_RE.test(current.file.path)
+      ) {
+        continue;
+      }
+
+      const preferredLevels = COMPRESSION_LEVELS.filter((level) => level < current.compressionLevel);
+      for (const level of preferredLevels) {
+        const rendered = renderSymbol(current.symbol, current.file, level, current.outgoingEdges);
+        const tokens = countTokens(rendered);
+        const delta = tokens - current.tokenCount;
+        if (delta <= 0 || tokensUsed + delta > codeBudget) {
+          continue;
+        }
+
+        packed[entry.index] = {
+          ...current,
+          compressionLevel: level,
+          rendered,
+          tokenCount: tokens,
+        };
+        tokensUsed += delta;
+        changed = true;
+        break;
+      }
+
+      if (tokensUsed >= targetTokens) {
+        return { packed, tokensUsed };
+      }
+    }
+  }
+
+  const remainingNodes = [...scoredNodes]
+    .filter((node) => !packedIds.has(node.symbol.id))
+    .sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return a.distance - b.distance;
+    });
+
+  for (const node of remainingNodes) {
+    const rendered = renderSymbol(node.symbol, node.file, 3, node.outgoingEdges);
+    const tokens = countTokens(rendered);
+    if (tokensUsed + tokens > codeBudget) {
+      continue;
+    }
+
+    packed.push({
+      ...node,
+      compressionLevel: 3,
+      rendered,
+      tokenCount: tokens,
+    });
+    packedIds.add(node.symbol.id);
+    tokensUsed += tokens;
+
+    if (tokensUsed >= targetTokens) {
+      break;
+    }
+  }
+
+  return { packed, tokensUsed };
+}
+
 export function packNodes(
   scoredNodes: ScoredNode[],
   tokenBudget: number,
@@ -167,10 +260,13 @@ export function packNodes(
     }
   }
 
-  const summaryResult = summarizeUnpacked(scoredNodes, packed, codeBudget, tokensUsed);
+  const refillResult = refillPackedBudget(scoredNodes, packed, tokensUsed, codeBudget);
+  tokensUsed = refillResult.tokensUsed;
+
+  const summaryResult = summarizeUnpacked(scoredNodes, refillResult.packed, codeBudget, tokensUsed);
 
   return {
-    packed,
+    packed: refillResult.packed,
     observationBudget,
     tokensUsed: summaryResult.tokensUsed,
     fileSummaries: summaryResult.fileSummaries,
@@ -332,10 +428,13 @@ export function packNodesStoryMode(
     tokensUsed += tokens;
   }
 
-  const summaryResult = summarizeUnpacked(scoredNodes, packed, codeBudget, tokensUsed);
+  const refillResult = refillPackedBudget(scoredNodes, packed, tokensUsed, codeBudget);
+  tokensUsed = refillResult.tokensUsed;
+
+  const summaryResult = summarizeUnpacked(scoredNodes, refillResult.packed, codeBudget, tokensUsed);
 
   return {
-    packed,
+    packed: refillResult.packed,
     observationBudget,
     tokensUsed: summaryResult.tokensUsed,
     fileSummaries: summaryResult.fileSummaries,

@@ -64,6 +64,18 @@ function makeNode(id: number, file: FileRecord, score: number, distance: number)
   };
 }
 
+function inflateNode(node: ScoredNode, label: string): ScoredNode {
+  node.symbol.fullSource = [
+    `export function ${label}(input: string): string {`,
+    ...Array.from({ length: 260 }, (_, index) => `  const step${index} = input + "-${label}-${index}";`),
+    `  return input;`,
+    `}`,
+  ].join("\n");
+  node.rendered = node.symbol.fullSource;
+  node.tokenCount = countTokens(node.symbol.fullSource);
+  return node;
+}
+
 describe("packNodesStoryMode", () => {
   it("packs coherent groups before tail references", () => {
     const fileA = makeFile(1, "src/capsule/generator.ts");
@@ -155,8 +167,8 @@ describe("packNodesStoryMode", () => {
     const byId = new Map(result.packed.map((node) => [node.symbol.id, node]));
 
     expect(byId.get(4001)?.compressionLevel).toBe(0);
-    expect(byId.get(4002)?.compressionLevel).toBe(1);
-    expect(byId.get(4003)?.compressionLevel).toBe(1);
+    expect(byId.get(4002)?.compressionLevel).toBeLessThanOrEqual(1);
+    expect(byId.get(4003)?.compressionLevel).toBeLessThanOrEqual(1);
   });
 
   it("respects preassigned compression levels for broad-query UI entrypoints", () => {
@@ -191,6 +203,30 @@ describe("packNodesStoryMode", () => {
     expect(packedIds).toContain(2101);
     expect(packedIds).not.toContain(2201);
     expect(result.fileSummaries).toHaveLength(0);
+  });
+
+  it("refills underused story budgets by expanding top-ranked packed symbols before tail filler", () => {
+    const fileA = makeFile(30, "src/runtime/data-layer.ts");
+    const fileB = makeFile(31, "src/runtime/dashboard.ts");
+
+    const nodes: ScoredNode[] = [
+      inflateNode(makeNode(3001, fileA, 10, 0), "useDataLayer"),
+      inflateNode(makeNode(3002, fileA, 9.4, 1), "loadDashboardData"),
+      inflateNode(makeNode(3003, fileB, 9.1, 1), "DashboardPage"),
+      inflateNode(makeNode(3004, fileB, 8.8, 1), "DashboardShell"),
+    ];
+
+    const clusterMap = new Map<number, number>([
+      [3001, 40],
+      [3002, 40],
+      [3003, 41],
+      [3004, 41],
+    ]);
+
+    const result = packNodesStoryMode(nodes, 4000, 0.9, clusterMap);
+
+    expect(result.tokensUsed).toBeGreaterThan(1500);
+    expect(result.packed.filter((node) => node.compressionLevel === 0).length).toBeGreaterThanOrEqual(2);
   });
 });
 

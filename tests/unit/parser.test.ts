@@ -269,6 +269,35 @@ window.startServer = startServer;
     expect(malformed.errors.some((error) => error.includes("Syntax errors detected"))).toBe(true);
   });
 
+  it("treats benign JSX text parse issues as warnings instead of hard TSX errors", () => {
+    const parsed = parseFile(
+      "SafetyGuardModal.tsx",
+      `
+export function SafetyGuardModal() {
+  return <div>Focus & Recover</div>;
+}
+`,
+      "tsx"
+    );
+
+    expect(parsed.errors).toHaveLength(0);
+    expect(parsed.symbols.map((symbol) => symbol.name)).toContain("SafetyGuardModal");
+  });
+
+  it("still reports hard TSX syntax errors outside benign JSX text positions", () => {
+    const parsed = parseFile(
+      "SettingsModal.tsx",
+      `
+export function SettingsModal() {
+  return <div>{</div>;
+}
+`,
+      "tsx"
+    );
+
+    expect(parsed.errors.some((error) => error.includes("Syntax errors detected"))).toBe(true);
+  });
+
   it("accepts replacement-character input from non-utf8 sources", () => {
     const content = Buffer.from([0xff, 0xfe, 0xfd, 0x61]).toString("utf-8");
     const parsed = parseFile("binary.ts", content, "typescript");

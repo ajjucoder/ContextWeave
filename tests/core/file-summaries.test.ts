@@ -482,4 +482,82 @@ describe("file summaries", () => {
     expect(results[0]?.path).toBe("/Users/tester/workspaces/contextweave/.qa-temp/fastify/lib/hooks.js");
     localDb.close();
   });
+
+  it("prefers Java runtime roots over static resource directories for shopping-flow queries", () => {
+    const localDb = new Database(":memory:");
+    localDb.pragma("foreign_keys = ON");
+    createSchema(localDb);
+    const now = Date.now();
+    const files = fileQueries(localDb);
+    const syms = symbolQueries(localDb);
+
+    const runtimeFileId = files.insert({
+      path: "src/main/java/com/shop/CheckoutController.java",
+      hash: "shop-java",
+      lastIndexed: now,
+      mtime: now,
+      language: "java",
+      symbolCount: 2,
+      error: null,
+    });
+    syms.insert({
+      fileId: runtimeFileId,
+      name: "CheckoutController",
+      kind: "class",
+      startLine: 1,
+      endLine: 80,
+      signature: "class CheckoutController checkout shopping order flow",
+      bodyHash: "shop-java-1",
+      fullSource: "",
+      isExported: true,
+      docComment: null,
+      centrality: 8,
+      lastSeen: now,
+    });
+    syms.insert({
+      fileId: runtimeFileId,
+      name: "placeOrder",
+      kind: "method",
+      startLine: 81,
+      endLine: 120,
+      signature: "method placeOrder(cartId, userId) shopping checkout controller",
+      bodyHash: "shop-java-2",
+      fullSource: "",
+      isExported: true,
+      docComment: null,
+      centrality: 7,
+      lastSeen: now,
+    });
+
+    const staticFileId = files.insert({
+      path: "src/main/resources/static/js/checkout-flow.js",
+      hash: "shop-static",
+      lastIndexed: now,
+      mtime: now,
+      language: "javascript",
+      symbolCount: 1,
+      error: null,
+    });
+    syms.insert({
+      fileId: staticFileId,
+      name: "checkoutFlowBanner",
+      kind: "function",
+      startLine: 1,
+      endLine: 40,
+      signature: "function checkoutFlowBanner() shopping checkout animation banner",
+      bodyHash: "shop-static-1",
+      fullSource: "",
+      isExported: false,
+      docComment: null,
+      centrality: 3,
+      lastSeen: now,
+    });
+
+    upsertFileSummary(localDb, runtimeFileId);
+    upsertFileSummary(localDb, staticFileId);
+
+    const results = searchFilesByQuery(localDb, "shopping checkout flow controller", 10);
+    expect(results[0]?.path).toBe("src/main/java/com/shop/CheckoutController.java");
+    localDb.close();
+  });
 });

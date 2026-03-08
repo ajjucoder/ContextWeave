@@ -391,4 +391,262 @@ describe("generateCapsule", () => {
     expect(result.content).toContain("renderSymbol");
     localDb.close();
   });
+
+  it("keeps exact symbol capsules constrained to the definition plus direct callers and callees", () => {
+    const localDb = new Database(":memory:");
+    localDb.pragma("foreign_keys = ON");
+    createSchema(localDb);
+    const now = Date.now();
+    const files = fileQueries(localDb);
+    const syms = symbolQueries(localDb);
+
+    const runtimeFileId = files.insert({
+      path: "src/lib/data-layer.ts",
+      hash: "data-layer-runtime",
+      lastIndexed: now,
+      mtime: now,
+      language: "typescript",
+      symbolCount: 4,
+      error: null,
+    });
+    const hookId = syms.insert({
+      fileId: runtimeFileId,
+      name: "useDataLayer",
+      kind: "function",
+      startLine: 1,
+      endLine: 40,
+      signature: "function useDataLayer(): DataLayer",
+      bodyHash: "data-layer-hook",
+      fullSource:
+        "export function useDataLayer(): DataLayer {\n  return loadDashboardData();\n}",
+      isExported: true,
+      docComment: null,
+      centrality: 9,
+      lastSeen: now,
+    });
+    const calleeId = syms.insert({
+      fileId: runtimeFileId,
+      name: "loadDashboardData",
+      kind: "function",
+      startLine: 41,
+      endLine: 90,
+      signature: "function loadDashboardData(): DashboardData",
+      bodyHash: "data-layer-loader",
+      fullSource:
+        "export function loadDashboardData(): DashboardData {\n  return { widgets: [] } as DashboardData;\n}",
+      isExported: true,
+      docComment: null,
+      centrality: 7,
+      lastSeen: now,
+    });
+    syms.insert({
+      fileId: runtimeFileId,
+      name: "useDataLayerCache",
+      kind: "function",
+      startLine: 91,
+      endLine: 130,
+      signature: "function useDataLayerCache(): Cache",
+      bodyHash: "data-layer-cache",
+      fullSource:
+        "export function useDataLayerCache(): Cache {\n  return { key: 'cache' } as Cache;\n}",
+      isExported: true,
+      docComment: null,
+      centrality: 5,
+      lastSeen: now,
+    });
+    const noiseId = syms.insert({
+      fileId: runtimeFileId,
+      name: "useDataLayerBanner",
+      kind: "function",
+      startLine: 131,
+      endLine: 170,
+      signature: "function useDataLayerBanner(): Banner",
+      bodyHash: "data-layer-banner",
+      fullSource:
+        "export function useDataLayerBanner(): Banner {\n  return { title: 'banner' } as Banner;\n}",
+      isExported: true,
+      docComment: null,
+      centrality: 4,
+      lastSeen: now,
+    });
+
+    const callerFileId = files.insert({
+      path: "src/components/DashboardPage.tsx",
+      hash: "dashboard-page",
+      lastIndexed: now,
+      mtime: now,
+      language: "tsx",
+      symbolCount: 1,
+      error: null,
+    });
+    const callerId = syms.insert({
+      fileId: callerFileId,
+      name: "DashboardPage",
+      kind: "function",
+      startLine: 1,
+      endLine: 40,
+      signature: "function DashboardPage(): JSX.Element",
+      bodyHash: "dashboard-page-body",
+      fullSource:
+        "export function DashboardPage(): JSX.Element {\n  const layer = useDataLayer();\n  return <section>{layer.widgets.length}</section>;\n}",
+      isExported: true,
+      docComment: null,
+      centrality: 8,
+      lastSeen: now,
+    });
+
+    const noiseFileId = files.insert({
+      path: "src/marketing/banner.ts",
+      hash: "banner-noise",
+      lastIndexed: now,
+      mtime: now,
+      language: "typescript",
+      symbolCount: 1,
+      error: null,
+    });
+    syms.insert({
+      fileId: noiseFileId,
+      name: "showMarketingBanner",
+      kind: "function",
+      startLine: 1,
+      endLine: 30,
+      signature: "function showMarketingBanner(): Banner",
+      bodyHash: "marketing-banner",
+      fullSource:
+        "export function showMarketingBanner(): Banner {\n  return { title: 'useDataLayer promotion' } as Banner;\n}",
+      isExported: true,
+      docComment: null,
+      centrality: 2,
+      lastSeen: now,
+    });
+
+    localDb.prepare("INSERT INTO edges (source_symbol_id, target_symbol_id, kind, created_at) VALUES (?, ?, 'call', ?)").run(callerId, hookId, now);
+    localDb.prepare("INSERT INTO edges (source_symbol_id, target_symbol_id, kind, created_at) VALUES (?, ?, 'call', ?)").run(hookId, calleeId, now);
+    localDb.prepare("INSERT INTO edges (source_symbol_id, target_symbol_id, kind, created_at) VALUES (?, ?, 'call', ?)").run(noiseId, hookId, now);
+
+    updateCentralityScores(localDb);
+
+    const result = generateCapsule(localDb, {
+      query: "useDataLayer",
+      tokenBudget: 4000,
+      mode: "feature",
+    });
+
+    expect(result.metadata.quality.retrieval.stageACandidateCount).toBeLessThanOrEqual(2);
+    expect(result.content).toContain("useDataLayer");
+    expect(result.content).toContain("DashboardPage");
+    expect(result.content).toContain("loadDashboardData");
+    expect(result.content).not.toContain("showMarketingBanner");
+    expect(result.content).not.toContain("useDataLayerCache");
+    localDb.close();
+  });
+
+  it("refills broad runtime capsules toward the available token budget", () => {
+    const localDb = new Database(":memory:");
+    localDb.pragma("foreign_keys = ON");
+    createSchema(localDb);
+    const now = Date.now();
+    const files = fileQueries(localDb);
+    const syms = symbolQueries(localDb);
+    const makeLargeSource = (name: string, nextCall?: string): string => [
+      `export function ${name}(input: string): string {`,
+      ...Array.from({ length: 260 }, (_, index) => `  const step${index} = input + \"-${name}-${index}\";`),
+      nextCall ? `  return ${nextCall}(input);` : "  return input;",
+      `}`,
+    ].join("\n");
+
+    const runtimeFileId = files.insert({
+      path: "src/lib/data-layer.ts",
+      hash: "data-layer-refill",
+      lastIndexed: now,
+      mtime: now,
+      language: "typescript",
+      symbolCount: 2,
+      error: null,
+    });
+    const hookId = syms.insert({
+      fileId: runtimeFileId,
+      name: "useDataLayer",
+      kind: "function",
+      startLine: 1,
+      endLine: 200,
+      signature: "function useDataLayer(input: string): string",
+      bodyHash: "refill-hook",
+      fullSource: makeLargeSource("useDataLayer", "loadDashboardData"),
+      isExported: true,
+      docComment: null,
+      centrality: 10,
+      lastSeen: now,
+    });
+    const calleeId = syms.insert({
+      fileId: runtimeFileId,
+      name: "loadDashboardData",
+      kind: "function",
+      startLine: 201,
+      endLine: 400,
+      signature: "function loadDashboardData(input: string): string",
+      bodyHash: "refill-callee",
+      fullSource: makeLargeSource("loadDashboardData"),
+      isExported: true,
+      docComment: null,
+      centrality: 8,
+      lastSeen: now,
+    });
+
+    const callerFileId = files.insert({
+      path: "src/components/DashboardPage.tsx",
+      hash: "dashboard-page-refill",
+      lastIndexed: now,
+      mtime: now,
+      language: "tsx",
+      symbolCount: 2,
+      error: null,
+    });
+    const pageId = syms.insert({
+      fileId: callerFileId,
+      name: "DashboardPage",
+      kind: "function",
+      startLine: 1,
+      endLine: 220,
+      signature: "function DashboardPage(input: string): string",
+      bodyHash: "refill-page",
+      fullSource: makeLargeSource("DashboardPage", "useDataLayer"),
+      isExported: true,
+      docComment: null,
+      centrality: 7,
+      lastSeen: now,
+    });
+    const shellId = syms.insert({
+      fileId: callerFileId,
+      name: "DashboardShell",
+      kind: "function",
+      startLine: 221,
+      endLine: 440,
+      signature: "function DashboardShell(input: string): string",
+      bodyHash: "refill-shell",
+      fullSource: makeLargeSource("DashboardShell", "useDataLayer"),
+      isExported: true,
+      docComment: null,
+      centrality: 6,
+      lastSeen: now,
+    });
+
+    localDb.prepare("INSERT INTO edges (source_symbol_id, target_symbol_id, kind, created_at) VALUES (?, ?, 'call', ?)").run(pageId, hookId, now);
+    localDb.prepare("INSERT INTO edges (source_symbol_id, target_symbol_id, kind, created_at) VALUES (?, ?, 'call', ?)").run(shellId, hookId, now);
+    localDb.prepare("INSERT INTO edges (source_symbol_id, target_symbol_id, kind, created_at) VALUES (?, ?, 'call', ?)").run(hookId, calleeId, now);
+
+    updateCentralityScores(localDb);
+
+    const result = generateCapsule(localDb, {
+      query: "how does the dashboard data layer runtime flow work",
+      tokenBudget: 4000,
+      mode: "feature",
+    });
+
+    expect(result.metadata.tokensUsed).toBeGreaterThan(800);
+    expect(result.content).toContain("DashboardPage");
+    expect(result.content).toContain("DashboardShell");
+    expect(result.content).toContain("loadDashboardData");
+    localDb.close();
+  });
 });

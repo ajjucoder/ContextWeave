@@ -12,6 +12,13 @@ export interface RankedPivots {
   scores: number[];
 }
 
+export interface PivotMatchSignals {
+  exactNameMatch: boolean;
+  highPrecisionExactNameMatch: boolean;
+  camelCaseEquivalentMatch: boolean;
+  pathSegmentMatch: boolean;
+}
+
 const FRAMEWORK_ENTRY_RE = /(^|\/)app\/.+\/route\.[cm]?[jt]sx?$/i;
 const ROUTE_PATH_RE = /(^|\/)(api|routes?)(\/|$)/i;
 const SERVER_PATH_RE = /(^|\/)(server|services?|controllers?|auth|db|data|repositories?|stores?|models?)(\/|$)/i;
@@ -130,6 +137,61 @@ function extractSignalTokens(value: string): string[] {
     .filter(Boolean);
 }
 
+function normalizeToken(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+function toNormalizedTokenSequence(value: string): string[] {
+  return extractSignalTokens(value).map(normalizeToken).filter(Boolean);
+}
+
+function buildContiguousSequences(tokens: string[], minLength: number): Set<string> {
+  const sequences = new Set<string>();
+  for (let start = 0; start < tokens.length; start++) {
+    let current = "";
+    for (let end = start; end < tokens.length; end++) {
+      current += tokens[end] ?? "";
+      if (end - start + 1 >= minLength && current.length > 0) {
+        sequences.add(current);
+      }
+    }
+  }
+  return sequences;
+}
+
+export function getPivotMatchSignals(candidate: PivotCandidate, queryTerms: string[]): PivotMatchSignals {
+  const normalizedTerms = queryTerms.map(normalizeToken).filter(Boolean);
+  const nameLower = candidate.name.toLowerCase();
+  const normalizedName = normalizeToken(candidate.name);
+  const nameTokens = toNormalizedTokenSequence(candidate.name);
+  const queryJoined = normalizedTerms.join("");
+  const queryPhraseSequences = buildContiguousSequences(normalizedTerms, 2);
+  const namePhraseSequences = buildContiguousSequences(nameTokens, 2);
+  const pathTokens = toNormalizedTokenSequence(candidate.filePath);
+  const pathPhraseSequences = buildContiguousSequences(pathTokens, 2);
+
+  const exactNameMatch =
+    queryTerms.some((term) => term.toLowerCase() === nameLower) ||
+    normalizedTerms.some((term) => term === normalizedName) ||
+    queryJoined === normalizedName;
+  const highPrecisionExactNameMatch = exactNameMatch && (normalizedName.length >= 6 || nameTokens.length >= 2);
+
+  const camelCaseEquivalentMatch =
+    !highPrecisionExactNameMatch &&
+    [...namePhraseSequences].some((phrase) => queryPhraseSequences.has(phrase));
+
+  const pathSegmentMatch =
+    normalizedTerms.some((term) => pathTokens.includes(term)) ||
+    [...queryPhraseSequences].some((phrase) => pathPhraseSequences.has(phrase));
+
+  return {
+    exactNameMatch,
+    highPrecisionExactNameMatch,
+    camelCaseEquivalentMatch,
+    pathSegmentMatch,
+  };
+}
+
 function stemMatch(token: string, term: string): boolean {
   if (token.includes(term) || term.includes(token)) return true;
   const prefixLen = Math.min(token.length, term.length);
@@ -184,6 +246,19 @@ export function scorePivotRelevance(candidate: PivotCandidate, queryTerms: strin
     kindLower === "function" || kindLower === "class" || kindLower === "method" ? 1.2 : 1.0;
 
   let score = (nameScore + sigScore + pathScore) * kindWeight;
+  const matchSignals = getPivotMatchSignals(candidate, queryTerms);
+
+  if (matchSignals.highPrecisionExactNameMatch) {
+    score += 50;
+  } else if (matchSignals.exactNameMatch) {
+    score += 18;
+  } else if (matchSignals.camelCaseEquivalentMatch) {
+    score += 25;
+  }
+
+  if (matchSignals.pathSegmentMatch) {
+    score += 10 * pathCoverage;
+  }
 
   const signalTokens = new Set([
     ...extractSignalTokens(candidate.name),

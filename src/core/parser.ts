@@ -1244,6 +1244,57 @@ function parseDynamicDispatchCalls(symbols: ParsedSymbol[], _content: string): P
   return calls;
 }
 
+function collectErrorNodes(root: Parser.SyntaxNode): Parser.SyntaxNode[] {
+  const errors: Parser.SyntaxNode[] = [];
+  const stack: Parser.SyntaxNode[] = [root];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) continue;
+    if (current.type === "ERROR") {
+      errors.push(current);
+    }
+    for (const child of current.children) {
+      stack.push(child);
+    }
+  }
+
+  return errors;
+}
+
+function isBenignJsxTextError(node: Parser.SyntaxNode): boolean {
+  const text = node.text.trim();
+  if (!text || /[{}<>()[\];]/.test(text)) {
+    return false;
+  }
+
+  let current: Parser.SyntaxNode | null = node.parent;
+  while (current) {
+    if (
+      current.type === "jsx_text" ||
+      current.type === "jsx_element" ||
+      current.type === "jsx_fragment"
+    ) {
+      return true;
+    }
+    if (current.type === "jsx_expression") {
+      return false;
+    }
+    current = current.parent;
+  }
+
+  return false;
+}
+
+function hasOnlyBenignJsxTextErrors(tree: Parser.Tree, language: string): boolean {
+  if (language !== "tsx" && language !== "jsx") {
+    return false;
+  }
+
+  const errorNodes = collectErrorNodes(tree.rootNode);
+  return errorNodes.length > 0 && errorNodes.every((node) => isBenignJsxTextError(node));
+}
+
 export function parseFile(
   filePath: string,
   content: string,
@@ -1275,7 +1326,7 @@ export function parseFile(
       }) as unknown as string);
     }
 
-    if (tree.rootNode.hasError) {
+    if (tree.rootNode.hasError && !hasOnlyBenignJsxTextErrors(tree, language)) {
       errors.push(`Syntax errors detected in ${filePath}`);
     }
 
