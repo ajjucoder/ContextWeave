@@ -9,6 +9,8 @@ import type {
   CompressionLevel,
   LightSymbolRecord,
   FileRecord,
+  EmbeddingRuntime,
+  HybridSearchResult,
 } from "../core/types.js";
 import { symbolQueries } from "../db/queries/symbols.js";
 import { fileQueries } from "../db/queries/files.js";
@@ -54,6 +56,7 @@ import {
   toDisplayPath,
 } from "./generator-helpers.js";
 import { applySemanticRerank } from "./semantic-reranker.js";
+import { hybridSearch } from "../core/hybrid-ranker.js";
 
 const logger = createLogger("generator");
 export { computeCoverageConfidence } from "./confidence.js";
@@ -68,6 +71,7 @@ interface CapsuleParams {
   path?: string;
   glob?: string;
   semanticRerank?: boolean;
+  hybridSearchResults?: HybridSearchResult[];
 }
 
 interface RankedCandidate {
@@ -375,9 +379,37 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     candidateFileIds = null;
   }
   const preferRuntimeKinds = intent === "task" && candidateFiles.length > 0 && candidateFiles.length <= 6 && !typeFocusedQuery;
+  const hybridSearchResults = params.hybridSearchResults ?? [];
+  const hybridSearchEnabled = hybridSearchResults.length > 0;
+  if (hybridSearchEnabled) {
+    const hybridCandidateFiles = hybridSearchResults
+      .map((result) => files.getById(result.fileId))
+      .filter((file): file is FileRecord => file !== undefined);
+    const seenHybridFiles = new Set<number>();
+    const prioritizedHybridFiles = hybridCandidateFiles.filter((file) => {
+      if (seenHybridFiles.has(file.id)) return false;
+      seenHybridFiles.add(file.id);
+      return true;
+    }).map((file) => ({ fileId: file.id, path: file.path }));
+    const lexicalTail = candidateFiles.filter((candidate) => !seenHybridFiles.has(candidate.fileId));
+    candidateFiles = [...prioritizedHybridFiles, ...lexicalTail];
+    for (const [index, result] of hybridSearchResults.entries()) {
+      const exactBonus = result.exactMatchRank === 1 ? 0.45 : result.exactMatchRank != null ? 0.2 : 0;
+      const boost = Math.max(1.05, 1.55 - index * 0.05 + exactBonus + Math.min(0.15, result.rrfScore));
+      candidateFileBoostById.set(result.fileId, Math.max(candidateFileBoostById.get(result.fileId) ?? 1, boost));
+      for (const symbolId of result.symbolIds.slice(0, intent === "broad" ? 4 : 6)) {
+        rawPivotIds.add(symbolId);
+        const existing = seededPivotIdsByFile.get(result.fileId) ?? [];
+        if (!existing.includes(symbolId)) {
+          existing.push(symbolId);
+          seededPivotIdsByFile.set(result.fileId, existing);
+        }
+      }
+    }
+  }
   const semanticRerankEnabled =
-    (params.semanticRerank ?? false) ||
-    process.env["CW_ENABLE_SEMANTIC_RERANK"] === "1";
+    !hybridSearchEnabled &&
+    ((params.semanticRerank ?? false) || process.env["CW_ENABLE_SEMANTIC_RERANK"] === "1");
   const exactQueryTermSet = new Set(exactQueryTerms);
   const queryLooksTestFocused = isTestQuery(allQueryTerms);
   const explicitTypeQuery = classified.normalizedTerms.some((term) => TYPE_FOCUSED_TERMS.has(term));
@@ -577,7 +609,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
   }
 
-  if (rawPivotIds.size < 3) {
+  if (rawPivotIds.size < 3 && !hybridSearchEnabled) {
     const contentMatches = contentFallbackSearch(db, expandedQueryTerms);
     let added = 0;
     for (const match of contentMatches) {
@@ -946,6 +978,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     applied: false,
     candidateCount: 0,
     boosted: 0,
+  };
+  const hybridStrategy = {
+    enabled: hybridSearchEnabled,
+    applied: hybridSearchEnabled,
+    candidateCount: hybridSearchResults.length,
+    exactMatches: hybridSearchResults.filter((result) => result.exactMatchRank !== null).length,
   };
 
   if (semanticRerankEnabled && (intent === "broad" || intent === "task")) {
@@ -1600,6 +1638,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       intent,
       mode: useMultiPass ? "multi-pass" : "single-pass",
       subQueryCount: useMultiPass ? subQueries.length : 1,
+      hybridSearch: hybridStrategy,
       semanticRerank,
     },
     ...(clusterGroups.length > 0 ? { clusterGroups } : {}),
@@ -1668,4 +1707,44 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   }
 
   return { content, metadata };
+}
+
+export async function generateCapsuleWithRuntime(
+  db: Database.Database,
+  params: CapsuleParams,
+  embeddingRuntime: EmbeddingRuntime | null | undefined
+): Promise<CapsuleOutput> {
+  if (!embeddingRuntime) {
+    return generateCapsule(db, params);
+  }
+
+  try {
+    const classified = classifyQueryIntent(params.query);
+    const queryTerms =
+      classified.focusTerms.length > 0
+        ? classified.focusTerms
+        : classified.normalizedTerms.length > 0
+          ? classified.normalizedTerms
+          : params.query.split(/\s+/).filter((term) => term.length > 1);
+    const queryEmbedding = await embeddingRuntime.embedder.embed(params.query);
+    const hybridSearchResults = await hybridSearch(db, embeddingRuntime, {
+      query: params.query,
+      queryTerms,
+      queryEmbedding,
+      projectRoot: params.projectRoot,
+      pathRestriction: params.path,
+      glob: params.glob,
+      limit: 36,
+    });
+
+    return generateCapsule(db, {
+      ...params,
+      hybridSearchResults,
+    });
+  } catch (error) {
+    logger.warn("hybrid runtime unavailable during capsule generation; falling back to lexical retrieval", {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return generateCapsule(db, params);
+  }
 }

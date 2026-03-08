@@ -64,6 +64,11 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
       )
       : 0;
   const lexicalSurface = Math.min(queryTermCoverage, retrievalSurfaceScore);
+  const structurallyGrounded =
+    retrievalSurfaceScore >= 0.75 &&
+    relevantCoverage >= 0.6 &&
+    dependencyCoverage >= 0.7 &&
+    noiseRatio <= 0.2;
 
   let confidence = clamp(
     relevantCoverage * 0.5 +
@@ -104,6 +109,9 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
         ? Math.max(lexicalSurface, structuralHealth * 0.52)
         : lexicalSurface;
     confidence = clamp(confidence * (0.35 + 0.65 * breadthFactor));
+    if (structurallyGrounded && moduleCoverage >= 0.75) {
+      confidence = Math.max(confidence, 0.72);
+    }
   } else if (intent === "task") {
     confidence = clamp(
       storyCompleteness * 0.3 +
@@ -123,6 +131,9 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
         ? Math.max(lexicalSurface, structuralHealth * 0.5)
         : lexicalSurface;
     confidence = clamp(confidence * (0.45 + 0.55 * breadthFactor));
+    if (structurallyGrounded && storyCompleteness >= 0.25) {
+      confidence = Math.max(confidence, 0.78);
+    }
   }
 
   if (intent !== "narrow" && thinRetrieval && tokenUtilization !== undefined) {

@@ -110,6 +110,22 @@ export interface VectorSearchResult {
   tokenCount: number;
 }
 
+export interface HybridSearchResult {
+  fileId: number;
+  filePath: string;
+  symbolIds: number[];
+  chunkId: number;
+  startLine: number;
+  endLine: number;
+  scopeChain: string[];
+  kind: SymbolKind | "chunk";
+  bm25Rank: number | null;
+  vectorRank: number | null;
+  exactMatchRank: number | null;
+  rrfScore: number;
+  recencyScore: number;
+}
+
 export interface VectorStoreStats {
   total: number;
   embedded: number;
@@ -123,11 +139,14 @@ export interface ChunkEmbeddingEntry {
 
 export interface EmbeddingRuntime {
   embedder: {
+    embed(text: string): Promise<Float32Array>;
     embedBatch(texts: string[]): Promise<Float32Array[]>;
     dispose?: () => Promise<void>;
   };
   vectorStore: {
     storeBatch(entries: ChunkEmbeddingEntry[]): void;
+    search(queryEmbedding: Float32Array, limit?: number): VectorSearchResult[];
+    searchWithFilter(queryEmbedding: Float32Array, pathFilter?: string, limit?: number): VectorSearchResult[];
   };
   modelName?: string;
 }
@@ -270,6 +289,12 @@ export interface CapsuleMetadata {
     intent: QueryIntent;
     mode: "single-pass" | "multi-pass";
     subQueryCount: number;
+    hybridSearch?: {
+      enabled: boolean;
+      applied: boolean;
+      candidateCount: number;
+      exactMatches: number;
+    };
     semanticRerank?: {
       enabled: boolean;
       applied: boolean;

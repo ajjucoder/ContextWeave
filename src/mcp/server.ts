@@ -77,12 +77,12 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
 
   log.info("acquired server lock", { mode: serverLock.mode, projectRoot });
 
-  registerCapsuleTool(server, db, projectRoot, config, serverSessionId);
+  registerCapsuleTool(server, db, projectRoot, config, serverSessionId, embeddingRuntime);
   registerImpactTool(server, db);
   registerFlowTool(server, db);
   registerRecallTool(server, db);
   registerStatusTool(server, db, projectRoot);
-  registerOverviewTool(server, db, projectRoot);
+  registerOverviewTool(server, db, projectRoot, embeddingRuntime);
   registerFilesTool(server, db, projectRoot);
   registerSearchTool(server, db, projectRoot);
   registerReadTool(server, db, projectRoot);

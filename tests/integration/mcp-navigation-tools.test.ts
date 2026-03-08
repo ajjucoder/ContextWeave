@@ -13,6 +13,8 @@ import { registerReadTool } from "../../src/mcp/tools/read.js";
 import { registerStatusTool } from "../../src/mcp/tools/status.js";
 import { registerCapsuleTool } from "../../src/mcp/tools/capsule.js";
 import { registerStatsTool } from "../../src/mcp/tools/stats.js";
+import { chunkQueries } from "../../src/db/queries/chunks.js";
+import type { ChunkEmbeddingEntry, EmbeddingRuntime } from "../../src/core/types.js";
 
 type ToolResult = {
   content: Array<{ type: string; text: string }>;
@@ -178,6 +180,126 @@ describe("mcp navigation tools", () => {
     expect(text).toContain('Query Focus: "missingSymbol"');
     expect(text).toContain("No focused file matches found.");
     expect(text).toContain('cw_grep(query: "missingSymbol")');
+  });
+
+  it("cw_overview uses hybrid chunk matches when embeddings are available", async () => {
+    const localServer = new McpServer({ name: "contextweave-test-hybrid-overview", version: "0.0.0" });
+    const sampleFile = db.prepare("SELECT id, path FROM files WHERE path LIKE ? LIMIT 1").get("%sample.ts") as { id: number; path: string } | undefined;
+    if (!sampleFile) {
+      throw new Error("Expected sample fixture file");
+    }
+    const [sampleChunk] = chunkQueries(db).getByFileId(sampleFile.id);
+    if (!sampleChunk) {
+      throw new Error("Expected sample chunk");
+    }
+
+    const runtime: EmbeddingRuntime = {
+      embedder: {
+        async embed(): Promise<Float32Array> {
+          return new Float32Array(384);
+        },
+        async embedBatch(): Promise<Float32Array[]> {
+          return [];
+        },
+      },
+      vectorStore: {
+        storeBatch(_entries: ChunkEmbeddingEntry[]): void {},
+        search() {
+          return [
+            {
+              chunkId: sampleChunk.id,
+              fileId: sampleFile.id,
+              filePath: sampleFile.path,
+              startLine: sampleChunk.startLine,
+              endLine: sampleChunk.endLine,
+              distance: 0.01,
+              scopeChain: sampleChunk.scopeChain,
+              entityNames: sampleChunk.entityNames,
+              tokenCount: sampleChunk.tokenCount,
+            },
+          ];
+        },
+        searchWithFilter() {
+          return [];
+        },
+      },
+      modelName: "test-hybrid-model",
+    };
+
+    registerOverviewTool(localServer, db, FIXTURE_DIR, runtime);
+
+    const result = await getTool(localServer, "cw_overview").handler({
+      path: ".",
+      depth: 2,
+      max_tokens: 1200,
+      query: "semantic auth flow",
+    });
+
+    const text = result.content[0]?.text ?? "";
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain('Query Focus: "semantic auth flow"');
+    expect(text).toContain("sample.ts");
+    expect(text).toContain("hybrid match:");
+  });
+
+  it("cw_overview keeps lexical hits after hybrid-ranked files", async () => {
+    const localServer = new McpServer({ name: "contextweave-test-hybrid-fusion", version: "0.0.0" });
+    const tsFile = db.prepare("SELECT id, path FROM files WHERE path LIKE ? LIMIT 1").get("%sample.ts") as { id: number; path: string } | undefined;
+    const pyFile = db.prepare("SELECT id, path FROM files WHERE path LIKE ? LIMIT 1").get("%sample.py") as { id: number; path: string } | undefined;
+    if (!tsFile || !pyFile) {
+      throw new Error("Expected sample fixture files");
+    }
+    const [pyChunk] = chunkQueries(db).getByFileId(pyFile.id);
+    if (!pyChunk) {
+      throw new Error("Expected indexed Python chunk");
+    }
+
+    const runtime: EmbeddingRuntime = {
+      embedder: {
+        async embed(): Promise<Float32Array> {
+          return new Float32Array(384);
+        },
+        async embedBatch(): Promise<Float32Array[]> {
+          return [];
+        },
+      },
+      vectorStore: {
+        storeBatch(_entries: ChunkEmbeddingEntry[]): void {},
+        search() {
+          return [
+            {
+              chunkId: pyChunk.id,
+              fileId: pyFile.id,
+              filePath: pyFile.path,
+              startLine: pyChunk.startLine,
+              endLine: pyChunk.endLine,
+              distance: 0.01,
+              scopeChain: pyChunk.scopeChain,
+              entityNames: pyChunk.entityNames,
+              tokenCount: pyChunk.tokenCount,
+            },
+          ];
+        },
+        searchWithFilter() {
+          return [];
+        },
+      },
+      modelName: "test-hybrid-model",
+    };
+
+    registerOverviewTool(localServer, db, FIXTURE_DIR, runtime);
+
+    const result = await getTool(localServer, "cw_overview").handler({
+      path: ".",
+      depth: 2,
+      max_tokens: 1200,
+      query: "UserService",
+    });
+
+    const text = result.content[0]?.text ?? "";
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain("sample.py");
+    expect(text).toContain("sample.ts");
   });
 
   it("cw_capsule returns capsule content through the registered MCP handler", async () => {

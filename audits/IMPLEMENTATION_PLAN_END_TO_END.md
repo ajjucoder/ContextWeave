@@ -29,8 +29,8 @@ Turn ContextWeave into a local-first, agent-grade context engine that closes the
 - The remaining semantic stack gaps are now narrower:
   - `code-chunk`, `@huggingface/transformers`, and `sqlite-vec` are installed.
   - `src/core/chunker.ts`, `src/core/embedder.ts`, `src/core/vector-store.ts`, and `src/core/embedding-runtime.ts` now exist.
-  - `src/core/hybrid-ranker.ts` still does not exist.
-  - Chunk embedding integration into the indexer and watcher is now complete; hybrid rank fusion remains open under `CW-P1-006`.
+  - `src/core/hybrid-ranker.ts` now exists and is wired into capsule and overview retrieval paths.
+  - Chunk embedding integration into the indexer and watcher is complete, and hybrid rank fusion is now closed under `CW-P1-006`.
 - Phase 0 was only partially complete before this session:
   - `src/core/indexer.ts` already had `backfillSummariesIfNeeded` and `backfillClustersIfNeeded`, but `src/mcp/server.ts` did not call them on startup.
   - `src/mcp/tools/search.ts` accepted `use_regex`, but `/pattern/` queries still went through literal ripgrep and brace globs were not expanded.
@@ -239,8 +239,11 @@ Turn ContextWeave into a local-first, agent-grade context engine that closes the
   - Replace the lexical-only semantic reranker with BM25 + vector similarity + exact symbol match fused through RRF.
   - Capsule retrieval quality improves without breaking narrow exact reads.
 - linked tests:
-  - `npx vitest run tests/capsule/hybrid-ranker.test.ts tests/integration/capsule.test.ts`
-- status: todo
+  - `npx vitest run tests/capsule/hybrid-ranker.test.ts tests/integration/capsule-hybrid-runtime.test.ts tests/integration/mcp-navigation-tools.test.ts`
+  - `npx vitest run tests/integration/threshold-ratchet.test.ts`
+  - `npm run lint`
+  - `npm test`
+- status: done
 
 ### P2 Future-Proofing And Productization
 

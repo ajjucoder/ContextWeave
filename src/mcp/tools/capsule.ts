@@ -1,8 +1,8 @@
 import { z } from "zod/v3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
-import { generateCapsule } from "../../capsule/generator.js";
-import type { CapsuleMode } from "../../core/types.js";
+import { generateCapsuleWithRuntime } from "../../capsule/generator.js";
+import type { CapsuleMode, EmbeddingRuntime } from "../../core/types.js";
 import type { ProjectConfig } from "../../utils/config.js";
 import { getRegisterTool } from "./register-helper.js";
 
@@ -11,7 +11,8 @@ export function registerCapsuleTool(
   db: Database.Database,
   projectRoot: string,
   config?: ProjectConfig,
-  sessionId?: string
+  sessionId?: string,
+  embeddingRuntime?: EmbeddingRuntime | null
 ): void {
   const defaultBudget = config?.tokenBudget ?? 4000;
   const defaultMode = config?.defaultMode ?? "feature";
@@ -30,7 +31,7 @@ export function registerCapsuleTool(
     inputSchema,
     async ({ query, token_budget, mode, path, glob }: { query: string; token_budget?: number; mode?: CapsuleMode; path?: string; glob?: string }) => {
       try {
-        const result = generateCapsule(db, {
+        const result = await generateCapsuleWithRuntime(db, {
           query,
           tokenBudget: token_budget ?? defaultBudget,
           mode: (mode ?? defaultMode) as CapsuleMode,
@@ -38,7 +39,7 @@ export function registerCapsuleTool(
           projectRoot,
           path,
           glob,
-        });
+        }, embeddingRuntime);
 
         return {
           content: [{ type: "text" as const, text: result.content }],

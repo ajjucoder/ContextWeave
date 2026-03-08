@@ -6,6 +6,8 @@ import { symbolQueries } from "../../db/queries/symbols.js";
 import { edgeQueries } from "../../db/queries/edges.js";
 import { capsuleLogQueries } from "../../db/queries/capsule-log.js";
 import { searchFilesByQuery } from "../../core/file-summaries.js";
+import { classifyQueryIntent } from "../../capsule/intent-classifier.js";
+import { hybridSearch } from "../../core/hybrid-ranker.js";
 import { toProjectRelativePath, withinPath } from "./path-filters.js";
 import { getRegisterTool } from "./register-helper.js";
 import {
@@ -13,6 +15,7 @@ import {
   FOLLOW_UP_METRICS_SAMPLE_LIMIT,
   formatRatePct,
 } from "./stats.js";
+import type { EmbeddingRuntime } from "../../core/types.js";
 
 interface OverviewFile {
   id: number;
@@ -83,7 +86,12 @@ function approximateTokenTrim(text: string, maxTokens: number): string {
   return kept.join("\n");
 }
 
-export function registerOverviewTool(server: McpServer, db: Database.Database, projectRoot: string): void {
+export function registerOverviewTool(
+  server: McpServer,
+  db: Database.Database,
+  projectRoot: string,
+  embeddingRuntime?: EmbeddingRuntime | null
+): void {
   let symbolStmt: Database.Statement<[string, number], QueryRow> | null = null;
   let summaryStmt: Database.Statement<[number], SummaryRow> | null = null;
   const getSymbolStmt = () => {
@@ -201,9 +209,58 @@ export function registerOverviewTool(server: McpServer, db: Database.Database, p
 
         if (query && query.trim().length > 0) {
           const queryTerm = query.trim();
-          const focusedFiles = searchFilesByQuery(db, queryTerm, 8).filter((row) =>
+          let focusedFiles = searchFilesByQuery(db, queryTerm, 8).filter((row) =>
             withinPath(toProjectRelativePath(projectRoot, row.path), basePath)
           );
+          const hybridResultsByFile = new Map<number, Awaited<ReturnType<typeof hybridSearch>>[number][]>();
+
+          if (embeddingRuntime) {
+            try {
+              const classified = classifyQueryIntent(queryTerm);
+              const queryTerms = classified.focusTerms.length > 0
+                ? classified.focusTerms
+                : classified.normalizedTerms.length > 0
+                  ? classified.normalizedTerms
+                  : queryTerm.split(/\s+/).filter((token) => token.length > 1);
+              const queryEmbedding = await embeddingRuntime.embedder.embed(queryTerm);
+              const hybridResults = await hybridSearch(db, embeddingRuntime, {
+                query: queryTerm,
+                queryTerms,
+                queryEmbedding,
+                projectRoot,
+                pathRestriction: basePath,
+                limit: 8,
+              });
+              for (const result of hybridResults) {
+                const existing = hybridResultsByFile.get(result.fileId) ?? [];
+                existing.push(result);
+                hybridResultsByFile.set(result.fileId, existing);
+              }
+              if (hybridResults.length > 0) {
+                const lexicalTail = focusedFiles;
+                const seenFileIds = new Set<number>();
+                focusedFiles = hybridResults
+                  .filter((result) => {
+                    if (seenFileIds.has(result.fileId)) return false;
+                    seenFileIds.add(result.fileId);
+                    return true;
+                  })
+                  .map((result) => ({
+                    fileId: result.fileId,
+                    path: result.filePath,
+                  }))
+                  .concat(
+                    lexicalTail.filter((row) => {
+                      if (seenFileIds.has(row.fileId)) return false;
+                      seenFileIds.add(row.fileId);
+                      return true;
+                    })
+                  );
+              }
+            } catch {
+              // Fall back to lexical overview matches if query embedding is unavailable.
+            }
+          }
           lines.push("", `Query Focus: \"${queryTerm}\"`);
 
           if (focusedFiles.length === 0) {
@@ -217,6 +274,14 @@ export function registerOverviewTool(server: McpServer, db: Database.Database, p
 
               const rows = getSymbolStmt().all(`%${escaped}%`, file.fileId);
               if (rows.length === 0) {
+                const hybridChunks = hybridResultsByFile.get(file.fileId) ?? [];
+                if (hybridChunks.length > 0) {
+                  for (const chunk of hybridChunks.slice(0, 2)) {
+                    const entityLabel = chunk.scopeChain[chunk.scopeChain.length - 1] ?? chunk.kind;
+                    lines.push(`  · hybrid match: ${entityLabel} (${relativePath}:${chunk.startLine}-${chunk.endLine})`);
+                  }
+                  continue;
+                }
                 const summaryText = getSummaryStmt().get(file.fileId)?.summary_text ?? "";
                 const snippet = buildSummarySnippet(summaryText, queryTerm);
                 if (snippet) {
