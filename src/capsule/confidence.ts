@@ -10,6 +10,7 @@ export interface ConfidenceParams {
   dependencyCoverage: number;
   noiseRatio: number;
   fileSummaryCount: number;
+  tokenUtilization?: number;
   queryTermCoverage?: number;
   retrievalSurfaceScore?: number;
   moduleCoverageStats?: {
@@ -27,12 +28,14 @@ function clamp(value: number): number {
 export function computeCoverageConfidence(params: ConfidenceParams): number {
   const {
     intent,
+    pivotCount,
     pivotsIncluded,
     relevantPivotsIncluded,
     totalRelevantPivots,
     dependencyCoverage,
     noiseRatio,
     fileSummaryCount,
+    tokenUtilization,
     queryTermCoverage = 1,
     retrievalSurfaceScore = 1,
     moduleCoverageStats,
@@ -44,6 +47,7 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
         ? 0.5
         : 0
       : relevantPivotsIncluded / totalRelevantPivots;
+  const pivotCoverage = pivotCount === 0 ? 0 : pivotsIncluded / pivotCount;
 
   const summaryBoost = Math.min(0.15, fileSummaryCount * 0.03);
   const moduleCoverage =
@@ -61,8 +65,29 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
       : 0;
   const lexicalSurface = Math.min(queryTermCoverage, retrievalSurfaceScore);
 
+  let confidence = clamp(
+    relevantCoverage * 0.5 +
+      dependencyCoverage * 0.2 +
+      (1 - noiseRatio) * 0.15 +
+      summaryBoost +
+      0.182
+  );
+  const thinRetrieval =
+    retrievalSurfaceScore < 0.75 ||
+    relevantCoverage < 0.6 ||
+    noiseRatio > 0.35;
+  const compactButGrounded =
+    (fileSummaryCount >= 2 && relevantCoverage >= 0.6) ||
+    (
+      pivotCoverage >= 0.75 &&
+      relevantCoverage >= 0.6 &&
+      dependencyCoverage >= 0.75 &&
+      noiseRatio <= 0.1 &&
+      pivotsIncluded >= 4
+    );
+
   if (intent === "broad") {
-    const base = clamp(
+    confidence = clamp(
       moduleCoverage * 0.35 +
         relevantCoverage * 0.25 +
         (1 - noiseRatio) * 0.15 +
@@ -78,11 +103,9 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
       retrievalSurfaceScore >= 0.75
         ? Math.max(lexicalSurface, structuralHealth * 0.52)
         : lexicalSurface;
-    return clamp(base * (0.35 + 0.65 * breadthFactor));
-  }
-
-  if (intent === "task") {
-    const base = clamp(
+    confidence = clamp(confidence * (0.35 + 0.65 * breadthFactor));
+  } else if (intent === "task") {
+    confidence = clamp(
       storyCompleteness * 0.3 +
         moduleCoverage * 0.25 +
         relevantCoverage * 0.2 +
@@ -99,16 +122,41 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
       retrievalSurfaceScore >= 0.7
         ? Math.max(lexicalSurface, structuralHealth * 0.5)
         : lexicalSurface;
-    return clamp(base * (0.45 + 0.55 * breadthFactor));
+    confidence = clamp(confidence * (0.45 + 0.55 * breadthFactor));
   }
 
-  return clamp(
-    relevantCoverage * 0.5 +
-      dependencyCoverage * 0.2 +
-      (1 - noiseRatio) * 0.15 +
-      summaryBoost +
-      0.182
-  );
+  if (intent !== "narrow" && thinRetrieval && tokenUtilization !== undefined) {
+    if (compactButGrounded) {
+      if (tokenUtilization < 0.3) {
+        confidence = Math.min(confidence, 0.78);
+      } else if (tokenUtilization < 0.5) {
+        confidence = Math.min(confidence, 0.82);
+      }
+    } else if (tokenUtilization < 0.3) {
+      confidence = Math.min(confidence, 0.4);
+    } else if (tokenUtilization < 0.5) {
+      confidence = Math.min(confidence, 0.6);
+    }
+  }
+
+  if (intent === "broad" && thinRetrieval && pivotsIncluded < 3) {
+    confidence = Math.min(confidence, 0.5);
+  }
+
+  if (intent !== "narrow" && relevantCoverage < 0.3) {
+    confidence = Math.min(confidence, 0.5);
+  }
+
+  if (
+    intent !== "narrow" &&
+    thinRetrieval &&
+    !compactButGrounded &&
+    ((tokenUtilization ?? 0) <= 0.6 || relevantCoverage <= 0.6)
+  ) {
+    confidence = Math.min(confidence, 0.9);
+  }
+
+  return clamp(confidence);
 }
 
 const UNCERTAINTY_LEVELS: CapsuleUncertainty[] = ["very_low", "low", "medium", "high", "critical"];

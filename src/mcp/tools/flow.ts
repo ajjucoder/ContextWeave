@@ -233,8 +233,8 @@ export function buildFlowResult(
     const text = [
       `No outgoing flows found from "${source}" (flows_limited: true).`,
       `Symbol location: ${location}`,
-      `Reason: analysis is limited to static call expressions. Prop callbacks,`,
-      `higher-order functions, and dynamic dispatch are not traced.`,
+      `Reason: analysis is primarily limited to static call expressions. Prop callbacks,`,
+      `higher-order functions, and unsupported dynamic dispatch patterns may be missing.`,
       `Recommendation: use cw_read to inspect "${source}" directly.`,
     ].join("\n");
     return { text, isLimited: true };

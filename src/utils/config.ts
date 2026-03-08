@@ -9,6 +9,7 @@ export interface ProjectConfig {
   stalenessDepth: number;
   confidenceDecay: number;
   gcThreshold: number;
+  embeddingModel?: string;
 }
 
 const DEFAULTS: ProjectConfig = {
@@ -29,6 +30,12 @@ function sanitizePatterns(value: unknown): string[] {
     .filter((entry) => entry.length > 0);
 }
 
+function sanitizeOptionalString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 export function loadConfig(projectRoot: string): ProjectConfig {
   const configPath = resolve(projectRoot, ".contextweave", "config.json");
   if (!existsSync(configPath)) return { ...DEFAULTS };
@@ -43,6 +50,7 @@ export function loadConfig(projectRoot: string): ProjectConfig {
       ...DEFAULTS,
       ...raw,
       ignore: [...new Set([...ignore, ...exclude, ...excludePatterns])],
+      embeddingModel: sanitizeOptionalString(raw.embeddingModel),
     } as ProjectConfig;
   } catch {
     process.stderr.write(`[contextweave] Warning: could not parse config at ${configPath}, using defaults\n`);

@@ -19,7 +19,7 @@ const DOC_DISCOVERY_RE = /(architect|design|decision|adr|policy|runbook|playbook
 const FOLLOW_UP_HEADING_RE = /(follow[- ]?up|next steps?|actions?)/i;
 
 interface SeedObservation {
-  scope: "architecture" | "convention" | "decision" | "todo";
+  scope: "documentation" | "convention" | "decision" | "todo";
   note: string;
   fileId: number | null;
 }
@@ -63,7 +63,7 @@ function scopeForPath(projectPath: string): SeedObservation["scope"] {
   const lower = projectPath.toLowerCase();
   if (lower.endsWith("claude.md")) return "convention";
   if (/(^|\/)(adr|decisions?)(\/|$)/.test(lower)) return "decision";
-  return "architecture";
+  return "documentation";
 }
 
 function discoverDocFiles(projectRoot: string): string[] {
@@ -238,7 +238,7 @@ export function syncBootstrapObservations(db: Database.Database, projectRoot: st
       fileId: seed.fileId ?? undefined,
       scope: seed.scope,
       note: seed.note,
-      confidence: seed.scope === "todo" ? 0.88 : seed.scope === "convention" ? 0.9 : 0.96,
+      confidence: 0.5,
     });
     seeded += 1;
   }

@@ -45,21 +45,21 @@ describe("isPathWithinRoot", () => {
 });
 
 describe("indexSingleFile path validation", () => {
-  it("rejects files outside the project root", () => {
-    const result = indexSingleFile(db, "/etc/passwd", TEMP_DIR);
+  it("rejects files outside the project root", async () => {
+    const result = await indexSingleFile(db, "/etc/passwd", TEMP_DIR);
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors[0]).toContain("outside project root");
     expect(result.symbolCount).toBe(0);
   });
 
-  it("rejects path traversal attempts", () => {
-    const result = indexSingleFile(db, resolve(TEMP_DIR, "../../etc/passwd"), TEMP_DIR);
+  it("rejects path traversal attempts", async () => {
+    const result = await indexSingleFile(db, resolve(TEMP_DIR, "../../etc/passwd"), TEMP_DIR);
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors[0]).toContain("outside project root");
   });
 
-  it("accepts files within the project root", () => {
-    const result = indexSingleFile(db, resolve(TEMP_DIR, "legit.ts"), TEMP_DIR);
+  it("accepts files within the project root", async () => {
+    const result = await indexSingleFile(db, resolve(TEMP_DIR, "legit.ts"), TEMP_DIR);
     expect(result.errors.length).toBe(0);
     expect(result.symbolCount).toBeGreaterThanOrEqual(0);
   });

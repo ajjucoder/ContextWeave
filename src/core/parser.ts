@@ -923,7 +923,8 @@ function parseJsLikeModuleImports(tree: Parser.Tree, content: string): ParsedImp
 function parseCalls(
   tree: Parser.Tree,
   language: string,
-  symbols: ParsedSymbol[]
+  symbols: ParsedSymbol[],
+  content: string
 ): ParsedCall[] {
   const queries = getQueries(language);
   if (!queries) return [];
@@ -1104,6 +1105,142 @@ function parseCalls(
     }
   }
 
+  calls.push(...parseDynamicDispatchCalls(symbols, content));
+
+  return calls;
+}
+
+type DispatchFamily = "event" | "registry";
+
+interface DynamicDispatchTrigger {
+  callerSymbol: string;
+  family: DispatchFamily;
+  receiver: string | null;
+  channel: string;
+  line: number;
+}
+
+const REGISTER_METHOD_FAMILIES: Record<string, DispatchFamily> = {
+  on: "event",
+  once: "event",
+  addListener: "event",
+  subscribe: "event",
+  register: "registry",
+  registerHandler: "registry",
+};
+
+const TRIGGER_METHOD_FAMILIES: Record<string, DispatchFamily> = {
+  emit: "event",
+  publish: "event",
+  trigger: "event",
+  dispatch: "registry",
+  run: "registry",
+  execute: "registry",
+  invoke: "registry",
+};
+
+const RECEIVER_DISPATCH_RE =
+  /\b((?:this\.)?[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)\.(on|once|addListener|subscribe|register|registerHandler|emit|publish|trigger|dispatch|run|execute|invoke)\(\s*(['"`])([^'"`]+)\3(?:\s*,\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?))?/g;
+const DIRECT_DISPATCH_RE =
+  /\b(on|once|addListener|subscribe|register|registerHandler|emit|publish|trigger|dispatch|run|execute|invoke)\(\s*(['"`])([^'"`]+)\2(?:\s*,\s*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)?))?/g;
+
+function normalizeDispatchReceiver(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const parts = value
+    .split(".")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0 && part !== "this");
+  return parts.at(-1) ?? null;
+}
+
+function normalizeDispatchHandler(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const parts = value
+    .split(".")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0 && part !== "this");
+  return parts.at(-1) ?? null;
+}
+
+function normalizeDispatchChannel(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function lineForMatchOffset(source: string, startLine: number, offset: number): number {
+  const relative = source.slice(0, offset).split(/\r?\n/).length - 1;
+  return startLine + relative;
+}
+
+function dispatchKey(family: DispatchFamily, receiver: string | null, channel: string): string {
+  return `${family}:${receiver ?? "*"}:${channel}`;
+}
+
+function parseDynamicDispatchCalls(symbols: ParsedSymbol[], _content: string): ParsedCall[] {
+  const registrations = new Map<string, Set<string>>();
+  const triggers: DynamicDispatchTrigger[] = [];
+
+  const visitMatches = (
+    source: string,
+    callerSymbol: string,
+    startLine: number,
+    regex: RegExp,
+    receiverIndex: number | null,
+    methodIndex: number,
+    channelIndex: number,
+    handlerIndex: number
+  ): void => {
+    regex.lastIndex = 0;
+    for (const match of source.matchAll(regex)) {
+      const method = match[methodIndex];
+      if (!method) continue;
+
+      const channel = normalizeDispatchChannel(match[channelIndex] ?? "");
+      if (!channel) continue;
+
+      const receiver = receiverIndex === null ? null : normalizeDispatchReceiver(match[receiverIndex] ?? null);
+      const handlerName = normalizeDispatchHandler(match[handlerIndex] ?? null);
+      const line = lineForMatchOffset(source, startLine, match.index ?? 0);
+
+      const registerFamily = REGISTER_METHOD_FAMILIES[method];
+      if (registerFamily && handlerName) {
+        const key = dispatchKey(registerFamily, receiver, channel);
+        const handlers = registrations.get(key) ?? new Set<string>();
+        handlers.add(handlerName);
+        registrations.set(key, handlers);
+      }
+
+      const triggerFamily = TRIGGER_METHOD_FAMILIES[method];
+      if (triggerFamily) {
+        triggers.push({
+          callerSymbol,
+          family: triggerFamily,
+          receiver,
+          channel,
+          line,
+        });
+      }
+    }
+  };
+
+  for (const symbol of symbols) {
+    visitMatches(symbol.fullSource, symbol.name, symbol.startLine, RECEIVER_DISPATCH_RE, 1, 2, 4, 5);
+    visitMatches(symbol.fullSource, symbol.name, symbol.startLine, DIRECT_DISPATCH_RE, null, 1, 3, 4);
+  }
+
+  const calls: ParsedCall[] = [];
+  for (const trigger of triggers) {
+    const handlers = registrations.get(dispatchKey(trigger.family, trigger.receiver, trigger.channel));
+    if (!handlers) continue;
+    for (const handlerName of handlers) {
+      calls.push({
+        callerSymbol: trigger.callerSymbol,
+        calleeName: handlerName,
+        line: trigger.line,
+        edgeKind: "dynamic_dispatch",
+      });
+    }
+  }
+
   return calls;
 }
 
@@ -1147,7 +1284,7 @@ export function parseFile(
       ...(language === "python" ? parsePythonMainBlock(content) : []),
     ];
     const imports = parseImports(tree, language, content);
-    const calls = parseCalls(tree, language, symbols);
+    const calls = parseCalls(tree, language, symbols, content);
     const frameworkCalls = extractFrameworkCalls(language, symbols);
 
     return { symbols, imports, calls, frameworkCalls, errors };

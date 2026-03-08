@@ -13,6 +13,7 @@ interface HookInput {
   tool_name: string;
   tool_input: Record<string, unknown>;
   project_root?: string;
+  session_id?: string;
 }
 
 function normalizeTrackedFilePath(projectRoot: string, filePath: string): string {
@@ -47,7 +48,7 @@ export async function handlePostToolUse(input: HookInput): Promise<void> {
 
   if (isWrite) {
     try {
-      indexSingleFile(db, filePath, projectRoot);
+      await indexSingleFile(db, filePath, projectRoot);
       log.debug(`reindexed after write: ${filePath}`);
     } catch (err) {
       log.error(`failed to reindex ${filePath}`, err);
@@ -55,7 +56,10 @@ export async function handlePostToolUse(input: HookInput): Promise<void> {
   }
 
   const capsuleLogs = capsuleLogQueries(db);
-  const latest = capsuleLogs.getLatest();
+  const latest =
+    (input.session_id ? capsuleLogs.getLatestBySession(input.session_id) : undefined) ??
+    capsuleLogs.getLatestByProjectRoot(projectRoot) ??
+    capsuleLogs.getLatest();
 
   if (latest && !latest.followedUp) {
     const normalizedFilePath = normalizeTrackedFilePath(projectRoot, filePath);

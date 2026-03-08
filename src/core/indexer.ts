@@ -5,16 +5,18 @@ import { Worker } from "node:worker_threads";
 import { cpus } from "node:os";
 import { fileURLToPath } from "node:url";
 import type Database from "better-sqlite3";
-import type { ParsedSymbol, SymbolRecord, IndexDiff, ParseResult } from "./types.js";
+import type { ParsedSymbol, SymbolRecord, IndexDiff, ParseResult, PreparedChunk, EmbeddingRuntime } from "./types.js";
 import { parseFile, detectLanguage } from "./parser.js";
 import { hashFile } from "../utils/hash.js";
 import { fileQueries } from "../db/queries/files.js";
 import { symbolQueries } from "../db/queries/symbols.js";
 import { edgeQueries } from "../db/queries/edges.js";
+import { chunkQueries } from "../db/queries/chunks.js";
 import { createLogger } from "../utils/logger.js";
 import { isFrameworkEntryPath } from "../utils/path-retrieval.js";
 import { upsertFileSummary, backfillSummariesIfNeeded } from "./file-summaries.js";
 import { computeClusters, backfillClustersIfNeeded } from "./clusters.js";
+import { backfillChunksIfNeeded, buildEmbeddingChunks } from "./chunker.js";
 import { loadTsconfigPaths, resolveAliasedImport, type TsconfigPaths } from "../utils/tsconfig-paths.js";
 import { resolveFrameworkTargets } from "../frameworks/registry.js";
 
@@ -56,6 +58,7 @@ export const BUILTIN_IGNORE_PATTERNS = [
 
 interface WorkerFileParseResult {
   filePath: string;
+  content: string;
   mtime: number;
   hash: string;
   language: string;
@@ -78,6 +81,10 @@ interface DiscoverFilesResult {
 const WORKER_CONCURRENCY = Math.max(2, Math.min(8, cpus().length - 1));
 const WORKER_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "parser-worker.js");
 const USE_TSX_WORKER_LOADER = WORKER_SCRIPT.includes(`${sep}src${sep}`);
+
+export interface IndexerOptions {
+  embeddings?: EmbeddingRuntime | null;
+}
 
 function shouldIgnore(filePath: string): boolean {
   const normalizedPath = filePath.replace(/\\/g, "/");
@@ -833,6 +840,7 @@ function runParseWorkerBatch(filePaths: string[]): Promise<WorkerFileParseResult
         if (!language) {
           return {
             filePath,
+            content: "",
             mtime: 0,
             hash: "",
             language: "unknown",
@@ -848,6 +856,7 @@ function runParseWorkerBatch(filePaths: string[]): Promise<WorkerFileParseResult
           if (stat.size > MAX_FILE_SIZE) {
             return {
               filePath,
+              content: "",
               mtime,
               hash: "",
               language,
@@ -862,6 +871,7 @@ function runParseWorkerBatch(filePaths: string[]): Promise<WorkerFileParseResult
           const parseResult = parseFile(filePath, content, language);
           return {
             filePath,
+            content,
             mtime,
             hash,
             language,
@@ -872,6 +882,7 @@ function runParseWorkerBatch(filePaths: string[]): Promise<WorkerFileParseResult
         } catch (err) {
           return {
             filePath,
+            content: "",
             mtime: 0,
             hash: "",
             language,
@@ -924,23 +935,25 @@ function writeParseResult(
   language: string,
   parsedAt: number,
   parseResult: ParseResult,
+  preparedChunks: PreparedChunk[],
   shouldResolveEdges = true,
   tsconfigPaths?: TsconfigPaths | null
-): { symbolCount: number; errors: string[]; diff: IndexDiff | null } {
+): { symbolCount: number; errors: string[]; diff: IndexDiff | null; fileId: number | null; chunkCount: number } {
   const files = fileQueries(db);
   const symbolsDb = symbolQueries(db);
   const edgesDb = edgeQueries(db);
+  const chunksDb = chunkQueries(db);
 
   const existingFile = files.getByPath(filePath);
   const now = parsedAt;
 
   if (existingFile && existingFile.lastIndexed > parsedAt) {
-    return { symbolCount: existingFile.symbolCount, errors: [], diff: null };
+    return { symbolCount: existingFile.symbolCount, errors: [], diff: null, fileId: existingFile.id, chunkCount: 0 };
   }
 
   if (existingFile && existingFile.hash === hash) {
     files.updateMtime(existingFile.id, fileMtime);
-    return { symbolCount: existingFile.symbolCount, errors: [], diff: null };
+    return { symbolCount: existingFile.symbolCount, errors: [], diff: null, fileId: existingFile.id, chunkCount: 0 };
   }
 
   let fileId: number;
@@ -1020,10 +1033,49 @@ function writeParseResult(
   if (shouldResolveEdges) {
     resolveEdges(db, fileId, filePath, parseResult, symbolMap, tsconfigPaths);
   }
-  return { symbolCount: parseResult.symbols.length, errors: parseResult.errors, diff };
+  chunksDb.replaceForFile(fileId, preparedChunks, now);
+  return {
+    symbolCount: parseResult.symbols.length,
+    errors: parseResult.errors,
+    diff,
+    fileId,
+    chunkCount: preparedChunks.length,
+  };
 }
 
-export async function indexProject(db: Database.Database, projectRoot: string, extraIgnore?: string[]): Promise<{ filesIndexed: number; symbolsFound: number; errors: string[] }> {
+async function embedChunksForFiles(
+  db: Database.Database,
+  fileIds: number[],
+  runtime: EmbeddingRuntime
+): Promise<number> {
+  const uniqueFileIds = [...new Set(fileIds)];
+  if (uniqueFileIds.length === 0) return 0;
+
+  const chunksDb = chunkQueries(db);
+  const chunks = uniqueFileIds.flatMap((fileId) => chunksDb.getByFileId(fileId));
+  if (chunks.length === 0) return 0;
+
+  const embeddings = await runtime.embedder.embedBatch(chunks.map((chunk) => chunk.contextualizedText));
+  if (embeddings.length !== chunks.length) {
+    throw new Error(`Expected ${chunks.length} embeddings, received ${embeddings.length}`);
+  }
+
+  runtime.vectorStore.storeBatch(
+    chunks.map((chunk, index) => ({
+      chunkId: chunk.id,
+      embedding: embeddings[index]!,
+    }))
+  );
+
+  return chunks.length;
+}
+
+export async function indexProject(
+  db: Database.Database,
+  projectRoot: string,
+  extraIgnore?: string[],
+  options: IndexerOptions = {}
+): Promise<{ filesIndexed: number; symbolsFound: number; errors: string[] }> {
   const allErrors: string[] = [];
   const tsconfigPaths = loadTsconfigPaths(projectRoot);
 
@@ -1073,8 +1125,13 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
   if (toProcess.length === 0) {
     const backfilledSummaries = backfillSummariesIfNeeded(db);
     const backfilledClusters = backfillClustersIfNeeded(db, projectRoot);
-    if (backfilledSummaries || backfilledClusters) {
-      log.info("backfilled derived data for existing files", { summaries: backfilledSummaries, clusters: backfilledClusters });
+    const backfilledChunks = await backfillChunksIfNeeded(db, projectRoot);
+    if (backfilledSummaries || backfilledClusters || backfilledChunks) {
+      log.info("backfilled derived data for existing files", {
+        summaries: backfilledSummaries,
+        clusters: backfilledClusters,
+        chunks: backfilledChunks,
+      });
     }
     return { filesIndexed: filePaths.length, symbolsFound: 0, errors: allErrors };
   }
@@ -1096,7 +1153,27 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
     allErrors.push(`worker batch failed: ${batch.reason instanceof Error ? batch.reason.message : String(batch.reason)}`);
   }
 
+  const chunkingResults = await Promise.all(
+    workerResults.flatMap((batchResult) =>
+      batchResult
+        .filter((parsed) => !parsed.error && !!parsed.parseResult)
+        .map(async (parsed) => ({
+          filePath: parsed.filePath,
+          preparedChunks: await buildEmbeddingChunks(parsed.filePath, parsed.content, {
+            languageHint: parsed.language,
+          }).catch((error) => {
+            allErrors.push(
+              `${parsed.filePath}: chunking failed: ${error instanceof Error ? error.message : String(error)}`
+            );
+            return [];
+          }),
+        }))
+    )
+  );
+  const chunksByPath = new Map(chunkingResults.map((entry) => [entry.filePath, entry.preparedChunks]));
+
   let totalSymbols = 0;
+  const changedFileIds: number[] = [];
   const pendingEdgeResolutions: Array<{ filePath: string; parseResult: ParseResult }> = [];
   const indexAll = db.transaction(() => {
     for (const batchResult of workerResults) {
@@ -1114,10 +1191,14 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
             parsed.language,
             parsed.parsedAt,
             parsed.parseResult,
+            chunksByPath.get(parsed.filePath) ?? [],
             false
           );
         totalSymbols += result.symbolCount;
         allErrors.push(...result.errors);
+        if (result.fileId && result.chunkCount > 0) {
+          changedFileIds.push(result.fileId);
+        }
         pendingEdgeResolutions.push({
           filePath: parsed.filePath,
           parseResult: parsed.parseResult,
@@ -1127,6 +1208,14 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
   });
 
   indexAll();
+
+  if (options.embeddings) {
+    try {
+      await embedChunksForFiles(db, changedFileIds, options.embeddings);
+    } catch (error) {
+      allErrors.push(`embedding failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 
   const reExportsByPath = new Map<string, ReExportEntry[]>();
   for (const pending of pendingEdgeResolutions) {
@@ -1141,8 +1230,15 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
   const symbolsDb = symbolQueries(db);
 
   const reExportsByFileId = new Map<number, ReExportEntry[]>();
+  const fileRecordByPath = new Map<string, ReturnType<typeof filesDb.getByPath>>();
+  const getResolvedFileRecord = (filePath: string) => {
+    if (!fileRecordByPath.has(filePath)) {
+      fileRecordByPath.set(filePath, filesDb.getByPath(filePath));
+    }
+    return fileRecordByPath.get(filePath);
+  };
   for (const [filePath, reExports] of reExportsByPath) {
-    const fileRecord = filesDb.getByPath(filePath);
+    const fileRecord = getResolvedFileRecord(filePath);
     if (fileRecord) reExportsByFileId.set(fileRecord.id, reExports);
   }
 
@@ -1150,7 +1246,7 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
     const chunk = pendingEdgeResolutions.slice(i, i + EDGE_CHUNK_SIZE);
     const resolveChunk = db.transaction(() => {
       for (const pending of chunk) {
-        const fileRecord = filesDb.getByPath(pending.filePath);
+        const fileRecord = getResolvedFileRecord(pending.filePath);
         if (!fileRecord) continue;
 
         const symbolMap = new Map<string, number>();
@@ -1168,7 +1264,7 @@ export async function indexProject(db: Database.Database, projectRoot: string, e
     const chunk = pendingEdgeResolutions.slice(i, i + EDGE_CHUNK_SIZE);
     const upsertChunk = db.transaction(() => {
       for (const pending of chunk) {
-        const fileRecord = filesDb.getByPath(pending.filePath);
+        const fileRecord = getResolvedFileRecord(pending.filePath);
         if (!fileRecord) continue;
         upsertFileSummary(db, fileRecord.id);
       }
@@ -1186,7 +1282,8 @@ export async function indexDirectory(
   db: Database.Database,
   directoryPath: string,
   projectRoot: string,
-  extraIgnore?: string[]
+  extraIgnore?: string[],
+  options: IndexerOptions = {}
 ): Promise<{ filesIndexed: number; symbolsFound: number; errors: string[] }> {
   const resolvedDirectory = resolve(directoryPath);
   if (!isPathWithinRoot(resolvedDirectory, projectRoot)) {
@@ -1222,7 +1319,7 @@ export async function indexDirectory(
   }
 
   for (const file of inDirectory) {
-    const result = indexSingleFile(db, file.path, projectRoot);
+    const result = await indexSingleFile(db, file.path, projectRoot, extraIgnore, options);
     symbolsFound += result.symbolCount;
     errors.push(...result.errors);
   }
@@ -1240,12 +1337,13 @@ export function isPathWithinRoot(filePath: string, projectRoot: string): boolean
   return resolvedPath.startsWith(resolvedRoot) || resolvedPath === resolve(projectRoot);
 }
 
-export function indexSingleFile(
+export async function indexSingleFile(
   db: Database.Database,
   filePath: string,
   projectRoot: string,
-  extraIgnore?: string[]
-): { symbolCount: number; errors: string[]; diff: IndexDiff | null } {
+  extraIgnore?: string[],
+  options: IndexerOptions = {}
+): Promise<{ symbolCount: number; errors: string[]; diff: IndexDiff | null }> {
   const resolvedPath = resolve(filePath);
 
   if (!isPathWithinRoot(resolvedPath, projectRoot)) {
@@ -1314,8 +1412,39 @@ export function indexSingleFile(
 
   const hash = hashFile(content);
   const parseResult = parseFile(resolvedPath, content, language);
+  const preparedChunks = await buildEmbeddingChunks(resolvedPath, content, {
+    languageHint: language,
+  }).catch((error) => {
+    parseResult.errors.push(`chunking failed: ${error instanceof Error ? error.message : String(error)}`);
+    return [];
+  });
   const tsconfigPaths = loadTsconfigPaths(projectRoot);
-  return writeParseResult(db, resolvedPath, hash, fileMtime, language, Date.now(), parseResult, true, tsconfigPaths);
+  const result = writeParseResult(
+    db,
+    resolvedPath,
+    hash,
+    fileMtime,
+    language,
+    Date.now(),
+    parseResult,
+    preparedChunks,
+    true,
+    tsconfigPaths
+  );
+
+  if (options.embeddings && result.fileId && result.chunkCount > 0) {
+    try {
+      await embedChunksForFiles(db, [result.fileId], options.embeddings);
+    } catch (error) {
+      result.errors.push(`embedding failed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  return {
+    symbolCount: result.symbolCount,
+    errors: result.errors,
+    diff: result.diff,
+  };
 }
 
 export function removeFile(db: Database.Database, filePath: string): void {

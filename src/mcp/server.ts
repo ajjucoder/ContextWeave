@@ -17,6 +17,9 @@ import { registerSearchTool } from "./tools/search.js";
 import { registerReadTool } from "./tools/read.js";
 import { registerStatsTool } from "./tools/stats.js";
 import { startWatcher, stopWatcher } from "../core/watcher.js";
+import { createEmbeddingRuntime, disposeEmbeddingRuntime } from "../core/embedding-runtime.js";
+import { backfillSummariesIfNeeded } from "../core/file-summaries.js";
+import { backfillClustersIfNeeded } from "../core/clusters.js";
 import { createLogger } from "../utils/logger.js";
 import type { ProjectConfig } from "../utils/config.js";
 import { acquireServerSessionLock, releaseServerSessionLock } from "./session-lock.js";
@@ -34,6 +37,27 @@ function getServerDb(projectRoot: string): Database.Database {
   return serverDb;
 }
 
+function scheduleDerivedDataBackfill(db: Database.Database, projectRoot: string): void {
+  void Promise.resolve().then(() => {
+    try {
+      const backfilledSummaries = backfillSummariesIfNeeded(db);
+      const backfilledClusters = backfillClustersIfNeeded(db, projectRoot);
+      if (backfilledSummaries || backfilledClusters) {
+        log.info("backfilled derived data for existing index", {
+          projectRoot,
+          summaries: backfilledSummaries,
+          clusters: backfilledClusters,
+        });
+      }
+    } catch (error) {
+      log.error("failed to backfill derived data", {
+        projectRoot,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+}
+
 export async function startMcpServer(projectRoot: string, config?: ProjectConfig): Promise<void> {
   const serverLock = acquireServerSessionLock(projectRoot);
   const isPrimary = serverLock.mode === "primary";
@@ -45,6 +69,10 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
   });
 
   const db = getServerDb(projectRoot);
+  const embeddingRuntime = await createEmbeddingRuntime(db, {
+    modelName: config?.embeddingModel,
+  });
+  scheduleDerivedDataBackfill(db, projectRoot);
   syncBootstrapObservations(db, projectRoot);
 
   log.info("acquired server lock", { mode: serverLock.mode, projectRoot });
@@ -62,7 +90,7 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
 
   if (isPrimary) {
     registerRememberTool(server, db, serverSessionId, projectRoot);
-    registerReindexTool(server, db, projectRoot, config);
+    registerReindexTool(server, db, projectRoot, config, embeddingRuntime);
   } else {
     log.info("secondary mode: skipping write-heavy tools", { projectRoot });
   }
@@ -88,6 +116,15 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
       serverDb = null;
     } catch (error) {
       log.error("failed to close database", {
+        reason,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+
+    try {
+      await disposeEmbeddingRuntime(embeddingRuntime);
+    } catch (error) {
+      log.error("failed to dispose embedding runtime", {
         reason,
         error: error instanceof Error ? error.message : String(error),
       });
@@ -128,7 +165,13 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
 
   try {
     if (isPrimary) {
-      await startWatcher({ projectRoot, db, ignore: config?.ignore, sessionId: serverSessionId });
+      await startWatcher({
+        projectRoot,
+        db,
+        ignore: config?.ignore,
+        embeddingRuntime,
+        sessionId: serverSessionId,
+      });
       watcherStarted = true;
       log.info("file watcher started", { projectRoot });
     } else {

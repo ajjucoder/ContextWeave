@@ -1,0 +1,8 @@
+roles:
+  order_writer:
+    can:
+      - create_order_endpoint
+      - ingest_order_payload
+retention:
+  strategy: strict
+  source: docs/policies/data-retention.md

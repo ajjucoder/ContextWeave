@@ -125,4 +125,44 @@ export function persistDiscard() {
       db.close();
     }
   });
+
+  it("follows supported dynamic dispatch edges to registered handlers", async () => {
+    const root = makeTempProject();
+    writeFileSync(
+      join(root, "src", "dispatcher.ts"),
+      `const bus = createBus();
+
+export function handlePublish() {
+  return persistPublish();
+}
+
+export function emitPublish() {
+  bus.emit("publish");
+}
+
+export function wirePublishListener() {
+  bus.on("publish", handlePublish);
+}
+
+export function persistPublish() {
+  return true;
+}
+`
+    );
+
+    const db = new Database(":memory:");
+    runMigrations(db);
+
+    try {
+      await indexProject(db, root);
+      const result = buildFlowResult(db, "emitPublish", "persistPublish", 5);
+      expect(result.isLimited).toBe(false);
+      expect(result.text).toContain("emitPublish");
+      expect(result.text).toContain("handlePublish");
+      expect(result.text).toContain("persistPublish");
+      expect(result.text).toContain("dynamic_dispatch");
+    } finally {
+      db.close();
+    }
+  });
 });

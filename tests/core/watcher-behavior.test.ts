@@ -80,8 +80,16 @@ describe("watcher behavior", () => {
 
     callback?.(null, [{ type: "update", path: "/repo/src/file.ts" }]);
     callback?.(null, [{ type: "delete", path: "/repo/src/file.ts" }]);
+    await Promise.resolve();
+    await Promise.resolve();
 
-    expect(mockIndexSingleFile).toHaveBeenCalledWith(db, "/repo/src/file.ts", "/repo", undefined);
+    expect(mockIndexSingleFile).toHaveBeenCalledWith(
+      db,
+      "/repo/src/file.ts",
+      "/repo",
+      undefined,
+      { embeddings: undefined }
+    );
     expect(onReindex).toHaveBeenCalledWith("/repo/src/file.ts", 3);
     expect(mockRemoveFile).toHaveBeenCalledWith(db, "/repo/src/file.ts");
     expect(onRemove).toHaveBeenCalledWith("/repo/src/file.ts");
@@ -114,7 +122,9 @@ describe("watcher behavior", () => {
     await Promise.resolve();
     await Promise.resolve();
 
-    expect(mockIndexProject).toHaveBeenCalledWith(db, "/repo", ["coverage"]);
+    expect(mockIndexProject).toHaveBeenCalledWith(db, "/repo", ["coverage"], {
+      embeddings: undefined,
+    });
     expect(mockIndexProject).toHaveBeenCalledTimes(2);
   });
 
@@ -147,6 +157,8 @@ describe("watcher behavior", () => {
     });
 
     callback?.(null, [{ type: "update", path: "/repo/src/file.ts" }]);
+    await Promise.resolve();
+    await Promise.resolve();
 
     expect(mockPropagateFromDiff).toHaveBeenCalledWith(diff, 42);
     expect(mockCaptureFileChangeObservation).toHaveBeenCalledWith(
@@ -188,7 +200,45 @@ describe("watcher behavior", () => {
 
     callback?.(null, [{ type: "update", path: join(root, "generated", "ignored.ts") }]);
 
-    expect(mockIndexProject).toHaveBeenCalledWith({} as never, root, []);
+    expect(mockIndexProject).toHaveBeenCalledWith({} as never, root, [], {
+      embeddings: undefined,
+    });
     expect(mockIndexSingleFile).not.toHaveBeenCalled();
+  });
+
+  it("forwards embedding runtime to changed-file reindex operations", async () => {
+    let callback: ((err: unknown, events: Array<{ type: string; path: string }>) => void) | undefined;
+    mockSubscribe.mockImplementation(async (_root: string, cb: typeof callback) => {
+      callback = cb;
+      return { unsubscribe: vi.fn(async () => undefined) };
+    });
+
+    mockIndexSingleFile.mockReturnValue({ symbolCount: 2, errors: [], diff: null });
+
+    const { startWatcher } = await import("../../src/core/watcher.js");
+    const db = {} as never;
+    const embeddingRuntime = {
+      embedder: { embedBatch: vi.fn() },
+      vectorStore: { storeBatch: vi.fn() },
+      modelName: "mock-mini",
+    };
+
+    await startWatcher({
+      projectRoot: "/repo",
+      db,
+      embeddingRuntime,
+    });
+
+    callback?.(null, [{ type: "update", path: "/repo/src/file.ts" }]);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(mockIndexSingleFile).toHaveBeenCalledWith(
+      db,
+      "/repo/src/file.ts",
+      "/repo",
+      undefined,
+      { embeddings: embeddingRuntime }
+    );
   });
 });

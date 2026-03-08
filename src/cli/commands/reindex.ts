@@ -4,6 +4,7 @@ import { getDb, closeDb } from "../../db/connection.js";
 import { runMigrations } from "../../db/migrations.js";
 import { indexDirectory, indexProject, indexSingleFile } from "../../core/indexer.js";
 import { runPageRankInBackground } from "../../core/graph.js";
+import { createEmbeddingRuntime, disposeEmbeddingRuntime } from "../../core/embedding-runtime.js";
 import { loadConfig } from "../../utils/config.js";
 import { syncBootstrapObservations } from "../../memory/bootstrap.js";
 
@@ -22,13 +23,18 @@ export async function runReindex(projectRoot: string, targetPath?: string): Prom
   const startTime = Date.now();
 
   const config = loadConfig(projectRoot);
+  const embeddingRuntime = await createEmbeddingRuntime(db, {
+    modelName: config.embeddingModel,
+  });
 
   if (targetPath) {
     const fullPath = resolve(projectRoot, targetPath);
     const isDirectory = existsSync(fullPath) && statSync(fullPath).isDirectory();
     process.stdout.write(`Reindexing ${fullPath}${isDirectory ? " (directory)" : ""}...\n`);
     if (isDirectory) {
-      const result = await indexDirectory(db, fullPath, projectRoot, config.ignore);
+      const result = await indexDirectory(db, fullPath, projectRoot, config.ignore, {
+        embeddings: embeddingRuntime,
+      });
       syncBootstrapObservations(db, projectRoot);
       runPageRankInBackground(dbPath);
       const elapsed = Date.now() - startTime;
@@ -37,7 +43,9 @@ export async function runReindex(projectRoot: string, targetPath?: string): Prom
         process.stdout.write(`  ${result.errors.length} files had parse errors\n`);
       }
     } else {
-      const result = indexSingleFile(db, fullPath, projectRoot);
+      const result = await indexSingleFile(db, fullPath, projectRoot, undefined, {
+        embeddings: embeddingRuntime,
+      });
       syncBootstrapObservations(db, projectRoot);
       runPageRankInBackground(dbPath);
       const elapsed = Date.now() - startTime;
@@ -45,7 +53,9 @@ export async function runReindex(projectRoot: string, targetPath?: string): Prom
     }
   } else {
     process.stdout.write("Reindexing entire project...\n");
-    const result = await indexProject(db, projectRoot, config.ignore);
+    const result = await indexProject(db, projectRoot, config.ignore, {
+      embeddings: embeddingRuntime,
+    });
     syncBootstrapObservations(db, projectRoot);
     runPageRankInBackground(dbPath);
     const elapsed = Date.now() - startTime;
@@ -55,5 +65,6 @@ export async function runReindex(projectRoot: string, targetPath?: string): Prom
     }
   }
 
+  await disposeEmbeddingRuntime(embeddingRuntime);
   closeDb();
 }

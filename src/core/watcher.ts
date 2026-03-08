@@ -1,7 +1,7 @@
 import * as parcelWatcher from "@parcel/watcher";
 import type Database from "better-sqlite3";
 import { basename, resolve } from "node:path";
-import type { IndexDiff } from "./types.js";
+import type { EmbeddingRuntime, IndexDiff } from "./types.js";
 import { BUILTIN_IGNORE_PATTERNS, indexProject, indexSingleFile, isIgnoredForIndexing, isSecurityExcludedPath, removeFile } from "./indexer.js";
 import { detectLanguage } from "./parser.js";
 import { StalenessEngine } from "../memory/staleness.js";
@@ -15,6 +15,7 @@ export interface WatcherOptions {
   projectRoot: string;
   db: Database.Database;
   ignore?: string[];
+  embeddingRuntime?: EmbeddingRuntime | null;
   sessionId?: string;
   onReindex?: (filePath: string, symbolCount: number) => void;
   onRemove?: (filePath: string) => void;
@@ -33,7 +34,7 @@ export async function startWatcher(options: WatcherOptions): Promise<void> {
     activeSubscriptions.delete(options.projectRoot);
   }
 
-  const { projectRoot, db, ignore, sessionId, onReindex, onRemove, onError, onDiff } = options;
+  const { projectRoot, db, ignore, embeddingRuntime, sessionId, onReindex, onRemove, onError, onDiff } = options;
   const staleness = new StalenessEngine(db);
   const files = fileQueries(db);
   const allIgnore = [...BUILTIN_IGNORE_PATTERNS, ...(ignore ?? [])];
@@ -56,7 +57,7 @@ export async function startWatcher(options: WatcherOptions): Promise<void> {
       do {
         fullReindexQueued = false;
         try {
-          const result = await indexProject(db, projectRoot, ignore);
+          const result = await indexProject(db, projectRoot, ignore, { embeddings: embeddingRuntime });
           log.info("reindexed project due ignore-file change", {
             filesIndexed: result.filesIndexed,
             symbolsFound: result.symbolsFound,
@@ -72,7 +73,7 @@ export async function startWatcher(options: WatcherOptions): Promise<void> {
     })();
   };
 
-  const handleChange = (filePath: string) => {
+  const handleChange = async (filePath: string) => {
     if (isSecurityExcludedPath(filePath, projectRoot) || isIgnoredForIndexing(filePath, projectRoot, ignore)) {
       log.debug(`skipping ignored file change ${filePath}`);
       return;
@@ -82,7 +83,9 @@ export async function startWatcher(options: WatcherOptions): Promise<void> {
     if (!language) return;
 
     try {
-      const result = indexSingleFile(db, filePath, projectRoot, ignore);
+      const result = await indexSingleFile(db, filePath, projectRoot, ignore, {
+        embeddings: embeddingRuntime,
+      });
       log.debug(`reindexed ${filePath}: ${result.symbolCount} symbols`);
 
       if (result.diff) {
@@ -136,7 +139,7 @@ export async function startWatcher(options: WatcherOptions): Promise<void> {
         if (event.type === "delete") {
           handleRemove(event.path);
         } else {
-          handleChange(event.path);
+          void handleChange(event.path);
         }
       }
     },

@@ -7,6 +7,8 @@ const mockSyncBootstrapObservations = vi.fn();
 const mockRunMigrations = vi.fn();
 const mockGetDb = vi.fn(() => ({ mocked: true }));
 const mockCloseDb = vi.fn();
+const mockBackfillSummariesIfNeeded = vi.fn();
+const mockBackfillClustersIfNeeded = vi.fn();
 const mockAcquireServerSessionLock = vi.fn();
 const mockReleaseServerSessionLock = vi.fn();
 const mockRandomUUID = vi.fn(() => "server-session");
@@ -53,6 +55,14 @@ vi.mock("../../src/core/watcher.js", () => ({
   stopWatcher: mockStopWatcher,
 }));
 
+vi.mock("../../src/core/file-summaries.js", () => ({
+  backfillSummariesIfNeeded: mockBackfillSummariesIfNeeded,
+}));
+
+vi.mock("../../src/core/clusters.js", () => ({
+  backfillClustersIfNeeded: mockBackfillClustersIfNeeded,
+}));
+
 vi.mock("../../src/mcp/session-lock.js", () => ({
   acquireServerSessionLock: mockAcquireServerSessionLock,
   releaseServerSessionLock: mockReleaseServerSessionLock,
@@ -71,6 +81,8 @@ describe("startMcpServer", () => {
     mockConnect.mockResolvedValue(undefined);
     mockStartWatcher.mockResolvedValue(undefined);
     mockStopWatcher.mockResolvedValue(undefined);
+    mockBackfillSummariesIfNeeded.mockReturnValue(false);
+    mockBackfillClustersIfNeeded.mockReturnValue(false);
     vi.spyOn(process, "once").mockImplementation(((..._args: unknown[]) => process) as typeof process.once);
     vi.spyOn(process, "on").mockImplementation(((..._args: unknown[]) => process) as typeof process.on);
   });
@@ -82,10 +94,13 @@ describe("startMcpServer", () => {
 
     expect(mockGetDb).toHaveBeenCalledWith("/repo/.contextweave/contextweave.db");
     expect(mockRunMigrations).toHaveBeenCalled();
+    expect(mockBackfillSummariesIfNeeded).toHaveBeenCalledWith({ mocked: true });
+    expect(mockBackfillClustersIfNeeded).toHaveBeenCalledWith({ mocked: true }, "/repo");
     expect(mockSyncBootstrapObservations).toHaveBeenCalled();
     expect(mockStartWatcher).toHaveBeenCalledWith({
       projectRoot: "/repo",
       db: { mocked: true },
+      embeddingRuntime: null,
       ignore: ["coverage"],
       sessionId: "server-session",
     });

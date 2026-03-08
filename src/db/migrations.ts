@@ -255,6 +255,47 @@ const migrations: Migration[] = [
       db.exec("INSERT INTO file_summaries_fts(file_summaries_fts) VALUES ('rebuild')");
     },
   },
+  {
+    version: 11,
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS chunks (
+          id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+          file_id             INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+          chunk_index         INTEGER NOT NULL,
+          start_line          INTEGER NOT NULL,
+          end_line            INTEGER NOT NULL,
+          start_byte          INTEGER NOT NULL,
+          end_byte            INTEGER NOT NULL,
+          text                TEXT    NOT NULL,
+          contextualized_text TEXT    NOT NULL,
+          scope_chain         TEXT    NOT NULL DEFAULT '[]',
+          import_context      TEXT    NOT NULL DEFAULT '[]',
+          sibling_context     TEXT    NOT NULL DEFAULT '[]',
+          entity_context      TEXT    NOT NULL DEFAULT '[]',
+          token_count         INTEGER NOT NULL DEFAULT 0,
+          content_hash        TEXT    NOT NULL,
+          created_at          INTEGER NOT NULL,
+          UNIQUE(file_id, chunk_index)
+        );
+        CREATE INDEX IF NOT EXISTS idx_chunks_file ON chunks(file_id, chunk_index);
+        CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(content_hash);
+      `);
+    },
+  },
+  {
+    version: 12,
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS chunk_embeddings (
+          chunk_id    INTEGER PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
+          embedding   BLOB    NOT NULL,
+          dimensions  INTEGER NOT NULL DEFAULT 384,
+          updated_at  INTEGER NOT NULL
+        );
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

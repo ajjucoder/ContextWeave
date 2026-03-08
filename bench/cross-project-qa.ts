@@ -8,7 +8,8 @@ const QA_DIR = resolve(__dirname, "../.qa-temp");
 
 interface QaProject {
   name: string;
-  repo: string;
+  repo?: string;
+  localPath?: string;
   commit?: string;
   tasks: Array<{
     id: string;
@@ -129,6 +130,102 @@ const PROJECTS: QaProject[] = [
       },
     ],
   },
+  {
+    name: "polyglot-monorepo",
+    localPath: "bench/scenarios/polyglot-monorepo",
+    tasks: [
+      {
+        id: "poly-package-boundary",
+        goal: "Find monorepo package-boundary runtime flow on the first pass without fallback drift.",
+        attempts: [
+          {
+            query: "order route billing package boundary flow",
+            expectedFiles: ["packages/api/src/routes/orders.ts", "packages/shared/src/billing.ts"],
+            expectedSnippets: ["createOrderRoute", "createInvoiceRecord"],
+          },
+          {
+            query: "createOrderRoute createInvoiceRecord",
+            expectedFiles: ["packages/api/src/routes/orders.ts", "packages/shared/src/billing.ts"],
+            expectedSnippets: ["createOrderRoute", "createInvoiceRecord"],
+          },
+        ],
+      },
+      {
+        id: "poly-policy-heavy",
+        goal: "Find policy-heavy retention and access-control surfaces along with runtime enforcement.",
+        attempts: [
+          {
+            query: "data retention policy enforcement access control",
+            expectedFiles: [
+              "packages/shared/src/policy.ts",
+              "docs/policies/data-retention.md",
+              "policies/access-control.yaml",
+            ],
+            expectedSnippets: ["enforceRetentionPolicy"],
+          },
+          {
+            query: "enforceRetentionPolicy data retention policy",
+            expectedFiles: [
+              "packages/shared/src/policy.ts",
+              "docs/policies/data-retention.md",
+              "policies/access-control.yaml",
+            ],
+            expectedSnippets: ["enforceRetentionPolicy"],
+          },
+        ],
+      },
+      {
+        id: "poly-semantic-policy",
+        goal: "Use semantic reranking to lift a conceptual policy prompt that would otherwise over-prioritize runtime wiring.",
+        attempts: [
+          {
+            query: "retention obligations workflow",
+            expectedFiles: [
+              "packages/shared/src/policy.ts",
+              "docs/policies/data-retention.md",
+            ],
+            expectedSnippets: ["enforceRetentionPolicy"],
+            semanticRerank: true,
+            tokenBudget: 180,
+          },
+          {
+            query: "enforceRetentionPolicy data retention policy",
+            expectedFiles: [
+              "packages/shared/src/policy.ts",
+              "docs/policies/data-retention.md",
+            ],
+            expectedSnippets: ["enforceRetentionPolicy"],
+            semanticRerank: true,
+            tokenBudget: 180,
+          },
+        ],
+      },
+      {
+        id: "poly-mixed-js-python",
+        goal: "Find mixed JS/Python backend flow and bridge points in one first-shot query.",
+        attempts: [
+          {
+            query: "fastapi create_order_endpoint ingest_order_payload normalizeOrderPayload",
+            expectedFiles: [
+              "python/services/app.py",
+              "python/services/ingestion.py",
+              "packages/shared/src/normalize.ts",
+            ],
+            expectedSnippets: ["create_order_endpoint", "normalizeOrderPayload"],
+          },
+          {
+            query: "create_order_endpoint ingest_order_payload normalizeOrderPayload",
+            expectedFiles: [
+              "python/services/app.py",
+              "python/services/ingestion.py",
+              "packages/shared/src/normalize.ts",
+            ],
+            expectedSnippets: ["create_order_endpoint", "normalizeOrderPayload"],
+          },
+        ],
+      },
+    ],
+  },
 ];
 
 interface TaskSummary {
@@ -146,20 +243,37 @@ const PRODUCT_THRESHOLDS = {
   avgConfidenceMin: 0.65,
 };
 
+function resolveLocalProjectPath(localPath: string): string {
+  return resolve(__dirname, "..", localPath);
+}
+
 async function runProject(project: QaProject, projectDir: string): Promise<TaskSummary[] | null> {
-  try {
-    execSync(`git clone --depth 1 ${project.repo} "${projectDir}"`, {
-      stdio: "pipe",
-      timeout: 60000,
-    });
-    if (project.commit) {
-      execSync(`git -C "${projectDir}" checkout --detach ${project.commit}`, {
+  let targetDir = projectDir;
+
+  if (project.localPath) {
+    targetDir = resolveLocalProjectPath(project.localPath);
+    if (!existsSync(targetDir)) {
+      process.stdout.write(`  SKIP: missing local fixture ${project.localPath}\n`);
+      return null;
+    }
+  } else if (project.repo) {
+    try {
+      execSync(`git clone --depth 1 ${project.repo} "${targetDir}"`, {
         stdio: "pipe",
         timeout: 60000,
       });
+      if (project.commit) {
+        execSync(`git -C "${targetDir}" checkout --detach ${project.commit}`, {
+          stdio: "pipe",
+          timeout: 60000,
+        });
+      }
+    } catch {
+      process.stdout.write(`  SKIP: failed to clone ${project.repo}\n`);
+      return null;
     }
-  } catch {
-    process.stdout.write(`  SKIP: failed to clone ${project.repo}\n`);
+  } else {
+    process.stdout.write(`  SKIP: project ${project.name} has no repo or localPath\n`);
     return null;
   }
 
@@ -167,7 +281,7 @@ async function runProject(project: QaProject, projectDir: string): Promise<TaskS
     const payload = Buffer.from(JSON.stringify({ name: project.name, tasks: project.tasks }), "utf8").toString("base64");
     const helperOutput = execFileSync(
       process.execPath,
-      ["--import", "tsx/esm", resolve(__dirname, "run-project-qa.ts"), projectDir, payload],
+      ["--import", "tsx/esm", resolve(__dirname, "run-project-qa.ts"), targetDir, payload],
       {
         cwd: resolve(__dirname, ".."),
         encoding: "utf8",
@@ -197,7 +311,7 @@ async function main(): Promise<void> {
 
   for (const project of PROJECTS) {
     const projectDir = resolve(QA_DIR, project.name);
-    process.stdout.write(`\nCloning ${project.name}...\n`);
+    process.stdout.write(`\nPreparing ${project.name}...\n`);
     const result = await runProject(project, projectDir);
     if (result) summaries.push(...result);
   }

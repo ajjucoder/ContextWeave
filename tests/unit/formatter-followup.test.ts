@@ -255,4 +255,42 @@ describe("formatCapsule — observation placement", () => {
     expect(keyContextSection).toContain("[design] Arch decision");
     expect(keyContextSection).not.toContain("confidence: 0.95");
   });
+
+  it("hides documentation and convention observations for narrow code queries", () => {
+    const docsObs = makeObs({ confidence: 0.95, scope: "documentation", note: "README.md: document the auth workflow" });
+    const conventionObs = makeObs({ id: 2, confidence: 0.92, scope: "convention", note: "CLAUDE.md: prefer cw_capsule first" });
+    const result = formatCapsule(
+      [makeNode({ compressionLevel: 0 })],
+      [docsObs, conventionObs],
+      makeMetadata({
+        query: "SecurityConfig authentication",
+        strategy: {
+          intent: "narrow",
+          mode: "single-pass",
+          subQueryCount: 1,
+        },
+      })
+    );
+
+    expect(result).not.toContain("README.md: document the auth workflow");
+    expect(result).not.toContain("CLAUDE.md: prefer cw_capsule first");
+  });
+
+  it("keeps documentation observations when the query is explicitly about architecture or workflow", () => {
+    const docsObs = makeObs({ confidence: 0.95, scope: "documentation", note: "README.md: auth workflow starts in SecurityConfig" });
+    const result = formatCapsule(
+      [makeNode({ compressionLevel: 0 })],
+      [docsObs],
+      makeMetadata({
+        query: "architecture workflow docs for auth",
+        strategy: {
+          intent: "broad",
+          mode: "single-pass",
+          subQueryCount: 1,
+        },
+      })
+    );
+
+    expect(result).toContain("README.md: auth workflow starts in SecurityConfig");
+  });
 });

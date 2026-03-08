@@ -69,6 +69,8 @@ describe("mcp navigation tools", () => {
     expect(result.isError).not.toBe(true);
     expect(text).toContain("ContextWeave Overview");
     expect(text).toContain("Indexed Files:");
+    expect(text).toContain("First-pass rate:");
+    expect(text).toContain("Correction rate:");
     expect(text).toContain("Query Focus:");
   });
 
@@ -90,6 +92,22 @@ describe("mcp navigation tools", () => {
       query: "validateEmail",
       path: ".",
       glob: "**/*.ts",
+      context_lines: 1,
+      max_results: 5,
+    });
+
+    const text = result.content[0]?.text ?? "";
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain("Search results");
+    expect(text).toContain("sample.ts");
+    expect(text).toContain("validateEmail");
+  });
+
+  it("cw_grep treats /pattern/ as regex and expands brace globs consistently", async () => {
+    const result = await getTool(server, "cw_grep").handler({
+      query: "/validate[A-Z]\\w+/",
+      path: ".",
+      glob: "**/*.{ts,tsx}",
       context_lines: 1,
       max_results: 5,
     });
@@ -142,6 +160,8 @@ describe("mcp navigation tools", () => {
     expect(result.isError).not.toBe(true);
     expect(text).toContain("ContextWeave Index Status");
     expect(text).toContain("Files:");
+    expect(text).toContain("First-pass rate:");
+    expect(text).toContain("Correction rate:");
     expect(text).toContain("Project Profile");
   });
 
@@ -193,5 +213,7 @@ describe("mcp navigation tools", () => {
     expect(result.isError).not.toBe(true);
     expect(text).toContain("ContextWeave Session Stats");
     expect(text).toContain("Session: session-1");
+    expect(text).toContain("First-pass rate:");
+    expect(text).toContain("Correction rate:");
   });
 });

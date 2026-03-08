@@ -14,6 +14,7 @@ export type SymbolKind =
 export type EdgeKind =
   | "import"
   | "call"
+  | "dynamic_dispatch"
   | "reexport"
   | "reference"
   | "type_usage"
@@ -74,6 +75,61 @@ export interface EdgeRecord {
   targetSymbolId: number;
   kind: EdgeKind;
   createdAt: number;
+}
+
+export interface ChunkRecord {
+  id: number;
+  fileId: number;
+  chunkIndex: number;
+  startLine: number;
+  endLine: number;
+  startByte: number;
+  endByte: number;
+  text: string;
+  contextualizedText: string;
+  scopeChain: string[];
+  importSources: string[];
+  siblingNames: string[];
+  entityNames: string[];
+  tokenCount: number;
+  contentHash: string;
+  createdAt: number;
+}
+
+export interface PreparedChunk extends Omit<ChunkRecord, "id" | "fileId" | "createdAt"> {}
+
+export interface VectorSearchResult {
+  chunkId: number;
+  fileId: number;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  distance: number;
+  scopeChain: string[];
+  entityNames: string[];
+  tokenCount: number;
+}
+
+export interface VectorStoreStats {
+  total: number;
+  embedded: number;
+  pending: number;
+}
+
+export interface ChunkEmbeddingEntry {
+  chunkId: number;
+  embedding: Float32Array;
+}
+
+export interface EmbeddingRuntime {
+  embedder: {
+    embedBatch(texts: string[]): Promise<Float32Array[]>;
+    dispose?: () => Promise<void>;
+  };
+  vectorStore: {
+    storeBatch(entries: ChunkEmbeddingEntry[]): void;
+  };
+  modelName?: string;
 }
 
 export interface SessionRecord {
@@ -143,7 +199,7 @@ export interface ParsedCall {
   callerSymbol: string;
   calleeName: string;
   line: number;
-  edgeKind?: "call" | "jsx_render" | "type_usage" | "inheritance" | "implements" | "framework_entry";
+  edgeKind?: "call" | "dynamic_dispatch" | "jsx_render" | "type_usage" | "inheritance" | "implements" | "framework_entry";
 }
 
 export interface ParsedFrameworkCall {

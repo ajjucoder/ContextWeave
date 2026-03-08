@@ -20,6 +20,15 @@ function capsuleLogQueriesImpl(db: Database.Database) {
 
   const getBySession = db.prepare("SELECT * FROM capsule_log WHERE session_id = ? ORDER BY id DESC");
   const getBySessionAndQuery = db.prepare("SELECT * FROM capsule_log WHERE session_id = ? AND query = ? ORDER BY id DESC LIMIT 1");
+  const getLatestBySession = db.prepare("SELECT * FROM capsule_log WHERE session_id = ? ORDER BY id DESC LIMIT 1");
+  const getLatestByProjectRoot = db.prepare(`
+    SELECT capsule_log.*
+    FROM capsule_log
+    JOIN sessions ON sessions.id = capsule_log.session_id
+    WHERE sessions.project_root = ?
+    ORDER BY capsule_log.id DESC
+    LIMIT 1
+  `);
   const getLatest = db.prepare("SELECT * FROM capsule_log ORDER BY id DESC LIMIT 1");
   const getRecent = db.prepare("SELECT * FROM capsule_log ORDER BY id DESC LIMIT ?");
   const updateFeedback = db.prepare(
@@ -69,6 +78,14 @@ function capsuleLogQueriesImpl(db: Database.Database) {
 
     getBySessionAndQuery(sessionId: string, query: string): CapsuleLogRecord | undefined {
       return mapRow(getBySessionAndQuery.get(sessionId, query));
+    },
+
+    getLatestBySession(sessionId: string): CapsuleLogRecord | undefined {
+      return mapRow(getLatestBySession.get(sessionId));
+    },
+
+    getLatestByProjectRoot(projectRoot: string): CapsuleLogRecord | undefined {
+      return mapRow(getLatestByProjectRoot.get(projectRoot));
     },
 
     getLatest(): CapsuleLogRecord | undefined {

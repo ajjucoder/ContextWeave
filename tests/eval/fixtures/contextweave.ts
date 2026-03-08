@@ -61,7 +61,12 @@ export const CONTEXTWEAVE_FIXTURE: EvalCodebaseFixture = {
     {
       id: "cw-db-errors",
       query: "check for error handling issues in database queries",
-      expectedFiles: ["db/queries/files.ts", "db/queries/symbols.ts", "db/queries/edges.ts"],
+      expectedFiles: [
+        "db/queries/files.ts",
+        "db/queries/symbols.ts",
+        "db/queries/edges.ts",
+        "db/queries/chunks.ts",
+      ],
     },
   ],
   tasks: [

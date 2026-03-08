@@ -23,6 +23,7 @@ const EDGE_WEIGHTS: Record<string, number> = {
   import: 0.8,
   reexport: 0.1,
   call: 1.0,
+  dynamic_dispatch: 0.7,
   type_usage: 0.9,
   reference: 1.2,
   inheritance: 0.6,

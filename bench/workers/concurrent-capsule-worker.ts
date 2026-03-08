@@ -71,7 +71,7 @@ function parsePayload(raw: string | undefined): WorkerPayload {
   };
 }
 
-function run(payload: WorkerPayload): WorkerResult {
+async function run(payload: WorkerPayload): Promise<WorkerResult> {
   const db = getDb(payload.dbPath);
   const latenciesMs: number[] = [];
   const errors: string[] = [];
@@ -83,7 +83,7 @@ function run(payload: WorkerPayload): WorkerResult {
         const start = performance.now();
         try {
           writeFileSync(payload.filePath, `export function churn_${i}() { return ${i}; }\n`, "utf-8");
-          indexSingleFile(db, payload.filePath, payload.projectRoot);
+          await indexSingleFile(db, payload.filePath, payload.projectRoot);
           latenciesMs.push(performance.now() - start);
           successCount += 1;
         } catch (error) {
@@ -131,7 +131,7 @@ function run(payload: WorkerPayload): WorkerResult {
 
 try {
   const payload = parsePayload(process.argv[2]);
-  const result = run(payload);
+  const result = await run(payload);
   process.stdout.write(`${JSON.stringify(result)}\n`);
 } catch (error) {
   process.stderr.write(

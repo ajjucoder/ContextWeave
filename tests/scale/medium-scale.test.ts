@@ -7,6 +7,7 @@ import { symbolQueries } from "../../src/db/queries/symbols.js";
 import { edgeQueries } from "../../src/db/queries/edges.js";
 import { generateCapsule } from "../../src/capsule/generator.js";
 import { updateCentralityScores, getBatchSymbolDegrees } from "../../src/core/graph.js";
+import { insertDeterministicCallEdges } from "./helpers.js";
 
 describe("500k line codebase simulation", () => {
   let db: Database.Database;
@@ -67,17 +68,7 @@ describe("500k line codebase simulation", () => {
 
     const allSymbolIds = symbols.getAllIds();
     const insertEdges = db.transaction(() => {
-      for (let i = 1; i < Math.min(allSymbolIds.length, 8000); i++) {
-        const sourceIdx = Math.floor(Math.random() * allSymbolIds.length);
-        const targetIdx = Math.floor(Math.random() * allSymbolIds.length);
-        if (sourceIdx === targetIdx) continue;
-        edges.insert({
-          sourceSymbolId: allSymbolIds[sourceIdx]!,
-          targetSymbolId: allSymbolIds[targetIdx]!,
-          kind: "call",
-          createdAt: now,
-        });
-      }
+      insertDeterministicCallEdges(db, allSymbolIds, Math.min(allSymbolIds.length, 8000), now, 0x01020304);
     });
     insertEdges();
 
@@ -207,17 +198,7 @@ describe("1M line codebase simulation", () => {
 
     const allSymbolIds = symbols.getAllIds();
     const insertEdges = db.transaction(() => {
-      for (let i = 1; i < Math.min(allSymbolIds.length, 15000); i++) {
-        const sourceIdx = Math.floor(Math.random() * allSymbolIds.length);
-        const targetIdx = Math.floor(Math.random() * allSymbolIds.length);
-        if (sourceIdx === targetIdx) continue;
-        edges.insert({
-          sourceSymbolId: allSymbolIds[sourceIdx]!,
-          targetSymbolId: allSymbolIds[targetIdx]!,
-          kind: "call",
-          createdAt: now,
-        });
-      }
+      insertDeterministicCallEdges(db, allSymbolIds, Math.min(allSymbolIds.length, 15000), now, 0x05060708);
     });
     insertEdges();
 

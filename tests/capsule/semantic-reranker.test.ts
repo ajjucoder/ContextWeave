@@ -1,4 +1,13 @@
 import { describe, expect, it } from "vitest";
+import Database from "better-sqlite3";
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createSchema } from "../../src/db/schema.js";
+import { runMigrations } from "../../src/db/migrations.js";
+import { indexProject } from "../../src/core/indexer.js";
+import { updateCentralityScores } from "../../src/core/graph.js";
+import { generateCapsule } from "../../src/capsule/generator.js";
 import { applySemanticRerank, type SemanticRerankItem } from "../../src/capsule/semantic-reranker.js";
 
 interface CandidateShape {
@@ -87,5 +96,100 @@ describe("semantic reranker", () => {
 
     expect(ranked.ranked[0]?.item.label).toBe("alpha0");
     expect(ranked.ranked[8]?.item.label).toBe("semanticWinner");
+  });
+
+  it("keeps semantic reranking deterministic across repeated runs", () => {
+    const items = [
+      candidate(1, "ordersRoute", 1.04, { filePath: "packages/api/src/routes/orders.ts" }),
+      candidate(2, "enforceRetentionPolicy", 1.02, {
+        filePath: "packages/shared/src/policy.ts",
+        docComment: "Retention obligations and policy enforcement workflow",
+      }),
+      candidate(3, "retentionGuide", 1.01, {
+        filePath: "docs/policies/data-retention.md",
+        docComment: "Retention obligations and policy workflow",
+      }),
+    ];
+
+    const first = applySemanticRerank(items, {
+      queryTerms: ["retention", "obligations", "workflow"],
+      expandedTerms: ["retention", "obligations", "workflow"],
+    });
+    const second = applySemanticRerank(items, {
+      queryTerms: ["retention", "obligations", "workflow"],
+      expandedTerms: ["retention", "obligations", "workflow"],
+    });
+
+    expect(first.ranked.map((entry) => entry.id)).toEqual(second.ranked.map((entry) => entry.id));
+  });
+
+  it("improves a conceptual policy prompt over a noisy UI-first match", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cw-semantic-rerank-"));
+    const db = new Database(":memory:");
+    createSchema(db);
+    runMigrations(db);
+
+    try {
+      mkdirSync(join(root, "src", "ui"), { recursive: true });
+      mkdirSync(join(root, "src", "core"), { recursive: true });
+      mkdirSync(join(root, "docs"), { recursive: true });
+      writeFileSync(
+        join(root, "src", "ui", "RetentionWorkflowPanel.tsx"),
+        `export function RetentionWorkflowPanel() {
+  return <div>retention obligations compliance workflow</div>;
+}
+`
+      );
+      writeFileSync(
+        join(root, "src", "core", "rules-engine.ts"),
+        `/** governance obligations compliance policy engine */
+export function runRulesEngine() {
+  return enforceRetentionPolicy();
+}
+
+export function enforceRetentionPolicy() {
+  return "ok";
+}
+`
+      );
+      writeFileSync(
+        join(root, "docs", "retention-obligations.md"),
+        "Retention obligations compliance workflow guide. Runtime enforcement happens in the rules engine."
+      );
+
+      await indexProject(db, root);
+      updateCentralityScores(db);
+
+      const off = generateCapsule(db, {
+        query: "retention obligations compliance workflow",
+        tokenBudget: 120,
+        projectRoot: root,
+        sessionId: "semantic-off",
+      });
+      const on = generateCapsule(db, {
+        query: "retention obligations compliance workflow",
+        tokenBudget: 120,
+        projectRoot: root,
+        sessionId: "semantic-on",
+        semanticRerank: true,
+      });
+
+      const expected = [
+        "src/core/rules-engine.ts",
+        "docs/retention-obligations.md",
+      ];
+      const offHits = expected.filter((fragment) => off.content.includes(fragment)).length;
+      const onHits = expected.filter((fragment) => on.content.includes(fragment)).length;
+
+      expect(onHits).toBeGreaterThanOrEqual(offHits);
+      expect(off.content).toContain("src/ui/RetentionWorkflowPanel.tsx");
+      expect(on.content).not.toContain("src/ui/RetentionWorkflowPanel.tsx");
+      expect(on.content).toContain("docs/retention-obligations.md");
+      expect(on.metadata.strategy?.semanticRerank?.enabled).toBe(true);
+      expect(on.metadata.strategy?.semanticRerank?.applied).toBe(true);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

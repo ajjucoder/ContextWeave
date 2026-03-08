@@ -26,12 +26,14 @@ describe("DB migration upgrade path", () => {
     expect(tableNames).toContain("session_context");
     expect(tableNames).toContain("file_summaries");
     expect(tableNames).toContain("file_clusters");
+    expect(tableNames).toContain("chunks");
+    expect(tableNames).toContain("chunk_embeddings");
     expect(tableNames).toContain("schema_migrations");
 
     db.close();
   });
 
-  it("records all 6 migration versions in schema_migrations", () => {
+  it("records all migration versions in schema_migrations", () => {
     const db = new Database(":memory:");
     db.pragma("foreign_keys = ON");
     runMigrations(db);
@@ -41,7 +43,7 @@ describe("DB migration upgrade path", () => {
       .all() as Array<{ version: number }>;
     const versions = applied.map((r) => r.version);
 
-    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
+    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
 
     db.close();
   });
@@ -71,7 +73,7 @@ describe("DB migration upgrade path", () => {
         .get() as { cnt: number }
     ).cnt;
 
-    expect(count).toBe(10);
+    expect(count).toBe(12);
 
     db.close();
   });
@@ -157,6 +159,33 @@ describe("DB migration upgrade path", () => {
       .all() as Array<{ name: string }>;
 
     expect(indexes.some((idx) => idx.name === "idx_file_clusters_cluster")).toBe(true);
+
+    db.close();
+  });
+
+  it("chunks table has file and hash indexes (v11)", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    runMigrations(db);
+
+    const indexes = db
+      .prepare("PRAGMA index_list(chunks)")
+      .all() as Array<{ name: string }>;
+
+    expect(indexes.some((idx) => idx.name === "idx_chunks_file")).toBe(true);
+    expect(indexes.some((idx) => idx.name === "idx_chunks_hash")).toBe(true);
+
+    db.close();
+  });
+
+  it("chunk_embeddings table exists with chunk_id uniqueness after v12", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    runMigrations(db);
+
+    const columns = db.prepare("PRAGMA table_info(chunk_embeddings)").all() as Array<{ name: string; pk: number }>;
+    expect(columns.some((column) => column.name === "chunk_id" && column.pk === 1)).toBe(true);
+    expect(columns.some((column) => column.name === "embedding")).toBe(true);
 
     db.close();
   });

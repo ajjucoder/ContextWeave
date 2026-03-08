@@ -75,6 +75,8 @@ describe("status/init project profile", () => {
     const { runStatus } = await import("../../src/cli/commands/status.js");
     const { output } = await captureStdout(() => runStatus(root, false));
 
+    expect(output).toContain("First-pass rate:");
+    expect(output).toContain("Correction rate:");
     expect(output).toContain("Project Profile");
     expect(output).toContain("Active roots:");
     expect(output).toContain("scripts");

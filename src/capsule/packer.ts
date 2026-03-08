@@ -278,23 +278,32 @@ export function packNodesStoryMode(
           ? node.compressionLevel
           : preferredLevel;
 
-      const rendered = renderSymbol(node.symbol, node.file, targetLevel);
-      const tokens = countTokens(rendered);
+      let placed = false;
+      for (const level of COMPRESSION_LEVELS.slice(targetLevel) as CompressionLevel[]) {
+        const rendered = renderSymbol(node.symbol, node.file, level);
+        const tokens = countTokens(rendered);
 
-      if (tokensUsed + tokens > codeBudget || groupTokens + tokens > groupBudget) continue;
+        if (tokensUsed + tokens > codeBudget || groupTokens + tokens > groupBudget) {
+          continue;
+        }
 
-      packed.push({
-        ...node,
-        compressionLevel: targetLevel,
-        rendered,
-        tokenCount: tokens,
-      });
-      if (targetLevel === 0) {
-        usedL0Nodes += 1;
+        packed.push({
+          ...node,
+          compressionLevel: level,
+          rendered,
+          tokenCount: tokens,
+        });
+        if (level === 0) {
+          usedL0Nodes += 1;
+        }
+        packedIds.add(node.symbol.id);
+        groupTokens += tokens;
+        tokensUsed += tokens;
+        placed = true;
+        break;
       }
-      packedIds.add(node.symbol.id);
-      groupTokens += tokens;
-      tokensUsed += tokens;
+
+      if (!placed) continue;
     }
   }
 

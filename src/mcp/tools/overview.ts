@@ -4,9 +4,15 @@ import type Database from "better-sqlite3";
 import { countStaleFiles, fileQueries } from "../../db/queries/files.js";
 import { symbolQueries } from "../../db/queries/symbols.js";
 import { edgeQueries } from "../../db/queries/edges.js";
+import { capsuleLogQueries } from "../../db/queries/capsule-log.js";
 import { searchFilesByQuery } from "../../core/file-summaries.js";
 import { toProjectRelativePath, withinPath } from "./path-filters.js";
 import { getRegisterTool } from "./register-helper.js";
+import {
+  computeFollowUpMetrics,
+  FOLLOW_UP_METRICS_SAMPLE_LIMIT,
+  formatRatePct,
+} from "./stats.js";
 
 interface OverviewFile {
   id: number;
@@ -163,6 +169,8 @@ export function registerOverviewTool(server: McpServer, db: Database.Database, p
         const staleNote = staleCount > 0
           ? ` [${staleCount} stale — run cw_reindex]`
           : "";
+        const rateSample = capsuleLogQueries(db).getRecent(FOLLOW_UP_METRICS_SAMPLE_LIMIT);
+        const followUpMetrics = computeFollowUpMetrics(rateSample);
 
         const lines: string[] = [
           "ContextWeave Overview",
@@ -171,6 +179,8 @@ export function registerOverviewTool(server: McpServer, db: Database.Database, p
           `Indexed Files: ${files.length}${staleNote}`,
           `Indexed Symbols: ${totalSymbols} (global: ${globalSymbols})`,
           `Global Edges: ${edgesApi.count()}`,
+          `First-pass rate: ${formatRatePct(followUpMetrics.firstPassRate)} (${followUpMetrics.sampleSize} capsules)`,
+          `Correction rate: ${formatRatePct(followUpMetrics.correctionRate)} (${followUpMetrics.sampleSize} capsules)`,
         ];
 
         if (files.length === 0) {

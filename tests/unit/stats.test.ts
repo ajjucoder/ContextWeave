@@ -12,11 +12,19 @@ function setupSession(sessionId: string): void {
   ).run(sessionId, "claude-code", "/test", Date.now() - 60000);
 }
 
-function insertCapsuleLog(sessionId: string, query: string, budget: number, used: number, symbols: string[], files: string[]): void {
+function insertCapsuleLog(
+  sessionId: string,
+  query: string,
+  budget: number,
+  used: number,
+  symbols: string[],
+  files: string[],
+  followedUp = false
+): void {
   db.prepare(`
     INSERT INTO capsule_log (session_id, query, mode, token_budget, tokens_used, symbols_included, files_included, timestamp, followed_up, miss_ratio, noise_ratio)
-    VALUES (?, ?, 'feature', ?, ?, ?, ?, ?, 0, NULL, NULL)
-  `).run(sessionId, query, budget, used, JSON.stringify(symbols), JSON.stringify(files), Date.now());
+    VALUES (?, ?, 'feature', ?, ?, ?, ?, ?, ?, NULL, NULL)
+  `).run(sessionId, query, budget, used, JSON.stringify(symbols), JSON.stringify(files), Date.now(), followedUp ? 1 : 0);
 }
 
 beforeEach(() => {
@@ -39,12 +47,14 @@ describe("computeSessionStats", () => {
     expect(stats.totalTokensUsed).toBe(0);
     expect(stats.uniqueFiles).toBe(0);
     expect(stats.uniqueSymbols).toBe(0);
+    expect(stats.firstPassRate).toBe(0);
+    expect(stats.correctionRate).toBe(0);
   });
 
   it("aggregates capsule log entries correctly", () => {
     setupSession("s1");
-    insertCapsuleLog("s1", "auth middleware", 4000, 2400, ["validateToken", "authGuard"], ["src/auth.ts", "src/guard.ts"]);
-    insertCapsuleLog("s1", "database pool", 4000, 3100, ["getConnection", "Pool"], ["src/db.ts"]);
+    insertCapsuleLog("s1", "auth middleware", 4000, 2400, ["validateToken", "authGuard"], ["src/auth.ts", "src/guard.ts"], false);
+    insertCapsuleLog("s1", "database pool", 4000, 3100, ["getConnection", "Pool"], ["src/db.ts"], true);
 
     const stats = computeSessionStats(db, "s1", "/test");
     expect(stats.capsulesGenerated).toBe(2);
@@ -52,6 +62,8 @@ describe("computeSessionStats", () => {
     expect(stats.totalTokensUsed).toBe(5500);
     expect(stats.uniqueFiles).toBe(3);
     expect(stats.uniqueSymbols).toBe(4);
+    expect(stats.firstPassRate).toBe(0.5);
+    expect(stats.correctionRate).toBe(0.5);
   });
 
   it("calculates estimated savings", () => {

@@ -190,7 +190,12 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
     }) => {
       try {
         const resolvedRoot = resolve(projectRoot);
+        const parsedRegex = parseDelimitedRegex(query);
         const caseSensitive = case_sensitive ?? false;
+        const effectiveCaseSensitive = parsedRegex?.flags.includes("i") ? false : caseSensitive;
+        const autoRegex = parsedRegex !== null;
+        const useRegexSearch = use_regex === true || autoRegex;
+        const ripgrepQuery = parsedRegex ? parsedRegex.pattern : query;
         const contextLines = context_lines ?? 1;
         const maxResults = max_results ?? 20;
         const scopePath = path?.trim();
@@ -205,7 +210,7 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
           };
         }
 
-        const useRipgrep = !use_regex && await isRipgrepAvailable();
+        const useRipgrep = await isRipgrepAvailable();
         const results: SearchResult[] = [];
 
         if (useRipgrep) {
@@ -216,10 +221,11 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
               isError: true,
             };
           }
-          const rgMatches = await runRipgrepSearch(query, searchRoot, {
-            caseSensitive,
+          const rgMatches = await runRipgrepSearch(ripgrepQuery, searchRoot, {
+            caseSensitive: effectiveCaseSensitive,
             glob: glob?.trim() || undefined,
             maxResults: maxResults * 3,
+            useRegex: useRegexSearch,
           });
 
           for (const match of rgMatches) {
@@ -248,7 +254,7 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
           }
         } else {
           // Fallback: in-process file scan
-          const regex = buildRegex(query, use_regex ?? false, caseSensitive);
+          const regex = buildRegex(query, useRegexSearch, effectiveCaseSensitive);
 
           for (const file of files.iterateAll()) {
             if (results.length >= maxResults) break;
@@ -271,7 +277,7 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
             const remaining = maxResults - results.length;
             const spans = regex
               ? findRegexMatches(content, regex, remaining)
-              : findLiteralMatches(content, query, caseSensitive, remaining);
+              : findLiteralMatches(content, query, effectiveCaseSensitive, remaining);
 
             if (spans.length === 0) continue;
 

@@ -92,7 +92,7 @@ async function main(): Promise<void> {
   updateCentralityScores(db);
 
   const totalRawTokens = await getTotalRawTokens();
-  const edgeCount = edgeQueries(db).getAll().length;
+  const edgeCount = edgeQueries(db).count();
   const allSymbols = symbolQueries(db).getAll();
 
   const results: QueryResult[] = [];

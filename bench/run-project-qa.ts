@@ -10,6 +10,7 @@ interface TaskAttempt {
   expectedSnippets?: string[];
   forbiddenFiles?: string[];
   tokenBudget?: number;
+  semanticRerank?: boolean;
 }
 
 interface QaTask {
@@ -74,6 +75,7 @@ async function main(): Promise<void> {
         query: attempt.query,
         tokenBudget: attempt.tokenBudget ?? 4000,
         sessionId,
+        semanticRerank: attempt.semanticRerank,
       });
       confidences.push(capsule.metadata.quality.coverageConfidence);
       tokensToSuccess += capsule.metadata.tokensUsed;
@@ -99,7 +101,7 @@ async function main(): Promise<void> {
         forbiddenCount === 0;
 
       process.stdout.write(
-        `  ${task.id} / attempt ${attemptIndex + 1}: "${attempt.query}" -> ${successNow ? "success" : "miss"}, confidence ${(capsule.metadata.quality.coverageConfidence * 100).toFixed(1)}%, tokens ${capsule.metadata.tokensUsed}${forbiddenCount > 0 ? `, forbidden ${forbiddenCount}` : ""}\n`
+        `  ${task.id} / attempt ${attemptIndex + 1}: "${attempt.query}"${attempt.semanticRerank ? " [semantic]" : ""} -> ${successNow ? "success" : "miss"}, confidence ${(capsule.metadata.quality.coverageConfidence * 100).toFixed(1)}%, tokens ${capsule.metadata.tokensUsed}${forbiddenCount > 0 ? `, forbidden ${forbiddenCount}` : ""}\n`
       );
 
       if (!successNow) {

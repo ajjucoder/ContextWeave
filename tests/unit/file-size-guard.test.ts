@@ -22,12 +22,12 @@ afterAll(() => {
 });
 
 describe("file size guard", () => {
-  it("rejects files larger than 5MB", () => {
+  it("rejects files larger than 5MB", async () => {
     const largePath = resolve(TEMP_DIR, "huge.ts");
     const content = "export const x = " + "'a'.repeat(100);\n".repeat(500000);
     writeFileSync(largePath, content);
 
-    const result = indexSingleFile(db, largePath, TEMP_DIR);
+    const result = await indexSingleFile(db, largePath, TEMP_DIR);
 
     if (content.length > 5 * 1024 * 1024) {
       expect(result.errors.length).toBeGreaterThan(0);
@@ -35,11 +35,11 @@ describe("file size guard", () => {
     }
   });
 
-  it("accepts files within the size limit", () => {
+  it("accepts files within the size limit", async () => {
     const normalPath = resolve(TEMP_DIR, "normal.ts");
     writeFileSync(normalPath, "export const hello = 'world';");
 
-    const result = indexSingleFile(db, normalPath, TEMP_DIR);
+    const result = await indexSingleFile(db, normalPath, TEMP_DIR);
     expect(result.errors.length).toBe(0);
   });
 

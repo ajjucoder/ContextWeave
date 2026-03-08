@@ -8,6 +8,7 @@ import { resolve } from "node:path";
 
 const AVG_FILE_TOKENS_FALLBACK = 3000;
 const BYTES_PER_TOKEN_ESTIMATE = 4;
+export const FOLLOW_UP_METRICS_SAMPLE_LIMIT = 200;
 
 export interface SessionStats {
   capsulesGenerated: number;
@@ -17,6 +18,41 @@ export interface SessionStats {
   uniqueSymbols: number;
   estimatedRawTokens: number;
   estimatedSavingsPercent: number;
+  firstPassRate: number;
+  correctionRate: number;
+}
+
+export interface FollowUpMetrics {
+  sampleSize: number;
+  firstPassRate: number;
+  correctionRate: number;
+}
+
+export function computeFollowUpMetrics(
+  logs: ReadonlyArray<{
+    followedUp: boolean;
+  }>
+): FollowUpMetrics {
+  if (logs.length === 0) {
+    return {
+      sampleSize: 0,
+      firstPassRate: 0,
+      correctionRate: 0,
+    };
+  }
+
+  const correctionCount = logs.reduce((sum, log) => sum + (log.followedUp ? 1 : 0), 0);
+  const correctionRate = correctionCount / logs.length;
+
+  return {
+    sampleSize: logs.length,
+    firstPassRate: 1 - correctionRate,
+    correctionRate,
+  };
+}
+
+export function formatRatePct(rate: number): string {
+  return `${(rate * 100).toFixed(1)}%`;
 }
 
 export function computeSessionStats(
@@ -35,6 +71,8 @@ export function computeSessionStats(
       uniqueSymbols: 0,
       estimatedRawTokens: 0,
       estimatedSavingsPercent: 0,
+      firstPassRate: 0,
+      correctionRate: 0,
     };
   }
 
@@ -49,6 +87,7 @@ export function computeSessionStats(
     for (const f of log.filesIncluded) allFiles.add(f);
     for (const s of log.symbolsIncluded) allSymbols.add(s);
   }
+  const followUpMetrics = computeFollowUpMetrics(logs);
 
   let estimatedRawTokens = 0;
   for (const filePath of allFiles) {
@@ -76,6 +115,8 @@ export function computeSessionStats(
     uniqueSymbols: allSymbols.size,
     estimatedRawTokens,
     estimatedSavingsPercent: Math.max(0, savings),
+    firstPassRate: followUpMetrics.firstPassRate,
+    correctionRate: followUpMetrics.correctionRate,
   };
 }
 
@@ -89,6 +130,8 @@ function formatStats(stats: SessionStats, sessionId: string): string {
     `Total tokens used:     ${stats.totalTokensUsed.toLocaleString()} (${stats.totalTokensBudgeted > 0 ? Math.round((stats.totalTokensUsed / stats.totalTokensBudgeted) * 100) : 0}% of budget)`,
     `Unique files covered:  ${stats.uniqueFiles}`,
     `Unique symbols served: ${stats.uniqueSymbols}`,
+    `First-pass rate:       ${formatRatePct(stats.firstPassRate)}`,
+    `Correction rate:       ${formatRatePct(stats.correctionRate)}`,
   ];
 
   if (stats.capsulesGenerated > 0) {

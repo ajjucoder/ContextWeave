@@ -60,6 +60,8 @@ In addition to code languages, ContextWeave indexes:
 - Markdown: `.md`, `.markdown`
 - YAML: `.yaml`, `.yml`
 - JSON: `.json`
+- TOML: `.toml`
+- INI: `.ini`
 
 Document files are parsed as document-language entries and represented as a synthetic exported symbol (no imports/calls/framework edges). This makes policy/config docs retrievable in capsule, overview, and navigation paths.
 
@@ -79,12 +81,13 @@ Current retrieval defaults intentionally reduce passive noise:
 
 ## Field Regression Gate
 
-The field regression gate is implemented in [`tests/field/review-regressions.test.ts`](tests/field/review-regressions.test.ts). It covers four reviewed project clusters with 12 assertions:
+The field regression gate is implemented in [`tests/field/review-regressions.test.ts`](tests/field/review-regressions.test.ts). It currently covers five fixture clusters with 14 tests:
 
 - Sitecraft: server route/service retrieval over UI noise, HTTP boundary flow tracing, and recall ordering
 - Claud-ometer: route loader/handler/resolver retrieval and direct file-qualified `cw_read`
 - gravity-proxy: Express route/controller/service chain, flow, impact, and file-qualified reads
 - EBPS: policy-doc retrieval (`.yaml` + `.md`) and confidence calibration expectations
+- next-pages-router: older Next.js pages-router loader tracing across `pages/api/**` default handlers
 
 ## Installation
 
@@ -140,6 +143,7 @@ npm run lint
 npm run test:field
 npm test
 npm run build
+npm run eval
 ```
 
 GitHub CI (`.github/workflows/ci.yml`) runs gates in this order:
@@ -149,6 +153,13 @@ GitHub CI (`.github/workflows/ci.yml`) runs gates in this order:
 3. `npm run test:field` (`CW_P95_TARGET_MS=200`)
 4. `npm test` (`CW_P95_TARGET_MS=200`)
 5. `npm run build`
+6. `npm run eval`
+
+The slower product benchmark runs outside the main push gate through [`.github/workflows/product-bench.yml`](.github/workflows/product-bench.yml):
+
+- `workflow_dispatch` for manual operator checks
+- nightly schedule for drift detection
+- `release.published` for pre-release evidence
 
 ## Technical Stack
 

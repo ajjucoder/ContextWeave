@@ -4,6 +4,7 @@ import type Database from "better-sqlite3";
 import { statSync } from "node:fs";
 import { resolve } from "node:path";
 import { indexDirectory, indexProject, indexSingleFile, isPathWithinRoot } from "../../core/indexer.js";
+import type { EmbeddingRuntime } from "../../core/types.js";
 import { runPageRankInBackground } from "../../core/graph.js";
 import { createLogger } from "../../utils/logger.js";
 import type { ProjectConfig } from "../../utils/config.js";
@@ -12,7 +13,13 @@ import { syncBootstrapObservations } from "../../memory/bootstrap.js";
 
 const log = createLogger("reindex-tool");
 
-export function registerReindexTool(server: McpServer, db: Database.Database, projectRoot: string, config?: ProjectConfig): void {
+export function registerReindexTool(
+  server: McpServer,
+  db: Database.Database,
+  projectRoot: string,
+  config?: ProjectConfig,
+  embeddingRuntime?: EmbeddingRuntime | null
+): void {
   const registerTool = getRegisterTool(server);
 
   registerTool(
@@ -47,7 +54,9 @@ export function registerReindexTool(server: McpServer, db: Database.Database, pr
           }
 
           if (isDirectory) {
-            const result = await indexDirectory(db, fullPath, projectRoot, config?.ignore);
+            const result = await indexDirectory(db, fullPath, projectRoot, config?.ignore, {
+              embeddings: embeddingRuntime,
+            });
             syncBootstrapObservations(db, projectRoot);
             runPageRankInBackground(dbPath);
             const elapsed = Date.now() - startTime;
@@ -59,7 +68,9 @@ export function registerReindexTool(server: McpServer, db: Database.Database, pr
             };
           }
 
-          const result = indexSingleFile(db, fullPath, projectRoot);
+          const result = await indexSingleFile(db, fullPath, projectRoot, undefined, {
+            embeddings: embeddingRuntime,
+          });
           syncBootstrapObservations(db, projectRoot);
           runPageRankInBackground(dbPath);
           const elapsed = Date.now() - startTime;
@@ -72,7 +83,9 @@ export function registerReindexTool(server: McpServer, db: Database.Database, pr
           };
         }
 
-        const result = await indexProject(db, projectRoot, config?.ignore);
+        const result = await indexProject(db, projectRoot, config?.ignore, {
+          embeddings: embeddingRuntime,
+        });
         syncBootstrapObservations(db, projectRoot);
         runPageRankInBackground(dbPath);
         const elapsed = Date.now() - startTime;

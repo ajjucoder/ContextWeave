@@ -80,4 +80,101 @@ describe("buildUncertainty 5-level calibration", () => {
 
     expect(result).toBeGreaterThanOrEqual(0.6);
   });
+
+  it("caps confidence at 0.4 when retrieval is thin and token utilization is below 30%", () => {
+    const result = computeCoverageConfidence({
+      intent: "broad",
+      pivotCount: 10,
+      pivotsIncluded: 4,
+      relevantPivotsIncluded: 4,
+      totalRelevantPivots: 8,
+      dependencyCoverage: 1,
+      noiseRatio: 0,
+      fileSummaryCount: 0,
+      queryTermCoverage: 0.55,
+      retrievalSurfaceScore: 0.6,
+      tokenUtilization: 0.25,
+      moduleCoverageStats: {
+        packedClusters: 4,
+        relevantClusters: 4,
+        avgSymbolsPerFile: 3,
+        maxSymbolsPerFile: 3,
+      },
+    });
+
+    expect(result).toBeLessThanOrEqual(0.4);
+  });
+
+  it("keeps compact high-precision broad results above the hard 0.4 cap", () => {
+    const result = computeCoverageConfidence({
+      intent: "broad",
+      pivotCount: 5,
+      pivotsIncluded: 4,
+      relevantPivotsIncluded: 4,
+      totalRelevantPivots: 4,
+      dependencyCoverage: 1,
+      noiseRatio: 0,
+      fileSummaryCount: 0,
+      queryTermCoverage: 1,
+      retrievalSurfaceScore: 0.72,
+      tokenUtilization: 0.11,
+      moduleCoverageStats: {
+        packedClusters: 4,
+        relevantClusters: 5,
+        avgSymbolsPerFile: 1,
+        maxSymbolsPerFile: 1,
+      },
+    });
+
+    expect(result).toBeGreaterThan(0.55);
+    expect(result).toBeLessThanOrEqual(0.78);
+  });
+
+  it("caps broad confidence at 0.5 when fewer than 3 pivots are included", () => {
+    const result = computeCoverageConfidence({
+      intent: "broad",
+      pivotCount: 8,
+      pivotsIncluded: 2,
+      relevantPivotsIncluded: 2,
+      totalRelevantPivots: 8,
+      dependencyCoverage: 0.9,
+      noiseRatio: 0.05,
+      fileSummaryCount: 2,
+      queryTermCoverage: 0.9,
+      retrievalSurfaceScore: 0.95,
+      tokenUtilization: 0.7,
+      moduleCoverageStats: {
+        packedClusters: 3,
+        relevantClusters: 4,
+        avgSymbolsPerFile: 2.5,
+        maxSymbolsPerFile: 3,
+      },
+    });
+
+    expect(result).toBeLessThanOrEqual(0.5);
+  });
+
+  it("never exceeds 0.9 unless both token utilization and pivot coverage are strong", () => {
+    const result = computeCoverageConfidence({
+      intent: "task",
+      pivotCount: 10,
+      pivotsIncluded: 9,
+      relevantPivotsIncluded: 5,
+      totalRelevantPivots: 10,
+      dependencyCoverage: 1,
+      noiseRatio: 0,
+      fileSummaryCount: 2,
+      queryTermCoverage: 0.95,
+      retrievalSurfaceScore: 0.95,
+      tokenUtilization: 0.55,
+      moduleCoverageStats: {
+        packedClusters: 5,
+        relevantClusters: 5,
+        avgSymbolsPerFile: 3,
+        maxSymbolsPerFile: 3,
+      },
+    });
+
+    expect(result).toBeLessThanOrEqual(0.9);
+  });
 });

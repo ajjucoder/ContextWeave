@@ -6,12 +6,18 @@ const SEMANTIC_CONCEPTS: Record<string, string[]> = {
   capture: ["submit", "create", "persist", "request"],
   lifecycle: ["flow", "pipeline", "route", "handler", "service"],
   eligibility: ["approval", "rules", "policy", "partner", "program"],
+  obligations: ["policy", "retention", "governance", "compliance"],
+  compliance: ["policy", "rules", "enforcement", "retention"],
+  governance: ["policy", "access", "retention", "control"],
   persistence: ["persist", "store", "save", "write", "database", "ledger"],
   callback: ["oauth", "handler", "route", "controller", "token"],
   discovery: ["index", "parse", "extract", "scan", "symbol"],
   loading: ["load", "fetch", "read", "detail", "session"],
   retrieval: ["search", "recall", "lookup", "query", "capsule"],
 };
+
+const UI_PATH_RE = /(^|[/\\])(ui|components?|views?|pages?)([/\\]|$)/i;
+const UI_FOCUSED_TERMS = new Set(["ui", "ux", "component", "components", "view", "views", "page", "pages", "modal", "form"]);
 
 export interface SemanticRerankItem<T> {
   item: T;
@@ -22,6 +28,7 @@ export interface SemanticRerankItem<T> {
   docComment: string | null;
   baseScore: number;
   isPivot: boolean;
+  adjustedScore?: number;
 }
 
 export interface SemanticRerankResult<T> {
@@ -116,6 +123,13 @@ function scoreField(tokens: Set<string>, terms: Set<string>, idf: Map<string, nu
   return score;
 }
 
+function hasTermMatch(tokens: Set<string>, terms: Set<string>): boolean {
+  for (const term of terms) {
+    if (tokens.has(term)) return true;
+  }
+  return false;
+}
+
 function computeSemanticScore(
   tokens: SemanticFieldTokens,
   primaryTerms: Set<string>,
@@ -152,26 +166,42 @@ export function applySemanticRerank<T>(
 
   const primaryTerms = expandSemanticTerms(options.queryTerms);
   const expandedTerms = expandSemanticTerms(options.expandedTerms);
+  const queryUiFocused = options.queryTerms.some((term) => UI_FOCUSED_TERMS.has(term.toLowerCase()));
   const fieldTokens = considered.map((entry) => buildFieldTokens(entry));
   const idf = computeIdf(fieldTokens);
   const adjusted = considered.map((entry, index) => {
-    const semanticScore = computeSemanticScore(fieldTokens[index]!, primaryTerms, expandedTerms, idf);
+    const tokens = fieldTokens[index]!;
+    const semanticScore = computeSemanticScore(tokens, primaryTerms, expandedTerms, idf);
+    const exactAnchor = hasTermMatch(tokens.name, primaryTerms) || hasTermMatch(tokens.signature, primaryTerms);
+    const semanticMissPenalty =
+      primaryTerms.size > 0 && !hasTermMatch(tokens.combined, expandedTerms)
+        ? 0.12
+        : 0;
+    const uiPathPenalty =
+      !queryUiFocused && UI_PATH_RE.test(entry.filePath)
+        ? 0.24
+        : 0;
     return {
       ...entry,
+      exactAnchor,
       semanticScore,
-      adjustedScore: entry.baseScore * (1 + alpha * semanticScore),
+      adjustedScore: entry.baseScore * Math.max(0.1, 1 + alpha * semanticScore - semanticMissPenalty - uiPathPenalty),
     };
   });
 
-  const reranked = [...items];
+  const reranked = [...adjusted];
   let applied = false;
   const boosted = adjusted.filter((entry) => entry.semanticScore > 0.05 && !entry.isPivot).length;
+
+  if (adjusted.some((entry) => Math.abs(entry.adjustedScore - entry.baseScore) > 1e-6)) {
+    applied = true;
+  }
 
   for (let start = 0; start < adjusted.length; start += windowSize) {
     const window = adjusted.slice(start, start + windowSize);
     const movable = window
       .map((entry, offset) => ({ entry, offset }))
-      .filter(({ entry }) => !entry.isPivot);
+      .filter(({ entry }) => !(entry.isPivot && entry.exactAnchor));
 
     const reordered = [...movable].sort((a, b) => {
       if (b.entry.adjustedScore !== a.entry.adjustedScore) {

@@ -66,8 +66,8 @@ describe("gitignore and .env filtering", () => {
     expect(paths.some((p) => p.includes("secrets/"))).toBe(false);
   });
 
-  it("rejects .env files via indexSingleFile", () => {
-    const result = indexSingleFile(db, resolve(TEMP_DIR, ".env"), TEMP_DIR);
+  it("rejects .env files via indexSingleFile", async () => {
+    const result = await indexSingleFile(db, resolve(TEMP_DIR, ".env"), TEMP_DIR);
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.errors[0]).toContain("security exclusion");
   });

@@ -102,7 +102,7 @@ const FRAMEWORK_QUERY_HINT_TERMS = new Set([
   "page",
   "layout",
 ]);
-const UI_COMPONENT_PATH_RE = /(^|\/)(components?|views?|templates?|marketing)(\/|$)/i;
+const UI_COMPONENT_PATH_RE = /(^|\/)(ui|components?|views?|pages?|templates?|marketing)(\/|$)/i;
 const PAGE_ENTRY_PATH_RE = /(^|\/)(page|layout)\.[cm]?[jt]sx?$/i;
 const ACTION_SIGNAL_TERMS = new Set([
   "submit",
@@ -940,6 +940,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   }
 
   let ranked = [...candidates].sort((a, b) => b.score - a.score);
+  let semanticRescueIds = new Set<number>();
   let semanticRerank = {
     enabled: semanticRerankEnabled,
     applied: false,
@@ -964,7 +965,34 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         expandedTerms: expandedQueryTerms,
       }
     );
-    ranked = reranked.ranked.map((entry) => entry.item);
+    semanticRescueIds = new Set(
+      reranked.ranked
+        .filter((entry) => (entry.adjustedScore ?? entry.baseScore) >= entry.baseScore)
+        .map((entry) => entry.id)
+    );
+    ranked = reranked.ranked.map((entry) => ({
+      ...entry.item,
+      score:
+        (entry.adjustedScore ?? entry.item.score) +
+        (semanticRescueIds.has(entry.id) ? 0.75 : 0),
+    }));
+    const queryUiFocused = allQueryTerms.some((term) =>
+      ["ui", "ux", "component", "components", "view", "views", "page", "pages", "modal", "form"].includes(
+        term.toLowerCase()
+      )
+    );
+    const hasNonUiSemanticRescue = ranked.some(
+      (candidate) =>
+        semanticRescueIds.has(candidate.symbol.id) &&
+        !UI_COMPONENT_PATH_RE.test(normalizeRetrievalPath(candidate.file.path, 6))
+    );
+    if (!queryUiFocused && hasNonUiSemanticRescue) {
+      ranked = ranked.filter(
+        (candidate) =>
+          semanticRescueIds.has(candidate.symbol.id) ||
+          !UI_COMPONENT_PATH_RE.test(normalizeRetrievalPath(candidate.file.path, 6))
+      );
+    }
     semanticRerank = {
       enabled: true,
       applied: reranked.applied,
@@ -999,7 +1027,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         if (!hasLexical && !isNearby) continue;
       } else {
         const strongLocality = hasStrongLocality(candidate);
-        if (!(strongLocality || (hasLexical && isNearby))) continue;
+        const semanticRescue = semanticRescueIds.has(candidate.symbol.id);
+        if (!(strongLocality || (hasLexical && isNearby) || semanticRescue)) continue;
       }
       result.push(candidate);
       ids.add(candidate.symbol.id);
@@ -1496,6 +1525,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     reasons.push(`${intent} retrieval surface too thin`);
   }
 
+  const tokenUtilization = tokenBudget > 0 ? tokensUsed / tokenBudget : 0;
   const coverageConfidence = computeCoverageConfidence({
     intent,
     pivotCount,
@@ -1505,6 +1535,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     dependencyCoverage,
     noiseRatio,
     fileSummaryCount: fileSummaries.length,
+    tokenUtilization,
     queryTermCoverage,
     retrievalSurfaceScore,
     moduleCoverageStats: {
@@ -1519,7 +1550,6 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   if (coverageConfidence < confidenceFloor) {
     reasons.push(`overall coverage confidence below ${Math.round(confidenceFloor * 100)}%`);
   }
-  const tokenUtilization = tokenBudget > 0 ? tokensUsed / tokenBudget : 0;
   const uncertainty = buildUncertainty(uncertaintyFlag, reasons.length, coverageConfidence, tokenUtilization);
 
   const clusterGroupStats = new Map<number, { symbolCount: number; fileIds: Set<number> }>();

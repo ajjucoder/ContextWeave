@@ -12,6 +12,7 @@ for (const filePath of filePaths) {
   if (!language) {
     results.push({
       filePath,
+      content: "",
       mtime: 0,
       hash: "",
       language: "unknown",
@@ -28,6 +29,7 @@ for (const filePath of filePaths) {
     if (stat.size > MAX_FILE_SIZE) {
       results.push({
         filePath,
+        content: "",
         mtime,
         hash: "",
         language,
@@ -41,10 +43,11 @@ for (const filePath of filePaths) {
     const content = readFileSync(filePath, "utf-8");
     const hash = hashFile(content);
     const parseResult = parseFile(filePath, content, language);
-    results.push({ filePath, mtime, hash, language, parsedAt: Date.now(), parseResult, error: null });
+    results.push({ filePath, content, mtime, hash, language, parsedAt: Date.now(), parseResult, error: null });
   } catch (err) {
     results.push({
       filePath,
+      content: "",
       mtime: 0,
       hash: "",
       language,

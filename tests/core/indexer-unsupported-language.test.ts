@@ -22,11 +22,11 @@ describe("unsupported language diagnostics", () => {
     rmSync(projectRoot, { recursive: true, force: true });
   });
 
-  it("returns an explicit error for unsupported single-file indexing", () => {
+  it("returns an explicit error for unsupported single-file indexing", async () => {
     const swiftFile = join(projectRoot, "Widget.swift");
     writeFileSync(swiftFile, "struct Widget {}\n");
 
-    const result = indexSingleFile(db, swiftFile, projectRoot);
+    const result = await indexSingleFile(db, swiftFile, projectRoot);
 
     expect(result.symbolCount).toBe(0);
     expect(result.errors).toHaveLength(1);

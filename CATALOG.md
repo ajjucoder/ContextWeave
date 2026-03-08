@@ -113,6 +113,8 @@ Primary verification:
 - Markdown: `.md`, `.markdown`
 - YAML: `.yaml`, `.yml`
 - JSON: `.json`
+- TOML: `.toml`
+- INI: `.ini`
 
 ### Runtime Semantics
 
@@ -164,8 +166,9 @@ Execution order:
 3. `npm run test:field` with `CW_P95_TARGET_MS=200`
 4. `npm test` with `CW_P95_TARGET_MS=200`
 5. `npm run build`
+6. `npm run eval`
 
-The field regression suite is a hard CI gate before full test and build.
+The field regression suite is a hard CI gate before full test and build. The slower product-benchmark gate runs through `.github/workflows/product-bench.yml` on manual dispatch, nightly schedule, and release publication.
 
 ## Field Regression Gate
 
@@ -177,3 +180,4 @@ Coverage areas:
 - Claud-ometer (session route/resolver retrieval, file-qualified read)
 - gravity-proxy (OAuth route/controller/service chain, flow and impact)
 - EBPS (policy-doc retrieval and confidence floor expectations)
+- next-pages-router (pages-router loader tracing across `pages/api/**` default handlers)

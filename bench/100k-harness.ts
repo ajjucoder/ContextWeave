@@ -171,7 +171,7 @@ async function main(): Promise<void> {
     const indexMs = Date.now() - indexStart;
 
     const symbolCount = symbolQueries(db).count();
-    const edgeCount = edgeQueries(db).getAll().length;
+    const edgeCount = edgeQueries(db).count();
     const measuredLoc = countSyntheticProjectLoc(manifest);
     const rawTokens = getTotalRawTokens(manifest.rootDir, manifest.files);
 
@@ -186,12 +186,9 @@ async function main(): Promise<void> {
       const latencyMs = Date.now() - started;
       const tokenReductionPct =
         rawTokens > 0 ? (1 - capsule.metadata.tokensUsed / rawTokens) * 100 : 0;
-      const expectedHit = queryCase.kind === "narrow"
-        ? (
-          capsule.content.includes(queryCase.expectedSymbol) ||
-          capsule.content.includes(queryCase.expectedFile.replace(/\\/g, "/"))
-        )
-        : null;
+      const expectedHit =
+        capsule.content.includes(queryCase.expectedSymbol) ||
+        capsule.content.includes(queryCase.expectedFile.replace(/\\/g, "/"));
 
       results.push({
         kind: queryCase.kind,
@@ -215,7 +212,7 @@ async function main(): Promise<void> {
     const p95Latency = percentile(results.map((result) => result.latencyMs), 0.95);
     const heapMb = process.memoryUsage().heapUsed / 1024 / 1024;
 
-    const narrowMisses = results.filter((result) => result.kind === "narrow" && result.expectedHit === false);
+    const qualityMisses = results.filter((result) => result.expectedHit === false);
     const unhealthyQueries = results.filter((result) =>
       result.stageA <= 0 ||
       result.stageB <= 0 ||
@@ -231,7 +228,7 @@ async function main(): Promise<void> {
       { ok: avgConfidence >= AVG_CONFIDENCE_TARGET, detail: `avg confidence ${(avgConfidence * 100).toFixed(1)}% >= ${(AVG_CONFIDENCE_TARGET * 100).toFixed(1)}%` },
       { ok: avgReduction >= AVG_REDUCTION_TARGET, detail: `avg token reduction ${avgReduction.toFixed(1)}% >= ${AVG_REDUCTION_TARGET.toFixed(1)}%` },
       { ok: heapMb <= MAX_HEAP_MB, detail: `heap usage ${heapMb.toFixed(1)}MB <= ${MAX_HEAP_MB.toFixed(1)}MB` },
-      { ok: narrowMisses.length === 0, detail: `narrow query hits ${results.filter((result) => result.kind === "narrow").length - narrowMisses.length}/${results.filter((result) => result.kind === "narrow").length}` },
+      { ok: qualityMisses.length === 0, detail: `expected hits ${results.length - qualityMisses.length}/${results.length}` },
       { ok: unhealthyQueries.length === 0, detail: `healthy query runs ${results.length - unhealthyQueries.length}/${results.length}` },
     ];
 
@@ -243,9 +240,9 @@ async function main(): Promise<void> {
     }
 
     if (!passed) {
-      if (narrowMisses.length > 0) {
-        console.error("\nNarrow query misses:");
-        for (const miss of narrowMisses) {
+      if (qualityMisses.length > 0) {
+        console.error("\nExpected-hit misses:");
+        for (const miss of qualityMisses) {
           console.error(`- ${miss.label}: ${miss.query}`);
         }
       }

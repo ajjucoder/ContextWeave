@@ -7,12 +7,53 @@ const LEVEL_LABEL: Record<number, string> = {
   3: "reference",
 };
 
+const DOC_SCOPES = new Set(["documentation", "convention"]);
+const DOC_QUERY_RE = /\b(docs?|documentation|architecture|convention|workflow|guide|readme|claude)\b/i;
+
+function estimateObservationTokens(note: string): number {
+  return Math.max(1, Math.ceil(note.split(/\s+/).filter(Boolean).length * 1.3));
+}
+
+function selectObservations(
+  observations: ObservationRecord[],
+  metadata: CapsuleMetadata
+): ObservationRecord[] {
+  const intent = metadata.strategy?.intent;
+  const docFocused = DOC_QUERY_RE.test(metadata.query);
+
+  if (!docFocused && intent === "narrow") {
+    return observations.filter((observation) => !DOC_SCOPES.has(observation.scope));
+  }
+
+  let docBudget = 200;
+  const selected: ObservationRecord[] = [];
+  for (const observation of observations) {
+    if (!DOC_SCOPES.has(observation.scope)) {
+      selected.push(observation);
+      continue;
+    }
+
+    if (!docFocused) {
+      continue;
+    }
+
+    const estimatedTokens = estimateObservationTokens(observation.note);
+    if (estimatedTokens > docBudget) {
+      continue;
+    }
+    docBudget -= estimatedTokens;
+    selected.push(observation);
+  }
+  return selected;
+}
+
 export function formatCapsule(
   packedNodes: ScoredNode[],
   observations: ObservationRecord[],
   metadata: CapsuleMetadata,
   fileSummaries: string[] = []
 ): string {
+  const visibleObservations = selectObservations(observations, metadata);
   const fileCount = new Set(packedNodes.map((n) => n.file.path)).size;
   const pivotPct = Math.round(metadata.quality.pivotCoverage * 100);
   const dependencyPct = Math.round(metadata.quality.dependencyCoverage * 100);
@@ -98,8 +139,8 @@ export function formatCapsule(
     return parts.slice(0, -1).join("/");
   })();
 
-  const highConfObs = observations.filter((o) => o.confidence >= 0.8);
-  const lowConfObs = observations.filter((o) => o.confidence < 0.8);
+  const highConfObs = visibleObservations.filter((o) => o.confidence >= 0.8);
+  const lowConfObs = visibleObservations.filter((o) => o.confidence < 0.8);
 
   const parts = [header];
 

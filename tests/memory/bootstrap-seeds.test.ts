@@ -49,6 +49,12 @@ describe("bootstrap observation seeding", () => {
     expect(notes.some((note) => note.includes("Prefer cw capsule before broad grep sweeps"))).toBe(true);
     expect(notes.some((note) => note.includes("billing webhook pipeline writes Stripe events"))).toBe(true);
     expect(notes.some((note) => note.includes("Validated follow-up: Verified webhook retries stay idempotent"))).toBe(true);
+    const docObservation = observations.find((observation) => observation.note.includes("Auth uses JWT refresh rotation"));
+    const claudeObservation = observations.find((observation) => observation.note.includes("Prefer cw capsule before broad grep sweeps"));
+    expect(docObservation?.scope).toBe("documentation");
+    expect(docObservation?.confidence).toBe(0.5);
+    expect(claudeObservation?.scope).toBe("convention");
+    expect(claudeObservation?.confidence).toBe(0.5);
     expect(search.search("jwt refresh rotation", { limit: 10 }).length).toBeGreaterThan(0);
     expect(search.search("webhook retries idempotent", { limit: 10 }).length).toBeGreaterThan(0);
   });

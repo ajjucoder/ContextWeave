@@ -8,6 +8,11 @@ import { observationQueries } from "../../db/queries/observations.js";
 import { capsuleLogQueries } from "../../db/queries/capsule-log.js";
 import { getRegisterTool } from "./register-helper.js";
 import { buildProjectProfile, formatProjectProfile } from "../../utils/project-profile.js";
+import {
+  computeFollowUpMetrics,
+  FOLLOW_UP_METRICS_SAMPLE_LIMIT,
+  formatRatePct,
+} from "./stats.js";
 
 export function registerStatusTool(server: McpServer, db: Database.Database, projectRoot: string): void {
   const registerTool = getRegisterTool(server);
@@ -31,6 +36,8 @@ export function registerStatusTool(server: McpServer, db: Database.Database, pro
         const observationCount = observations.count();
         const staleCount = observations.countStale();
         const recentCapsules = capsuleLogQueries(db).getRecent(5);
+        const rateSample = capsuleLogQueries(db).getRecent(FOLLOW_UP_METRICS_SAMPLE_LIMIT);
+        const followUpMetrics = computeFollowUpMetrics(rateSample);
 
         const lines = [
           `ContextWeave Index Status`,
@@ -40,6 +47,8 @@ export function registerStatusTool(server: McpServer, db: Database.Database, pro
           `Symbols:      ${symbolCount}`,
           `Edges:        ${edgeCount}`,
           `Observations: ${observationCount} (${staleCount} stale)`,
+          `First-pass rate: ${formatRatePct(followUpMetrics.firstPassRate)} (${followUpMetrics.sampleSize} capsules)`,
+          `Correction rate: ${formatRatePct(followUpMetrics.correctionRate)} (${followUpMetrics.sampleSize} capsules)`,
         ];
         const profile = buildProjectProfile(projectRoot, files.getAll());
         lines.push("", ...formatProjectProfile(profile));

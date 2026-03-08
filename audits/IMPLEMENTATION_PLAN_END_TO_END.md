@@ -1,528 +1,321 @@
-# ContextWeave Field Recovery Implementation Plan
+# ContextWeave Augment-Parity Implementation Plan
 
-Date: 2026-03-06
+Date: 2026-03-08
 Project code: CW
 Owner: codex
 Execution mode: single-agent
 
-## Active Phase
-This document now has two parts:
-- Phase 1: field recovery, which is completed and verified below.
-- Phase 2: productization, which is now the active execution backlog for turning ContextWeave into a product-grade context engine that can credibly replace expensive grep/explorer loops in agentic coding tools.
+## Source Of Truth
+- Primary spec and standing reminder: `research/IMPLEMENTATION_PLAN.md`
+- This file is the ticketed execution plan required by the repo policy.
+- `audits/SPRINT_PROGRESS.md` is the only source for completion math.
 
 ## Goal
-Make ContextWeave reliably beat ad-hoc `grep` + `read` for real agent workflows in web and Python codebases by fixing the failures shown in external reviews: low-relevance capsules, broken cross-boundary flow tracing, noisy memory, poor framework awareness, and misleading confidence.
+Turn ContextWeave into a local-first, agent-grade context engine that closes the reviewed quality gaps and adds the missing semantic stack: AST-aware chunking, local embeddings, hybrid BM25+vector retrieval, stronger capsule orchestration, and production-grade benchmark/reporting.
 
-## Product Direction
-- ContextWeave is being developed as a better open-source alternative to Augment's context engine layer.
-- The product goal is not "index code and look impressive on synthetic benchmarks." The product goal is: agents find the right things faster, spend fewer tokens, trust the retrieval, and complete real coding tasks with less manual grep/read recovery.
-- Success should be judged by real task completion quality on live-style repositories, not by token reduction alone.
+## Architecture Summary
+- Keep SQLite as the single local system of record for symbols, file summaries, chunks, embeddings, and retrieval telemetry.
+- Add semantic capabilities in layers: chunking first, embeddings second, hybrid ranking third, then rework capsule orchestration on top of the stronger retrieval substrate.
+- Ship bug fixes and operational gates before claiming parity. No ticket closes without linked verification evidence.
 
-## Plan Review Summary
-- The previous plan overfit internal benchmarks, synthetic harnesses, and self-hosted evals.
-- It did not gate success on real-world task queries from actual projects, so broad-query failures escaped.
-- It marked validation complete even though the current workspace is not type-clean and the public docs no longer match the runtime tool surface.
-- This replacement plan uses field regressions as the primary release gate and treats token reduction as a task-success metric, not a vanity benchmark.
+## Tech Stack
+- Existing runtime: TypeScript, Node.js 22+, `better-sqlite3`, tree-sitter, MCP SDK, Vitest, tsup.
+- New required libraries from the source spec:
+  - `code-chunk`
+  - `@huggingface/transformers`
+  - `sqlite-vec`
 
-## Success Criteria
-- Broad/task capsules on the field regression suite reach median pivot coverage >= 75% and must-include recall >= 85%.
-- `cw_flow` resolves client-to-server HTTP boundaries for supported frameworks and returns deduplicated, useful traces.
-- `cw_impact` and navigation tools handle ambiguous symbols, file-level entry points, sibling exports, and common OOP/module patterns.
-- `cw_recall` returns durable insights, not passive query-log noise, by default.
-- `lint`, `test`, field regressions, and targeted benchmark checks all pass from the current branch.
-
-## Phase 2 Product Criteria
-- First-pass success becomes the primary release gate for eval and product benchmarks.
-- ContextWeave reaches stable first-pass retrieval on narrow, broad, and task queries without requiring query reformulation in the common case.
-- Product benchmarks are reproducible, pinned, and representative across framework-heavy, backend-heavy, and policy-heavy repos.
-- The engine can replace the expensive “grep + explorer agent” loop in Claude Code, Codex, and similar agentic tools for the majority of repo-navigation tasks.
-- The product continuously audits itself: new misses become fixtures, new fixtures become gates, and gates block regressions before release.
+## Verified Repo State On 2026-03-08
+- The remaining semantic stack gaps are now narrower:
+  - `code-chunk`, `@huggingface/transformers`, and `sqlite-vec` are installed.
+  - `src/core/chunker.ts`, `src/core/embedder.ts`, `src/core/vector-store.ts`, and `src/core/embedding-runtime.ts` now exist.
+  - `src/core/hybrid-ranker.ts` still does not exist.
+  - Chunk embedding integration into the indexer and watcher is now complete; hybrid rank fusion remains open under `CW-P1-006`.
+- Phase 0 was only partially complete before this session:
+  - `src/core/indexer.ts` already had `backfillSummariesIfNeeded` and `backfillClustersIfNeeded`, but `src/mcp/server.ts` did not call them on startup.
+  - `src/mcp/tools/search.ts` accepted `use_regex`, but `/pattern/` queries still went through literal ripgrep and brace globs were not expanded.
+  - `src/hooks/post-tool-use.ts` still updated the globally latest capsule row rather than the active session row.
+  - Bootstrap observations still seeded documentation-derived notes at high confidence and narrow capsules still rendered them.
+- Newly completed in this session:
+  - Session-scoped post-tool-use feedback.
+  - Startup self-healing for derived artifacts.
+  - Honest confidence caps using token utilization and pivot coverage.
+  - Bootstrap documentation/convention separation in formatter output.
+  - `cw_grep` regex normalization and brace-glob expansion.
+  - Local MiniLM embedding wrapper via `src/core/embedder.ts`.
+  - Same-database vector storage and cosine search via `src/core/vector-store.ts`.
+  - Migration `v12` adding persistent `chunk_embeddings` storage.
+  - Indexer and watcher embedding integration, including incremental re-embedding of changed chunks.
+  - Project-configurable embedding model loading via `.contextweave/config.json`.
 
 ## Execution Rules
-- The implementing agent must create and maintain a proper live todo list before making substantial changes and keep it updated until every ticket in scope is completed.
-- Do not stop at partial fixes. Continue until the implementation plan is completed end to end, all relevant verification passes, and any failures are resolved or explicitly documented as blockers with evidence.
-- Work directly on `main` as requested. Do not create a feature branch or worktree for this execution handoff.
-- Commit only after verification is green or after explicitly documenting any unavoidable blocker in the sprint tracker.
-- Push the verified work to GitHub on `main` after implementation is complete.
+- Keep `research/IMPLEMENTATION_PLAN.md` in the active todo ledger until every ticket below is closed.
+- Do not mark any ticket `done` without linked test evidence in `audits/SPRINT_PROGRESS.md`.
+- Prefer bounded Phase 0 tickets first, then build the semantic stack in dependency order.
+- Do not replace deterministic retrieval with semantic ranking until chunk persistence, embeddings, and vector search are verified.
+- Preserve existing narrow-query wins while broadening retrieval quality.
 
-## What Not To Do
-- Do not optimize for synthetic benchmarks while field regressions remain failing.
-- Do not add new user-facing tools or product surface area before fixing capsule relevance, framework/runtime tracing, navigation correctness, and confidence calibration.
-- Do not hide retrieval failures behind vague confidence text, inflated metrics, or "good enough" benchmark summaries.
-- Do not add semantic embeddings, fancy rerankers, or plugin abstractions first if deterministic structural bugs are still causing misses in the reviewed projects.
-- Do not trust passive query logs as meaningful memory; do not keep shipping noisy recall results as if they were insight.
-- Do not mark tickets done without fresh linked test evidence.
-- Do not break existing narrow-query wins (`cw_read`, `cw_grep`, precise `cw_impact`) while repairing broad-query behavior.
+## Active Todo Ledger
+- Keep `research/IMPLEMENTATION_PLAN.md` open as the standing checklist.
+- Finish the remaining Phase 0 gaps before moving deeper into the semantic stack.
+- Keep the new semantic dependencies paired with their ticketed verification evidence.
+- Keep new schema changes paired with migrations and focused tests.
+- Keep benchmark and docs claims aligned with what actually ships.
 
-## Active Execution Todo Ledger
-- Keep `$using-superpowers` active as a standing process reminder.
-- Keep the live todo list updated before and after every substantive change.
-- Never mark a ticket done without fresh test evidence in `audits/SPRINT_PROGRESS.md`.
-- Treat first-pass success as the active quality bottleneck, not just total success.
-- Convert every newly discovered miss into a reproducible test or benchmark fixture.
-- Keep pinned benchmark repos reproducible; never drift back to moving-head expectations.
-- Preserve the current field regression suite while raising the bar on first-pass quality.
-- Preserve narrow symbol lookup wins while improving broad/task retrieval.
-- Improve query interpretation before adding more retrieval surface area.
-- Improve candidate seeding before adding more reranking complexity.
-- Improve packing/compression before increasing budgets.
-- Improve diagnostics so low first-pass success is actionable, not vague.
-- Keep eval and benchmark metrics honest; do not hide correction dependence.
-- Expand framework coverage only behind tests.
-- Expand CommonJS and dynamic-module understanding only behind tests.
-- Expand non-code retrieval only where it changes task outcomes.
-- Reduce correction turns before chasing lower latency.
-- Reduce tokens-to-first-correct-context before chasing bigger benchmark suites.
-- Keep docs truthful with the runtime and current gates.
-- Commit verified progress frequently on `main`.
-- Push verified progress frequently to GitHub.
-- Use product-benchmark failures as roadmap inputs, not as marketing copy.
-- Keep the benchmark harness stable enough to compare runs over time.
-- Add a first-pass dashboard in the tracker, not just eventual success numbers.
-- Add negative fixtures for noisy UI/template pollution.
-- Add positive fixtures for runtime wiring, entrypoints, and boundary hops.
-- Add ambiguous-symbol fixtures for real repo names (`GET`, `POST`, `Page`, `handler`, `index`).
-- Add dynamic-dispatch fixtures for callbacks, registries, and event emitters.
-- Add class/module fixtures for OOP-heavy repos.
-- Add CommonJS/barrel/export fixtures for JS repos.
-- Add Python CLI/policy/data fixtures for Python-heavy repos.
-- Add large mixed-repo fixtures for monorepo behavior.
-- Add session-isolation fixtures so earlier queries do not pollute later retrieval.
-- Add memory-quality fixtures so recall returns insight, not logs.
-- Add self-audit fixtures so new review findings flow back into the suite.
-- Keep release gates fast enough to run often.
-- Keep heavy product benchmarks available as a nightly or pre-release gate.
-- Keep benchmark output human-readable and directly actionable.
-- Keep the product claim tied to evidence, not aspiration.
-- Do not stop with a “mostly works” engine; keep iterating until first-pass quality is product-grade.
-
-## Phase 2 Tickets
-
-### P0 (blocking, active)
-
-#### CW-P0-006
-- owner: codex
-- scope/files: `tests/eval/`, `bench/`, `audits/SPRINT_PROGRESS.md`, `package.json`
-- acceptance criteria:
-  - `npm run eval` and `npm run bench:product` expose first-pass success, recovery success, correction rate, and tokens-to-first-correct-context as first-class metrics.
-  - Release docs and tracker stop treating total success as sufficient.
-- linked tests:
-  - `npm run eval`
-  - `npm run bench:product`
-- status: done
-
-#### CW-P0-007
-- owner: codex
-- scope/files: `tests/eval/fixtures/`, `tests/integration/`, `bench/`
-- acceptance criteria:
-  - Current second-attempt recoveries are encoded as explicit first-pass regressions.
-  - Broad conceptual queries from product benchmarks fail loudly if they only succeed after reformulation.
-- linked tests:
-  - `npx vitest run tests/eval/*.test.ts tests/integration/eval-fixture-regressions.test.ts`
-  - `npm run bench:product`
-- status: done
-
-#### CW-P0-008
-- owner: codex
-- scope/files: `src/capsule/query-decomposer.ts`, `src/capsule/intent-classifier.ts`, `src/utils/synonyms.ts`, `tests/capsule/`, `tests/unit/`
-- acceptance criteria:
-  - Broad conceptual prompts map to runtime surfaces more accurately on the first attempt.
-  - Framework/runtime terms are expanded without flooding retrieval with UI/test noise.
-- linked tests:
-  - `npx vitest run tests/capsule/*.test.ts tests/unit/*.test.ts`
-  - `npm run eval`
-- status: done
-
-#### CW-P0-009
-- owner: codex
-- scope/files: `src/core/file-summaries.ts`, `src/capsule/generator.ts`, `tests/core/`, `tests/integration/`
-- acceptance criteria:
-  - Candidate file seeding prioritizes runtime wiring, entrypoints, and bridge files for non-test queries.
-  - Test fixtures, docs, and examples no longer dominate early broad-query seeding unless the query is clearly about them.
-- linked tests:
-  - `npx vitest run tests/core/*.test.ts tests/integration/*.test.ts`
-  - `npm run eval`
-- status: done
-
-#### CW-P0-010
-- owner: codex
-- scope/files: `src/capsule/generator.ts`, `src/capsule/pivot-scorer.ts`, `src/capsule/packer.ts`, `tests/capsule/`, `tests/integration/`
-- acceptance criteria:
-  - Top runtime candidate files keep enough seed pivots alive to survive broad/task selection.
-  - Bridge nodes are retained when they materially improve first-pass correctness.
-- linked tests:
-  - `npx vitest run tests/capsule/*.test.ts tests/integration/*.test.ts`
-  - `npm run bench:product`
-- status: done
-
-#### CW-P0-011
-- owner: codex
-- scope/files: `src/capsule/compressor.ts`, `src/capsule/formatter.ts`, `src/capsule/packer.ts`, `tests/capsule/`
-- acceptance criteria:
-  - First-pass capsules spend more budget on key runtime pivots and less on low-value summaries.
-  - Broad/task queries reduce tokens-to-first-correct-context without reducing correctness.
-- linked tests:
-  - `npx vitest run tests/capsule/*.test.ts`
-  - `npm run eval`
-  - `npm run bench:product`
-- status: done
-
-#### CW-P0-012
-- owner: codex
-- scope/files: `src/capsule/confidence.ts`, `src/capsule/diagnostics.ts`, `tests/capsule/`, `tests/eval/`
-- acceptance criteria:
-  - First-pass misses produce diagnostics that name the actual failure mode.
-  - Confidence reflects first-pass risk, not just eventual coverage.
-- linked tests:
-  - `npx vitest run tests/capsule/*.test.ts tests/eval/*.test.ts`
-  - `npm run eval`
-- status: done
-
-#### CW-P0-013
-- owner: codex
-- scope/files: `bench/cross-project-qa.ts`, `tests/eval/fixtures/`, `tests/integration/`
-- acceptance criteria:
-  - Product benchmarks measure first-pass success separately from recovery success.
-  - Benchmark thresholds fail if first-pass quality regresses even when total success remains high.
-- linked tests:
-  - `npm run bench:product`
-  - `npm run eval`
-- status: done
-
-#### CW-P0-014
-- owner: codex
-- scope/files: `src/mcp/tools/capsule.ts`, `src/mcp/tools/overview.ts`, `src/mcp/tools/read.ts`, `tests/integration/`
-- acceptance criteria:
-  - MCP tool output is explicit enough that external agents can use first-pass capsules safely without unnecessary fallback reads.
-  - Tool surfaces include the minimum next actions needed when confidence is not yet strong enough.
-- linked tests:
-  - `npx vitest run tests/integration/*.test.ts`
-  - `npm test`
-- status: done
-
-#### CW-P0-015
-- owner: codex
-- scope/files: `tests/field/`, `tests/eval/`, `bench/`, `audits/SPRINT_PROGRESS.md`
-- acceptance criteria:
-  - Every new real-world miss from external project reviews is encoded into at least one field/eval/product fixture within the same implementation session.
-  - The tracker records the newly added misses and their status.
-- linked tests:
-  - `npm run test:field`
-  - `npm run eval`
-  - `npm run bench:product`
-- status: done
-
-### P1 (stabilization)
-
-#### CW-P1-006
-- owner: codex
-- scope/files: `src/core/parser.ts`, `src/core/indexer.ts`, `tests/core/`, `tests/unit/`
-- acceptance criteria:
-  - CommonJS module wiring and module-level dependency recovery improve enough to strengthen Express-style benchmark expectations beyond a single file.
-- linked tests:
-  - `npx vitest run tests/core/*.test.ts tests/unit/*.test.ts`
-  - `npm run bench:product`
-- status: done
-
-#### CW-P1-007
-- owner: codex
-- scope/files: `src/frameworks/plugins/`, `tests/core/`, `tests/field/`
-- acceptance criteria:
-  - Framework plugins cover more real route and loader conventions without leaking framework-specific heuristics into the core ranking path.
-- linked tests:
-  - `npx vitest run tests/core/*.test.ts tests/field/*.test.ts`
-  - `npm test`
-- status: done
-
-#### CW-P1-008
-- owner: codex
-- scope/files: `src/mcp/tools/flow.ts`, `src/mcp/tools/impact.ts`, `tests/unit/`, `tests/integration/`
-- acceptance criteria:
-  - Class-heavy and callback-heavy repos retain accurate flow/impact results on the first pass.
-- linked tests:
-  - `npx vitest run tests/unit/flow.test.ts tests/unit/impact.test.ts tests/integration/*.test.ts`
-  - `npm test`
-- status: done
-
-#### CW-P1-009
-- owner: codex
-- scope/files: `src/memory/`, `tests/memory/`, `tests/integration/`
-- acceptance criteria:
-  - Memory improves first-pass results by supplying durable architecture context when relevant.
-  - Passive logs remain suppressed unless explicitly requested.
-- linked tests:
-  - `npx vitest run tests/memory/*.test.ts tests/integration/*.test.ts`
-  - `npm test`
-- status: done
-
-#### CW-P1-010
-- owner: codex
-- scope/files: `src/core/parser.ts`, `src/mcp/tools/overview.ts`, `tests/core/`, `tests/integration/`
-- acceptance criteria:
-  - Non-code files contribute to first-pass correctness in policy/config-heavy repos without overwhelming source-code retrieval.
-- linked tests:
-  - `npx vitest run tests/core/*.test.ts tests/integration/*.test.ts`
-  - `npm run test:field`
-- status: done
-
-#### CW-P1-011
-- owner: codex
-- scope/files: `src/capsule/`, `tests/capsule/`, `tests/eval/`
-- acceptance criteria:
-  - Compression and selection choices are robust under repeated multi-query sessions and do not degrade first-pass quality via session bleed.
-- linked tests:
-  - `npx vitest run tests/capsule/*.test.ts tests/eval/*.test.ts`
-  - `npm run eval`
-- status: done
-
-#### CW-P1-012
-- owner: codex
-- scope/files: `bench/`, `tests/eval/`, `.github/workflows/ci.yml`
-- acceptance criteria:
-  - Product benchmark and eval first-pass gates are wired into CI at the correct cadence.
-  - Slower product benchmarks can run nightly or pre-release without becoming stale.
-- linked tests:
-  - `npm run eval`
-  - `npm run bench:product`
-- status: done
-
-#### CW-P1-013
-- owner: codex
-- scope/files: `README.md`, `CATALOG.md`, `CHANGELOG.md`, `audits/`
-- acceptance criteria:
-  - Product claims, benchmark claims, and release instructions match the new first-pass gates and current evidence.
-- linked tests:
-  - `npm run lint`
-  - `npm test`
-- status: todo
-
-### P2 (future-proofing)
-
-#### CW-P2-004
-- owner: codex
-- scope/files: `bench/`, `tests/eval/fixtures/`, `docs/plans/`
-- acceptance criteria:
-  - Add larger benchmark coverage for monorepos, policy repos, backend frameworks, and mixed JS/Python repos.
-- linked tests:
-  - `npm run eval`
-  - `npm run bench:product`
-- status: todo
-
-#### CW-P2-005
-- owner: codex
-- scope/files: `src/capsule/semantic-reranker.ts`, `tests/capsule/`, `bench/`
-- acceptance criteria:
-  - Optional semantic reranking materially improves first-pass results on conceptual prompts without lowering explainability or determinism.
-- linked tests:
-  - `npx vitest run tests/capsule/*.test.ts`
-  - `npm run bench:product`
-- status: todo
-
-#### CW-P2-006
-- owner: codex
-- scope/files: `src/mcp/`, `src/cli/`, `tests/integration/`
-- acceptance criteria:
-  - Surface first-pass and correction metrics directly in status/overview outputs for product operators.
-- linked tests:
-  - `npx vitest run tests/integration/*.test.ts`
-  - `npm test`
-- status: todo
-
-#### CW-P2-007
-- owner: codex
-- scope/files: `src/core/`, `src/frameworks/`, `tests/core/`
-- acceptance criteria:
-  - Add deeper support for dynamic dispatch, registries, and event emitters without degrading current static graph quality.
-- linked tests:
-  - `npx vitest run tests/core/*.test.ts`
-  - `npm test`
-- status: todo
-
-#### CW-P2-008
-- owner: codex
-- scope/files: `src/core/indexer.ts`, `src/db/`, `bench/`
-- acceptance criteria:
-  - Scaling work keeps product-grade retrieval quality viable as repo size increases without forcing excessive token budgets.
-- linked tests:
-  - `npm run bench`
-  - `npm test`
-- status: todo
-
-#### CW-P2-009
-- owner: codex
-- scope/files: `docs/plans/`, `audits/`, `bench/`
-- acceptance criteria:
-  - Create a formal release checklist for “product-grade ContextWeave” tied to first-pass, correction, token, and coverage thresholds instead of informal judgment.
-- linked tests:
-  - `npm run eval`
-  - `npm run bench:product`
-- status: todo
+## Dependency Order
+- Phase 0 tickets can run immediately.
+- `CW-P1-001` and `CW-P1-002` unblock all semantic work.
+- `CW-P1-003` and `CW-P1-004` depend on chunk persistence.
+- `CW-P1-006` depends on embeddings and vector search.
+- `CW-P2-001` and `CW-P2-002` depend on the hybrid ranker.
+- `CW-P2-003` through `CW-P2-006` depend on stable chunk/search primitives.
 
 ## Tickets
 
-### P0 (blocking)
+### P0 Blocking Bug Fixes
 
 #### CW-P0-001
 - owner: codex
-- scope/files: `tests/field/`, `tests/integration/`, `tests/eval/`, `package.json`, `.github/workflows/ci.yml`
+- scope/files: `src/capsule/pivot-scorer.ts`, `src/capsule/generator.ts`, `tests/capsule/pivot-scorer.test.ts`, `tests/integration/capsule.test.ts`
 - acceptance criteria:
-  - Convert the review findings from Sitecraft, EBPS, Claud-ometer, and gravity proxy into reproducible field regression tests.
-  - Each regression encodes `must_include`, `must_exclude`, and `must_trace` expectations for capsule, flow, impact, and read behavior.
-  - CI has a dedicated field-regression gate in addition to the existing unit/integration suite.
+  - Exact symbol-name matches get a dominant boost.
+  - CamelCase-equivalent matches and path-segment matches receive explicit secondary boosts.
+  - Queries like `useDataLayer` return the exact symbol definition first.
 - linked tests:
-  - `npx vitest run tests/field/*.test.ts`
-  - `npm test`
-  - `npm run eval`
-- status: done
+  - `npx vitest run tests/capsule/pivot-scorer.test.ts tests/integration/capsule.test.ts`
+- status: todo
 
 #### CW-P0-002
 - owner: codex
-- scope/files: `src/capsule/generator.ts`, `src/capsule/scorer.ts`, `src/capsule/packer.ts`, `src/capsule/compressor.ts`, `src/capsule/formatter.ts`, `tests/capsule/`, `tests/integration/`
+- scope/files: `src/capsule/generator.ts`, `src/capsule/content-fallback.ts`, `tests/unit/content-fallback.test.ts`, `tests/integration/capsule.test.ts`
 - acceptance criteria:
-  - Broad/task capsules prioritize route handlers, stateful services, database writes, and entrypoint logic over render-only templates, duplicate legacy code, and incidental utilities.
-  - Secondary content defaults to summary/reference form unless it is a top-scored pivot or a required bridge node.
-  - The reviewed "inquiry flow", "session detail loading", and "OAuth/auth flow" queries stop exhausting budget on irrelevant bodies.
+  - Narrow exact-match queries skip the fallback explosion path.
+  - Exact-match capsules stay constrained to the definition plus direct callers/callees.
 - linked tests:
-  - `npx vitest run tests/capsule/*.test.ts tests/integration/task-query-quality.test.ts`
-  - `npx vitest run tests/field/*.test.ts`
-  - `npm test`
-- status: done
+  - `npx vitest run tests/unit/content-fallback.test.ts tests/integration/capsule.test.ts`
+- status: todo
 
 #### CW-P0-003
 - owner: codex
-- scope/files: `src/core/parser.ts`, `src/core/indexer.ts`, `src/core/types.ts`, `src/utils/path-retrieval.ts`, `src/mcp/tools/flow.ts`, `src/mcp/tools/impact.ts`, `tests/core/`, `tests/integration/`, `tests/field/`
+- scope/files: `src/capsule/generator.ts`, `src/capsule/packer.ts`, `tests/capsule/story-packing.test.ts`, `tests/integration/capsule.test.ts`
 - acceptance criteria:
-  - Index and traverse HTTP/service boundaries for supported conventions:
-    - Next.js `fetch('/api/...')` -> `app/api/**/route.ts`
-    - Express/Koa/Fastify-style route registration -> handler symbol
-  - `cw_flow` can trace client -> route -> server/service for the reviewed web-app scenarios.
-  - Flow output deduplicates trivial import noise and highlights boundary transitions explicitly.
+  - Capsules refill when utilization is below 60% and target roughly 85% budget usage.
+  - Skeletonized top-ranked symbols are expanded before unrelated filler is added.
 - linked tests:
-  - `npx vitest run tests/core/framework-entry-edges.test.ts tests/integration/mcp-navigation-tools.test.ts`
-  - `npx vitest run tests/field/*.test.ts`
-  - `npm test`
-- status: done
+  - `npx vitest run tests/capsule/story-packing.test.ts tests/integration/capsule.test.ts`
+- status: todo
 
 #### CW-P0-004
 - owner: codex
-- scope/files: `src/mcp/tools/flow.ts`, `src/mcp/tools/impact.ts`, `src/mcp/tools/read.ts`, `src/mcp/tools/overview.ts`, `src/db/queries/symbols.ts`, `tests/unit/`, `tests/integration/`, `tests/field/`
+- scope/files: `src/capsule/confidence.ts`, `src/capsule/generator.ts`, `tests/capsule/confidence-5level.test.ts`, `tests/unit/confidence-calibration.test.ts`
 - acceptance criteria:
-  - Ambiguous symbol queries return disambiguated candidates or accept full-path targeting reliably.
-  - File-level entry points, common script names, and sibling exports are first-class navigation/impact targets.
-  - `cw_impact` accounts for same-module sibling exports and common class/module usage patterns instead of only direct import edges.
+  - Confidence is capped by token utilization, broad-query pivot count, and pivot coverage.
+  - Confidence never exceeds `0.90` unless utilization and pivot coverage are both strong.
 - linked tests:
-  - `npx vitest run tests/unit/impact.test.ts tests/unit/flow.test.ts tests/unit/read-file-symbol.test.ts`
-  - `npx vitest run tests/field/*.test.ts`
-  - `npm test`
+  - `npx vitest run tests/capsule/confidence-5level.test.ts tests/unit/confidence-calibration.test.ts`
 - status: done
 
 #### CW-P0-005
 - owner: codex
-- scope/files: `src/capsule/confidence.ts`, `src/capsule/diagnostics.ts`, `src/capsule/generator.ts`, `tests/capsule/`, `tests/integration/`
+- scope/files: `src/db/queries/capsule-log.ts`, `src/hooks/post-tool-use.ts`, `tests/integration/post-tool-use.test.ts`
 - acceptance criteria:
-  - Confidence and uncertainty correlate with actual field-test recall instead of defaulting to low-confidence on small or medium projects.
-  - Diagnostic reasons become actionable and specific, e.g. missing route edge, budget exhausted before required pivots, unresolved dynamic boundary.
-  - Release docs stop instructing agents to over-trust low-coverage capsules.
+  - `post-tool-use` updates the active session capsule row when `session_id` is present.
+  - Fallback lookup uses the latest row for the current `project_root`, not the global latest row.
 - linked tests:
-  - `npx vitest run tests/capsule/confidence-5level.test.ts tests/capsule/diagnostics.test.ts`
-  - `npx vitest run tests/field/*.test.ts`
-  - `npm test`
+  - `npx vitest run tests/integration/post-tool-use.test.ts`
 - status: done
 
-### P1 (stabilization)
+#### CW-P0-006
+- owner: codex
+- scope/files: `src/memory/bootstrap.ts`, `src/capsule/formatter.ts`, `tests/memory/bootstrap-seeds.test.ts`, `tests/unit/formatter-followup.test.ts`
+- acceptance criteria:
+  - Bootstrap documentation/convention notes seed at low confidence.
+  - Narrow code capsules suppress documentation and convention observations unless the query is explicitly documentation-focused.
+  - Documentation/convention output is bounded when included.
+- linked tests:
+  - `npx vitest run tests/memory/bootstrap-seeds.test.ts tests/unit/formatter-followup.test.ts`
+- status: done
+
+#### CW-P0-007
+- owner: codex
+- scope/files: `src/utils/directory-weights.ts`, `src/utils/config.ts`, `src/core/file-summaries.ts`, `src/capsule/generator.ts`, `tests/unit/directory-costs.test.ts`
+- acceptance criteria:
+  - Runtime directories are upweighted and legacy/static/archive directories are downweighted per the source spec.
+  - `.contextweave/config.json` supports `primaryDirs` and `archiveDirs`.
+- linked tests:
+  - `npx vitest run tests/unit/directory-costs.test.ts tests/core/file-summaries.test.ts`
+- status: todo
+
+#### CW-P0-008
+- owner: codex
+- scope/files: `src/core/parser.ts`, `tests/unit/parser.test.ts`
+- acceptance criteria:
+  - TSX files with benign JSX text parse errors are indexed as warnings instead of hard file errors.
+  - Symbol extraction still succeeds for valid TSX with harmless JSX text edge cases.
+- linked tests:
+  - `npx vitest run tests/unit/parser.test.ts`
+- status: todo
+
+#### CW-P0-009
+- owner: codex
+- scope/files: `src/mcp/tools/search.ts`, `src/mcp/tools/path-filters.ts`, `tests/integration/mcp-navigation-tools.test.ts`
+- acceptance criteria:
+  - `/pattern/flags` queries are treated as regex consistently across backends.
+  - Brace glob patterns like `**/*.{ts,tsx}` expand correctly.
+- linked tests:
+  - `npx vitest run tests/integration/mcp-navigation-tools.test.ts`
+- status: done
+
+#### CW-P0-010
+- owner: codex
+- scope/files: `src/mcp/server.ts`, `src/core/file-summaries.ts`, `src/core/clusters.ts`, `tests/integration/mcp-server.test.ts`, `tests/core/backfill-derived-data.test.ts`
+- acceptance criteria:
+  - MCP startup schedules derived-data backfill for existing indexes after migrations.
+  - Existing repos with empty `file_summaries` or `file_clusters` self-heal without a manual full reindex.
+- linked tests:
+  - `npx vitest run tests/integration/mcp-server.test.ts tests/core/backfill-derived-data.test.ts`
+- status: done
+
+### P1 Stabilization And Retrieval Foundation
 
 #### CW-P1-001
 - owner: codex
-- scope/files: `src/core/indexer.ts`, `src/utils/config.ts`, `src/cli/commands/init.ts`, `src/mcp/tools/status.ts`, `tests/security/`, `tests/cli/`, `tests/core/`
+- scope/files: `package.json`, `src/core/chunker.ts`, `src/core/types.ts`, `tests/core/chunker.test.ts`
 - acceptance criteria:
-  - Project profiling surfaces active roots, excluded roots, and suspicious noise directories during init/status.
-  - Language-aware ignore defaults and `.cwignore` UX are explicit and validated for Python, JS/TS, and mixed repos.
-  - Legacy/demo/vendor/venv pollution is either excluded or clearly explained in status output.
+  - Add `code-chunk`.
+  - Build AST-aware chunk generation with scope-chain and import-aware enrichment for supported languages.
+  - Provide fallback chunking for unsupported languages still covered by ContextWeave.
 - linked tests:
-  - `npx vitest run tests/security/*.test.ts tests/cli/*.test.ts tests/core/reindex-*.test.ts`
-  - `npm test`
+  - `npx vitest run tests/core/chunker.test.ts`
 - status: done
 
 #### CW-P1-002
 - owner: codex
-- scope/files: `src/core/indexer.ts`, `src/core/types.ts`, `src/db/schema.ts`, `src/db/migrations.ts`, `src/mcp/tools/read.ts`, `src/mcp/tools/overview.ts`, `tests/core/`, `tests/integration/`
+- scope/files: `src/db/schema.ts`, `src/db/migrations.ts`, `src/core/indexer.ts`, `src/core/chunker.ts`, `tests/core/indexer-chunks.test.ts`
 - acceptance criteria:
-  - Markdown, JSON, and YAML documents can be indexed as structured retrieval units where they materially shape behavior.
-  - Capsules and navigation can surface rule/config documents for codebases like EBPS without polluting symbol retrieval.
-  - Read/overview tools can show document summaries and targeted excerpts safely.
+  - Add a persistent `chunks` table in SQLite.
+  - Indexing populates and refreshes chunk rows alongside symbols and file summaries.
 - linked tests:
-  - `npx vitest run tests/core/*.test.ts tests/integration/*.test.ts`
-  - `npm test`
+  - `npx vitest run tests/core/indexer-chunks.test.ts tests/db/migration-upgrade-path.test.ts`
 - status: done
 
 #### CW-P1-003
 - owner: codex
-- scope/files: `src/memory/passive.ts`, `src/memory/observations.ts`, `src/memory/search.ts`, `src/hooks/post-tool-use.ts`, `src/hooks/session-end.ts`, `tests/memory/`, `tests/integration/`
+- scope/files: `package.json`, `src/core/embedder.ts`, `src/core/types.ts`, `tests/core/embedder.test.ts`
 - acceptance criteria:
-  - Passive query-resolution logs are hidden or heavily downweighted by default in `cw_recall`.
-  - Durable observations can be seeded automatically from `CLAUDE.md`, `README`, architecture docs, and validated follow-up actions.
-  - `cw_recall` returns concise insights first, not raw search-history noise.
+  - Add `@huggingface/transformers`.
+  - Local embedding pipeline runs `all-MiniLM-L6-v2` without API keys.
+  - Embedding output is stable at 384 dimensions.
 - linked tests:
-  - `npx vitest run tests/memory/*.test.ts tests/integration/passive-observation-recall.test.ts tests/integration/recall-tool-grouping.test.ts`
-  - `npm test`
+  - `npx vitest run tests/core/embedder.test.ts`
 - status: done
 
 #### CW-P1-004
 - owner: codex
-- scope/files: `src/core/parser.ts`, `src/core/queries/javascript.ts`, `src/core/queries/python.ts`, `tests/core/`, `tests/unit/`
+- scope/files: `package.json`, `src/core/vector-store.ts`, `src/db/schema.ts`, `src/db/migrations.ts`, `tests/core/vector-store.test.ts`
 - acceptance criteria:
-  - JavaScript object-literal exports, `module.exports`, IIFEs, and browser-global assignment patterns produce usable symbols/edges.
-  - Python CLI entrypoints and `__main__`-style scripts are discoverable for impact/flow/navigation.
-  - Reviewed "zero-symbol utility/config file" cases are covered by parser tests.
+  - Add `sqlite-vec`.
+  - Vector storage and nearest-neighbor search live in the same SQLite database.
+  - Schema and migration paths are upgrade-safe.
 - linked tests:
-  - `npx vitest run tests/core/*.test.ts tests/unit/parser.test.ts`
-  - `npm test`
+  - `npx vitest run tests/core/vector-store.test.ts tests/db/migration-upgrade-path.test.ts`
 - status: done
 
 #### CW-P1-005
 - owner: codex
-- scope/files: `README.md`, `CATALOG.md`, `CHANGELOG.md`, `audits/IMPLEMENTATION_PLAN_END_TO_END.md`, `audits/SPRINT_PROGRESS.md`, `.github/workflows/ci.yml`
+- scope/files: `src/core/indexer.ts`, `src/core/watcher.ts`, `src/core/embedder.ts`, `src/core/vector-store.ts`, `tests/core/indexer-embedding.test.ts`, `tests/core/watcher-behavior.test.ts`
 - acceptance criteria:
-  - Public docs match the actual tool surface, watcher implementation, uncertainty model, and current test/benchmark footprint.
-  - Sprint tracker reflects current evidence only; no ticket is marked done without fresh verification.
-  - CI gates on `lint`, `test`, and the new field-regression suite.
+  - Indexing embeds pending chunks after persistence.
+  - Watcher updates re-embed only changed chunks incrementally.
+  - Embedding model becomes configurable from project config.
 - linked tests:
-  - `npm run lint`
-  - `npm test`
-  - `npx vitest run tests/field/*.test.ts`
+  - `npx vitest run tests/core/indexer-embedding.test.ts tests/core/watcher-behavior.test.ts`
 - status: done
 
-### P2 (future-proofing)
+#### CW-P1-006
+- owner: codex
+- scope/files: `src/core/hybrid-ranker.ts`, `src/capsule/generator.ts`, `src/capsule/semantic-reranker.ts`, `src/mcp/tools/capsule.ts`, `tests/capsule/hybrid-ranker.test.ts`, `tests/integration/capsule.test.ts`
+- acceptance criteria:
+  - Replace the lexical-only semantic reranker with BM25 + vector similarity + exact symbol match fused through RRF.
+  - Capsule retrieval quality improves without breaking narrow exact reads.
+- linked tests:
+  - `npx vitest run tests/capsule/hybrid-ranker.test.ts tests/integration/capsule.test.ts`
+- status: todo
+
+### P2 Future-Proofing And Productization
 
 #### CW-P2-001
 - owner: codex
-- scope/files: `src/capsule/`, `src/memory/`, `src/utils/`, `bench/`, `docs/plans/`
+- scope/files: `src/capsule/intent-classifier.ts`, `src/capsule/generator.ts`, `src/capsule/formatter.ts`, `src/mcp/tools/capsule.ts`, `src/core/types.ts`, `tests/capsule/*.test.ts`
 - acceptance criteria:
-  - Add an optional local semantic reranking layer for broad conceptual queries after deterministic structural fixes are complete.
-  - Measure whether semantic reranking improves field-suite must-include recall without hiding explainability.
+  - Capsule routing uses a rewritten intent classifier and structured output contract.
+  - Follow-up reads are file-qualified and ranked per active query intent.
 - linked tests:
-  - `npx vitest run tests/field/*.test.ts`
-  - `npm run bench`
-- status: done
+  - `npx vitest run tests/capsule/*.test.ts`
+- status: todo
 
 #### CW-P2-002
 - owner: codex
-- scope/files: `src/frameworks/`, `src/core/`, `src/mcp/tools/`, `docs/plans/`
+- scope/files: `src/core/weighted-bfs.ts`, `src/capsule/generator.ts`, `src/capsule/formatter.ts`, `tests/capsule/multi-pass-generator.test.ts`
 - acceptance criteria:
-  - Framework-specific indexing/tracing moves behind a plugin boundary instead of accumulating ad-hoc heuristics in core retrieval.
-  - First plugin boundary supports at least Next.js and Express conventions cleanly.
+  - Graph expansion happens after search, not before.
+  - Query-aware follow-up ranking prefers the highest-value unresolved runtime surfaces.
 - linked tests:
-  - `npx vitest run tests/field/*.test.ts tests/integration/*.test.ts`
-  - `npm test`
-- status: done
+  - `npx vitest run tests/capsule/multi-pass-generator.test.ts tests/integration/capsule.test.ts`
+- status: todo
 
 #### CW-P2-003
 - owner: codex
-- scope/files: `docs/plans/`, `bench/`, `tests/eval/`
+- scope/files: `src/core/file-summaries.ts`, `src/db/schema.ts`, `src/db/migrations.ts`, `tests/core/file-summaries.test.ts`
 - acceptance criteria:
-  - Define Augment-style product benchmarks that measure agent task completion, token spend, and correction rate against real repo tasks.
-  - Use those benchmarks as the north-star comparison instead of synthetic token reduction alone.
+  - File summaries index body-aware features such as JSX text, SQL names, and API calls.
+  - IDF suppression reduces repetitive low-signal terms in summaries and retrieval.
+- linked tests:
+  - `npx vitest run tests/core/file-summaries.test.ts`
+- status: todo
+
+#### CW-P2-004
+- owner: codex
+- scope/files: `src/core/pattern-detector.ts`, `src/memory/observations.ts`, `src/memory/search.ts`, `tests/core/pattern-detector.test.ts`, `tests/memory/*.test.ts`
+- acceptance criteria:
+  - Structural pattern detection identifies repeated conventions across files.
+  - Repeated high-signal findings are promoted into reusable observations.
+- linked tests:
+  - `npx vitest run tests/core/pattern-detector.test.ts tests/memory/*.test.ts`
+- status: todo
+
+#### CW-P2-005
+- owner: codex
+- scope/files: `src/core/parser.ts`, `src/core/indexer.ts`, `src/mcp/tools/flow.ts`, `tests/core/dynamic-dispatch-edges.test.ts`, `tests/unit/flow.test.ts`
+- acceptance criteria:
+  - Flow tracing handles callbacks, dynamic dispatch, server actions, and import resolution more accurately.
+  - Cross-boundary traces remain deduplicated and useful.
+- linked tests:
+  - `npx vitest run tests/core/dynamic-dispatch-edges.test.ts tests/unit/flow.test.ts`
+- status: todo
+
+#### CW-P2-006
+- owner: codex
+- scope/files: `bench/cross-project-qa.ts`, `bench/harness.ts`, `bench/run-project-qa.ts`, `bench/100k-harness.ts`, `README.md`, `CATALOG.md`, `CHANGELOG.md`, `research/augment-vs-contextweave.md`, `audits/PRODUCT_GRADE_RELEASE_CHECKLIST.md`
+- acceptance criteria:
+  - Benchmarks cover the five field reviews plus the new semantic stack honestly.
+  - Token savings metrics are reported alongside first-pass correctness, not instead of it.
+  - Public docs and the Augment comparison match the actual shipped capabilities.
 - linked tests:
   - `npm run eval`
-  - `npm run bench`
-- status: done
+  - `npm run bench:product`
+  - `npm run lint`
+- status: todo
+
+## Current Completion Snapshot
+- P0 complete in this plan: 5/10
+- P1 complete in this plan: 0/6
+- P2 complete in this plan: 0/6
+- Overall complete in this plan: 5/22
+
+## Immediate Next Tickets
+1. `CW-P0-001` exact-match boost in pivot ranking.
+2. `CW-P0-002` exact-match fast path to suppress fallback explosion.
+3. `CW-P0-003` token budget refill and late-stage expansion.
+4. `CW-P0-007` directory weighting config knobs.
+5. `CW-P0-008` TSX benign-error tolerance.
