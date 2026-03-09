@@ -39,7 +39,6 @@ export interface FieldProject {
   capsule: (
     query: string,
     tokenBudget?: number,
-    options?: { semanticRerank?: boolean }
   ) => ReturnType<typeof generateCapsule>;
   runTool: (name: string, args: unknown) => Promise<string>;
   close: () => void;
@@ -84,13 +83,12 @@ export async function openFieldProject(
     db,
     fixtureRoot,
     sessionId,
-    capsule(query: string, tokenBudget = 1200, options?: { semanticRerank?: boolean }) {
+    capsule(query: string, tokenBudget = 1200) {
       return generateCapsule(db, {
         query,
         tokenBudget,
         sessionId,
         projectRoot: fixtureRoot,
-        semanticRerank: options?.semanticRerank,
       });
     },
     async runTool(name: string, args: unknown) {

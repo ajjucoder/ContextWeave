@@ -77,7 +77,7 @@ describe("directory reindex", () => {
     const db = new Database(dbPath);
     const files = fileQueries(db).getAll();
     expect(files.length).toBeGreaterThan(0);
-    expect(files.some((file) => file.path.includes(`${resolve(projectRoot, "src")}${"/"}`) || file.path.includes(`${resolve(projectRoot, "src")}\\`))).toBe(true);
+    expect(files.some((file) => file.path.startsWith("src/") || file.path.startsWith("src\\"))).toBe(true);
     db.close();
   });
 });

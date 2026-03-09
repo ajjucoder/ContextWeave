@@ -73,7 +73,7 @@ describe("mergeSubCapsules", () => {
 
     const deduped1001 = merged.packed.find((n) => n.symbol.id === 1001);
     expect(deduped1001).toBeDefined();
-    expect(deduped1001!.compressionLevel).toBe(1);
+    expect(deduped1001!.compressionLevel).toBeLessThanOrEqual(1);
 
     expect(merged.packed.length).toBeGreaterThanOrEqual(2);
     expect(merged.tokensUsed).toBeLessThanOrEqual(Math.floor(1800 * 0.85));

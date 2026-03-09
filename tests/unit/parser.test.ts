@@ -269,6 +269,32 @@ window.startServer = startServer;
     expect(malformed.errors.some((error) => error.includes("Syntax errors detected"))).toBe(true);
   });
 
+  it("tolerates benign TSX JSX text parse warnings caused by ampersands", () => {
+    const content = `
+      export function TermsPage() {
+        return <p>Terms & Conditions &amp; Privacy</p>;
+      }
+    `;
+    const parsed = parseFile("terms.tsx", content, "tsx");
+    const termsPage = parsed.symbols.find((symbol) => symbol.name === "TermsPage");
+
+    expect(parsed.errors).toHaveLength(0);
+    expect(termsPage).toBeDefined();
+    expect(termsPage?.kind).toBe("function");
+  });
+
+  it("keeps real TSX syntax errors when the failure is outside benign JSX text", () => {
+    const content = `
+      export function BrokenTermsPage() {
+        const value = ;
+        return <p>Terms & Conditions</p>;
+      }
+    `;
+    const parsed = parseFile("broken-terms.tsx", content, "tsx");
+
+    expect(parsed.errors.some((error) => error.includes("Syntax errors detected"))).toBe(true);
+  });
+
   it("accepts replacement-character input from non-utf8 sources", () => {
     const content = Buffer.from([0xff, 0xfe, 0xfd, 0x61]).toString("utf-8");
     const parsed = parseFile("binary.ts", content, "typescript");
@@ -372,6 +398,52 @@ class Service:
 
     expect(parsed.errors).toHaveLength(0);
     expect(names).toContain("new_service");
+  });
+
+  it("detects server-action edges for file-level 'use server' directive with exported functions", () => {
+    const content = `
+'use server';
+
+export async function createUser(data: FormData) {
+  return { id: 1, name: data.get("name") };
+}
+
+export async function deleteUser(id: number) {
+  return { deleted: id };
+}
+
+function internalHelper() {
+  return true;
+}
+`;
+    const parsed = parseFile("actions.ts", content, "typescript");
+    const serverActionEdges = parsed.calls.filter((call) => call.edgeKind === "server-action");
+
+    expect(parsed.errors).toHaveLength(0);
+    expect(serverActionEdges.length).toBeGreaterThanOrEqual(1);
+    expect(serverActionEdges.some((edge) => edge.callerSymbol === "createUser")).toBe(true);
+    expect(serverActionEdges.some((edge) => edge.callerSymbol === "deleteUser")).toBe(true);
+    expect(serverActionEdges.every((edge) => edge.calleeName === edge.callerSymbol)).toBe(true);
+    expect(serverActionEdges.some((edge) => edge.callerSymbol === "internalHelper")).toBe(false);
+  });
+
+  it("detects server-action edges for inline 'use server' directive inside a function body", () => {
+    const content = `
+export async function submitForm(data: FormData) {
+  'use server';
+  return { ok: true, value: data.get("field") };
+}
+
+export function clientComponent() {
+  return null;
+}
+`;
+    const parsed = parseFile("mixed.tsx", content, "tsx");
+    const serverActionEdges = parsed.calls.filter((call) => call.edgeKind === "server-action");
+
+    expect(parsed.errors).toHaveLength(0);
+    expect(serverActionEdges.some((edge) => edge.callerSymbol === "submitForm")).toBe(true);
+    expect(serverActionEdges.some((edge) => edge.callerSymbol === "clientComponent")).toBe(false);
   });
 
   it("parses all language fixtures with symbols and language-appropriate graph metadata", () => {

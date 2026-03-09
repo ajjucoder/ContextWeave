@@ -10,6 +10,7 @@ interface SymbolRow {
   signature: string;
   centrality: number;
   is_exported: number;
+  full_source?: string;
 }
 
 interface EdgeCountRow {
@@ -214,12 +215,46 @@ function buildSummaryText(filePath: string, symbols: SymbolRow[]): string {
   return `${pathTokens} ${symbolNames} ${signatureTokens} ${kinds}`.toLowerCase();
 }
 
+function extractBodyFeatures(symbols: SymbolRow[]): string {
+  const features = new Set<string>();
+  const addWords = (value: string) => {
+    const lower = value.toLowerCase().trim();
+    if (lower.length >= 3) {
+      features.add(lower);
+    }
+    for (const token of lower.split(/[^a-z0-9_.:$]+/).filter((part) => part.length >= 3)) {
+      features.add(token);
+    }
+  };
+
+  for (const symbol of symbols) {
+    const source = symbol.full_source ?? "";
+    for (const match of source.matchAll(/(?:[A-Za-z_$][A-Za-z0-9_$]*\.)+[A-Za-z_$][A-Za-z0-9_$]*/g)) {
+      addWords(match[0]);
+    }
+    for (const match of source.matchAll(/process\.env\.([A-Z0-9_]+)/g)) {
+      addWords(match[1]);
+    }
+    for (const match of source.matchAll(/\b(?:SELECT|INSERT|UPDATE|DELETE)\b[\s\S]{0,120}/gi)) {
+      addWords(match[0]);
+    }
+    for (const match of source.matchAll(/>([^<]{4,})</g)) {
+      addWords(match[1].replace(/&amp;/g, "and"));
+    }
+    for (const match of source.matchAll(/["'`]([^"'`]{4,})["'`]/g)) {
+      addWords(match[1]);
+    }
+  }
+
+  return [...features].sort((a, b) => a.localeCompare(b)).join(" ");
+}
+
 export function computeFileSummary(
   db: Database.Database,
   fileId: number
-): { summaryText: string; symbolCount: number; edgeCount: number; avgCentrality: number; exportNames: string } {
+): { summaryText: string; bodyFeatures: string; symbolCount: number; edgeCount: number; avgCentrality: number; exportNames: string } {
   const symbols = db.prepare(
-    "SELECT name, kind, signature, centrality, is_exported FROM symbols WHERE file_id = ?"
+    "SELECT name, kind, signature, centrality, is_exported, full_source FROM symbols WHERE file_id = ?"
   ).all(fileId) as SymbolRow[];
 
   const filePath =
@@ -243,6 +278,7 @@ export function computeFileSummary(
 
   return {
     summaryText: buildSummaryText(filePath, symbols),
+    bodyFeatures: extractBodyFeatures(symbols),
     symbolCount: symbols.length,
     edgeCount: edgeCountRow.count,
     avgCentrality,
@@ -251,43 +287,43 @@ export function computeFileSummary(
 }
 
 export function upsertFileSummary(db: Database.Database, fileId: number): void {
-  const { summaryText, symbolCount, edgeCount, avgCentrality, exportNames } =
+  const { summaryText, bodyFeatures, symbolCount, edgeCount, avgCentrality, exportNames } =
     computeFileSummary(db, fileId);
 
   const existing = db.prepare(
-    "SELECT summary_text FROM file_summaries WHERE file_id = ?"
-  ).get(fileId) as { summary_text: string } | undefined;
+    "SELECT summary_text, body_features FROM file_summaries WHERE file_id = ?"
+  ).get(fileId) as { summary_text: string; body_features: string } | undefined;
 
   db.prepare(`
-    INSERT INTO file_summaries (file_id, export_names, symbol_count, edge_count, avg_centrality, summary_text, computed_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO file_summaries (file_id, export_names, symbol_count, edge_count, avg_centrality, summary_text, body_features, computed_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(file_id) DO UPDATE SET
       export_names   = excluded.export_names,
       symbol_count   = excluded.symbol_count,
       edge_count     = excluded.edge_count,
       avg_centrality = excluded.avg_centrality,
       summary_text   = excluded.summary_text,
+      body_features  = excluded.body_features,
       computed_at    = excluded.computed_at
-  `).run(fileId, exportNames, symbolCount, edgeCount, avgCentrality, summaryText, Date.now());
+  `).run(fileId, exportNames, symbolCount, edgeCount, avgCentrality, summaryText, bodyFeatures, Date.now());
 
   if (existing) {
     db.prepare(
-      "INSERT INTO file_summaries_fts(file_summaries_fts, rowid, summary_text) VALUES ('delete', ?, ?)"
-    ).run(fileId, existing.summary_text);
+      "INSERT INTO file_summaries_fts(file_summaries_fts, rowid, summary_text, body_features) VALUES ('delete', ?, ?, ?)"
+    ).run(fileId, existing.summary_text, existing.body_features);
   }
   db.prepare(
-    "INSERT INTO file_summaries_fts(rowid, summary_text) VALUES (?, ?)"
-  ).run(fileId, summaryText);
+    "INSERT INTO file_summaries_fts(rowid, summary_text, body_features) VALUES (?, ?, ?)"
+  ).run(fileId, summaryText, bodyFeatures);
 }
 
 export function backfillSummariesIfNeeded(db: Database.Database): boolean {
   const fileCount = (db.prepare("SELECT COUNT(*) as c FROM files").get() as { c: number }).c;
   if (fileCount === 0) return false;
 
-  const summaryCount = (db.prepare("SELECT COUNT(*) as c FROM file_summaries").get() as { c: number }).c;
-  if (summaryCount >= fileCount) return false;
-
-  const fileIds = db.prepare("SELECT id FROM files WHERE id NOT IN (SELECT file_id FROM file_summaries)").all() as Array<{ id: number }>;
+  const fileIds = db.prepare(`
+    SELECT id FROM files WHERE id NOT IN (SELECT file_id FROM file_summaries)
+  `).all() as Array<{ id: number }>;
   if (fileIds.length === 0) return false;
 
   const backfill = db.transaction(() => {
@@ -302,7 +338,8 @@ export function backfillSummariesIfNeeded(db: Database.Database): boolean {
 export function searchFilesByQuery(
   db: Database.Database,
   query: string,
-  limit: number
+  limit: number,
+  projectRoot?: string
 ): Array<{ fileId: number; path: string }> {
   const terms = query.toLowerCase().replace(/[^a-z0-9\s]/g, " ").trim();
   if (!terms) return [];
@@ -342,7 +379,7 @@ export function searchFilesByQuery(
     for (const row of rows) {
       const hits = hitCounts.get(row.file_id) ?? { exactHits: 0, expandedHits: 0 };
       const retrievalPath = normalizeRetrievalPath(row.path, 6);
-      const directoryWeight = getDirectoryWeight(retrievalPath);
+      const directoryWeight = getDirectoryWeight(retrievalPath, projectRoot);
       const testPenalty = !testFocusedQuery && isTestLikePath(retrievalPath) ? 0.35 : 1;
       const configPenalty = !configFocusedQuery && isConfigLikePath(retrievalPath) ? 0.18 : 1;
       const runtimeBoost = runtimeFocusedQuery && isRuntimeLikePath(retrievalPath) ? 1.35 : 1;

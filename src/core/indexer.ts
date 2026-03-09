@@ -1,6 +1,6 @@
 import { readFileSync, statSync, lstatSync, realpathSync, readdirSync } from "node:fs";
 import type { Dirent } from "node:fs";
-import { resolve, sep, dirname, join, extname } from "node:path";
+import { resolve, relative, sep, dirname, join, extname } from "node:path";
 import { Worker } from "node:worker_threads";
 import { cpus } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -17,6 +17,7 @@ import { isFrameworkEntryPath } from "../utils/path-retrieval.js";
 import { upsertFileSummary, backfillSummariesIfNeeded } from "./file-summaries.js";
 import { computeClusters, backfillClustersIfNeeded } from "./clusters.js";
 import { backfillChunksIfNeeded, buildEmbeddingChunks } from "./chunker.js";
+import { detectPatterns, backfillPatternsIfNeeded } from "./pattern-detector.js";
 import { loadTsconfigPaths, resolveAliasedImport, type TsconfigPaths } from "../utils/tsconfig-paths.js";
 import { resolveFrameworkTargets } from "../frameworks/registry.js";
 
@@ -288,7 +289,7 @@ async function discoverFiles(
       try {
         const stat = statSync(fullPath);
         files.push({
-          path: fullPath,
+          path: relativePath.replace(/\\/g, "/"),
           mtime: stat.mtimeMs,
           size: stat.size,
         });
@@ -406,6 +407,7 @@ function resolveEdges(
   db: Database.Database,
   fileId: number,
   filePath: string,
+  projectRoot: string,
   parseResult: ReturnType<typeof parseFile>,
   symbolMap: Map<string, number>,
   tsconfigPaths?: TsconfigPaths | null,
@@ -546,7 +548,8 @@ function resolveEdges(
 
     const fileIds: number[] = [];
     for (const candidatePath of candidatePaths) {
-      const candidateFile = files.getByPath(candidatePath);
+      const relCandidate = relative(projectRoot, candidatePath).replace(/\\/g, "/");
+      const candidateFile = files.getByPath(relCandidate);
       if (!candidateFile) continue;
       fileIds.push(candidateFile.id);
     }
@@ -601,7 +604,7 @@ function resolveEdges(
           .map((specifier) => specifier.importedName);
       if (lookups.length === 0) continue;
 
-      const sourceFileIds = resolveSourceFileIds(reExport.source, file.path);
+      const sourceFileIds = resolveSourceFileIds(reExport.source, resolve(projectRoot, file.path));
       for (const sourceFileId of sourceFileIds) {
         const sourceFile = getFileRecord(sourceFileId);
         if (!sourceFile) continue;
@@ -791,12 +794,13 @@ function resolveEdges(
       symbols,
       pickTargets,
     });
+    const edgeKind = frameworkCall.framework === "express_route" ? "route-handler" : "framework_entry";
     for (const targetId of targetIds) {
       if (callerId === targetId) continue;
       edges.insert({
         sourceSymbolId: callerId,
         targetSymbolId: targetId,
-        kind: "framework_entry",
+        kind: edgeKind,
         createdAt: now,
       });
     }
@@ -930,6 +934,7 @@ function runParseWorkerBatch(filePaths: string[]): Promise<WorkerFileParseResult
 function writeParseResult(
   db: Database.Database,
   filePath: string,
+  projectRoot: string,
   hash: string,
   fileMtime: number,
   language: string,
@@ -944,7 +949,8 @@ function writeParseResult(
   const edgesDb = edgeQueries(db);
   const chunksDb = chunkQueries(db);
 
-  const existingFile = files.getByPath(filePath);
+  const relativePath = relative(projectRoot, filePath).replace(/\\/g, "/");
+  const existingFile = files.getByPath(relativePath);
   const now = parsedAt;
 
   if (existingFile && existingFile.lastIndexed > parsedAt) {
@@ -989,7 +995,7 @@ function writeParseResult(
     fileId = existingFile.id;
   } else {
     fileId = files.insert({
-      path: filePath,
+      path: relativePath,
       hash,
       lastIndexed: now,
       mtime: fileMtime,
@@ -1031,7 +1037,7 @@ function writeParseResult(
   }
 
   if (shouldResolveEdges) {
-    resolveEdges(db, fileId, filePath, parseResult, symbolMap, tsconfigPaths);
+    resolveEdges(db, fileId, filePath, projectRoot, parseResult, symbolMap, tsconfigPaths);
   }
   chunksDb.replaceForFile(fileId, preparedChunks, now);
   return {
@@ -1125,22 +1131,25 @@ export async function indexProject(
   if (toProcess.length === 0) {
     const backfilledSummaries = backfillSummariesIfNeeded(db);
     const backfilledClusters = backfillClustersIfNeeded(db, projectRoot);
+    const backfilledPatterns = backfillPatternsIfNeeded(db);
     const backfilledChunks = await backfillChunksIfNeeded(db, projectRoot);
-    if (backfilledSummaries || backfilledClusters || backfilledChunks) {
+    if (backfilledSummaries || backfilledClusters || backfilledPatterns || backfilledChunks) {
       log.info("backfilled derived data for existing files", {
         summaries: backfilledSummaries,
         clusters: backfilledClusters,
+        patterns: backfilledPatterns,
         chunks: backfilledChunks,
       });
     }
     return { filesIndexed: filePaths.length, symbolsFound: 0, errors: allErrors };
   }
 
-  const workerCount = Math.min(WORKER_CONCURRENCY, toProcess.length);
-  const batchSize = Math.max(1, Math.ceil(toProcess.length / workerCount));
+  const toProcessAbsolute = toProcess.map((relPath) => resolve(projectRoot, relPath));
+  const workerCount = Math.min(WORKER_CONCURRENCY, toProcessAbsolute.length);
+  const batchSize = Math.max(1, Math.ceil(toProcessAbsolute.length / workerCount));
   const batches: string[][] = [];
-  for (let i = 0; i < toProcess.length; i += batchSize) {
-    batches.push(toProcess.slice(i, i + batchSize));
+  for (let i = 0; i < toProcessAbsolute.length; i += batchSize) {
+    batches.push(toProcessAbsolute.slice(i, i + batchSize));
   }
 
   const settledBatches = await Promise.allSettled(batches.map((batch) => runParseWorkerBatch(batch)));
@@ -1186,6 +1195,7 @@ export async function indexProject(
         const result = writeParseResult(
           db,
             parsed.filePath,
+            projectRoot,
             parsed.hash,
             parsed.mtime,
             parsed.language,
@@ -1233,7 +1243,8 @@ export async function indexProject(
   const fileRecordByPath = new Map<string, ReturnType<typeof filesDb.getByPath>>();
   const getResolvedFileRecord = (filePath: string) => {
     if (!fileRecordByPath.has(filePath)) {
-      fileRecordByPath.set(filePath, filesDb.getByPath(filePath));
+      const relPath = relative(projectRoot, filePath).replace(/\\/g, "/");
+      fileRecordByPath.set(filePath, filesDb.getByPath(relPath));
     }
     return fileRecordByPath.get(filePath);
   };
@@ -1254,7 +1265,7 @@ export async function indexProject(
           if (!symbolMap.has(symbol.name)) symbolMap.set(symbol.name, symbol.id);
         }
 
-        resolveEdges(db, fileRecord.id, pending.filePath, pending.parseResult, symbolMap, tsconfigPaths, reExportsByFileId);
+        resolveEdges(db, fileRecord.id, pending.filePath, projectRoot, pending.parseResult, symbolMap, tsconfigPaths, reExportsByFileId);
       }
     });
     resolveChunk();
@@ -1273,6 +1284,7 @@ export async function indexProject(
   }
 
   computeClusters(db, projectRoot);
+  detectPatterns(db);
 
   log.info(`indexed ${toProcess.length} files, ${totalSymbols} symbols`);
   return { filesIndexed: filePaths.length, symbolsFound: totalSymbols, errors: allErrors };
@@ -1306,7 +1318,8 @@ export async function indexDirectory(
 
   const discoveredPaths = new Set(inDirectory.map((f) => f.path));
   const files = fileQueries(db);
-  const existingInDir = files.searchByPath(resolvedDirectory, 100000);
+  const relativeDir = relative(projectRoot, resolvedDirectory).replace(/\\/g, "/");
+  const existingInDir = files.searchByPath(relativeDir, 100000);
   let prunedCount = 0;
   for (const existing of existingInDir) {
     if (!discoveredPaths.has(existing.path)) {
@@ -1344,7 +1357,7 @@ export async function indexSingleFile(
   extraIgnore?: string[],
   options: IndexerOptions = {}
 ): Promise<{ symbolCount: number; errors: string[]; diff: IndexDiff | null }> {
-  const resolvedPath = resolve(filePath);
+  const resolvedPath = resolve(projectRoot, filePath);
 
   if (!isPathWithinRoot(resolvedPath, projectRoot)) {
     return { symbolCount: 0, errors: [`Path "${filePath}" is outside project root`], diff: null };
@@ -1381,7 +1394,8 @@ export async function indexSingleFile(
     return { symbolCount: 0, errors: [`Unsupported language for "${filePath}" (extension "${extension}")`], diff: null };
   }
 
-  const existingFile = files.getByPath(resolvedPath);
+  const relPath = relative(projectRoot, resolvedPath).replace(/\\/g, "/");
+  const existingFile = files.getByPath(relPath);
 
   let fileMtime = 0;
   let fileSize = 0;
@@ -1422,6 +1436,7 @@ export async function indexSingleFile(
   const result = writeParseResult(
     db,
     resolvedPath,
+    projectRoot,
     hash,
     fileMtime,
     language,
@@ -1440,6 +1455,8 @@ export async function indexSingleFile(
     }
   }
 
+  detectPatterns(db);
+
   return {
     symbolCount: result.symbolCount,
     errors: result.errors,
@@ -1447,6 +1464,7 @@ export async function indexSingleFile(
   };
 }
 
-export function removeFile(db: Database.Database, filePath: string): void {
-  fileQueries(db).deleteByPath(filePath);
+export function removeFile(db: Database.Database, filePath: string, projectRoot: string): void {
+  const relPath = relative(projectRoot, filePath).replace(/\\/g, "/");
+  fileQueries(db).deleteByPath(relPath);
 }

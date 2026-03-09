@@ -10,6 +10,12 @@ export interface PivotCandidate {
 export interface RankedPivots {
   ranked: Map<number, number>;
   scores: number[];
+  scored: Array<{ id: number; score: number; exactNameMatch: boolean }>;
+}
+
+interface PivotRelevance {
+  score: number;
+  exactNameMatch: boolean;
 }
 
 const FRAMEWORK_ENTRY_RE = /(^|\/)app\/.+\/route\.[cm]?[jt]sx?$/i;
@@ -139,13 +145,32 @@ function stemMatch(token: string, term: string): boolean {
   return true;
 }
 
-export function scorePivotRelevance(candidate: PivotCandidate, queryTerms: string[]): number {
-  if (queryTerms.length === 0) return 0;
+function resolveTermWeight(term: string, idfWeights?: Map<string, number>): number {
+  const raw = idfWeights?.get(term.toLowerCase()) ?? 1;
+  return raw < 0.5 ? raw * 0.5 : raw;
+}
 
-  const sigLower = candidate.signature.toLowerCase();
+function describePivotRelevance(
+  candidate: PivotCandidate,
+  queryTerms: string[],
+  idfWeights?: Map<string, number>
+): PivotRelevance {
+  if (queryTerms.length === 0) {
+    return { score: 0, exactNameMatch: false };
+  }
+
+  const sigLower = (candidate.signature ?? "").toLowerCase();
   const pathLower = normalizeRetrievalPath(candidate.filePath, 6).toLowerCase();
   const nameLower = candidate.name.toLowerCase();
   const kindLower = candidate.kind.toLowerCase();
+  const normalizedQueryTerms = queryTerms.map((term) => term.toLowerCase()).filter(Boolean);
+  const expandedQueryTerms = new Set<string>();
+  for (const term of normalizedQueryTerms) {
+    expandedQueryTerms.add(term);
+    for (const token of extractSignalTokens(term)) {
+      expandedQueryTerms.add(token);
+    }
+  }
 
   const nameTokens = candidate.name
     .replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -158,27 +183,50 @@ export function scorePivotRelevance(candidate: PivotCandidate, queryTerms: strin
     .replace(/[_\-./\\]/g, " ")
     .split(/\s+/)
     .filter(Boolean);
+  const canonicalPathSegments = pathLower
+    .split("/")
+    .map((segment) => segment.replace(/\.[^.]+$/, ""))
+    .map((segment) => segment.replace(/[^a-z0-9]+/g, ""))
+    .filter(Boolean);
+  const canonicalQueryTerms = normalizedQueryTerms
+    .map((term) => term.replace(/[^a-z0-9]+/g, ""))
+    .filter(Boolean);
 
-  const nameTermHits = queryTerms.filter((term) =>
-    nameTokens.some((t) => stemMatch(t, term))
-  ).length;
-  const sigTermHits = queryTerms.filter((term) => sigLower.includes(term)).length;
-  const pathTermHits = queryTerms.filter((term) =>
-    pathTokens.some((t) => stemMatch(t, term))
-  ).length;
+  const exactCaseInsensitiveMatch = normalizedQueryTerms.some((term) => term === nameLower);
+  const camelCaseMatch = nameTokens.length > 1 && nameTokens.every((token) => expandedQueryTerms.has(token));
+  const pathSegmentMatch = canonicalQueryTerms.some((term) => canonicalPathSegments.includes(term));
+  const exactNameMatch = exactCaseInsensitiveMatch || camelCaseMatch || pathSegmentMatch;
 
-  if (nameTermHits === 0 && sigTermHits === 0 && pathTermHits === 0) return 0;
+  const weightedNameHits = queryTerms.reduce(
+    (sum, term) => sum + (nameTokens.some((t) => stemMatch(t, term)) ? resolveTermWeight(term, idfWeights) : 0),
+    0
+  );
+  const weightedSigHits = queryTerms.reduce(
+    (sum, term) => sum + (sigLower.includes(term) ? resolveTermWeight(term, idfWeights) : 0),
+    0
+  );
+  const weightedPathHits = queryTerms.reduce(
+    (sum, term) => sum + (pathTokens.some((t) => stemMatch(t, term)) ? resolveTermWeight(term, idfWeights) : 0),
+    0
+  );
 
-  const totalTerms = queryTerms.length;
+  if (weightedNameHits === 0 && weightedSigHits === 0 && weightedPathHits === 0 && !exactNameMatch) {
+    return { score: 0, exactNameMatch: false };
+  }
 
-  const nameCoverage = nameTermHits / totalTerms;
-  const nameScore = nameTermHits * (1 + nameCoverage * 3);
+  const totalTermWeight = Math.max(
+    queryTerms.reduce((sum, term) => sum + resolveTermWeight(term, idfWeights), 0),
+    1
+  );
 
-  const sigCoverage = sigTermHits / totalTerms;
-  const sigScore = sigTermHits * (1 + sigCoverage) * 0.5;
+  const nameCoverage = weightedNameHits / totalTermWeight;
+  const nameScore = weightedNameHits * (1 + nameCoverage * 3);
 
-  const pathCoverage = pathTermHits / totalTerms;
-  const pathScore = pathTermHits * (1 + pathCoverage) * 0.3;
+  const sigCoverage = weightedSigHits / totalTermWeight;
+  const sigScore = weightedSigHits * (1 + sigCoverage) * 0.5;
+
+  const pathCoverage = weightedPathHits / totalTermWeight;
+  const pathScore = weightedPathHits * (1 + pathCoverage) * 0.3;
 
   const kindWeight =
     kindLower === "function" || kindLower === "class" || kindLower === "method" ? 1.2 : 1.0;
@@ -240,7 +288,25 @@ export function scorePivotRelevance(candidate: PivotCandidate, queryTerms: strin
     score *= runtimeFocusedQuery ? 0.05 : 0.22;
   }
 
-  return score;
+  if (exactCaseInsensitiveMatch) {
+    score += 50;
+  }
+  if (camelCaseMatch) {
+    score += 25;
+  }
+  if (pathSegmentMatch) {
+    score += 10;
+  }
+
+  return { score, exactNameMatch };
+}
+
+export function scorePivotRelevance(
+  candidate: PivotCandidate,
+  queryTerms: string[],
+  idfWeights?: Map<string, number>
+): number {
+  return describePivotRelevance(candidate, queryTerms, idfWeights).score;
 }
 
 export function rankPivots(
@@ -254,11 +320,12 @@ export function rankPivots(
 export function rankPivotsWithScores(
   candidates: Array<{ id: number } & PivotCandidate>,
   queryTerms: string[],
-  maxPivots: number
+  maxPivots: number,
+  idfWeights?: Map<string, number>
 ): RankedPivots {
   const scored = candidates.map((c) => ({
     id: c.id,
-    score: scorePivotRelevance(c, queryTerms),
+    ...describePivotRelevance(c, queryTerms, idfWeights),
   }));
 
   scored.sort((a, b) => b.score - a.score);
@@ -271,5 +338,9 @@ export function rankPivotsWithScores(
       scores.push(score);
     }
   }
-  return { ranked, scores };
+  return {
+    ranked,
+    scores,
+    scored: scored.filter((entry) => entry.score > 0).slice(0, maxPivots),
+  };
 }

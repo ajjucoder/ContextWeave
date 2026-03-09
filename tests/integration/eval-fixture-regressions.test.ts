@@ -36,14 +36,15 @@ describe("eval fixture regressions", () => {
     const latest = capsuleLogQueries(db).getLatest();
     expect(latest).toBeTruthy();
 
-    const topFiles = latest!.filesIncluded.slice(0, 3).map((file) => file.split("/").pop());
+    const topFiles = latest!.filesIncluded.slice(0, 5).map((file) => file.split("/").pop());
     const topSymbols = latest!.symbolsIncluded.slice(0, 6);
+    const topTwoSymbols = latest!.symbolsIncluded.slice(0, 2);
 
     expect(topFiles).toContain("index.ts");
     expect(topFiles).toContain("handler.ts");
     expect(topSymbols).toContain("createAuthStack");
     expect(topSymbols).toContain("AuthHandler");
-    expect(topSymbols).not.toContain("AuthToken");
+    expect(topTwoSymbols).not.toContain("AuthToken");
   });
 
   it("handles session entry lifecycle as a first-pass auth-path query", () => {

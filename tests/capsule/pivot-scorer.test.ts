@@ -1,8 +1,61 @@
 import { describe, it, expect } from "vitest";
-import { scorePivotRelevance } from "../../src/capsule/pivot-scorer.js";
+import { rankPivotsWithScores, scorePivotRelevance } from "../../src/capsule/pivot-scorer.js";
 
 describe("scorePivotRelevance", () => {
   const queryTerms = ["capsule", "generator", "pipeline"];
+
+  it("marks exact identifier matches and ranks them above broader neighbors", () => {
+    const ranked = rankPivotsWithScores(
+      [
+        {
+          id: 1,
+          name: "useDataLayer",
+          signature: "function useDataLayer()",
+          kind: "function",
+          filePath: "src/hooks/use-data-layer.ts",
+        },
+        {
+          id: 2,
+          name: "useDataLayerRuntimeBridge",
+          signature: "function useDataLayerRuntimeBridge(loadDashboardDataLayer)",
+          kind: "function",
+          filePath: "src/runtime/use-data-layer-bridge.ts",
+        },
+      ],
+      ["useDataLayer"],
+      10
+    );
+
+    expect(ranked.scored[0]?.id).toBe(1);
+    expect(ranked.scored[0]?.exactNameMatch).toBe(true);
+    expect(ranked.scored[1]?.exactNameMatch).toBe(false);
+  });
+
+  it("treats camelCase split matches as exact-name hits when all parts are present", () => {
+    const ranked = rankPivotsWithScores(
+      [
+        {
+          id: 1,
+          name: "useDataLayer",
+          signature: "function useDataLayer()",
+          kind: "function",
+          filePath: "src/hooks/use-data-layer.ts",
+        },
+        {
+          id: 2,
+          name: "layerDiagnostics",
+          signature: "function layerDiagnostics()",
+          kind: "function",
+          filePath: "src/diagnostics/layer.ts",
+        },
+      ],
+      ["use", "data", "layer"],
+      10
+    );
+
+    expect(ranked.scored[0]?.id).toBe(1);
+    expect(ranked.scored[0]?.exactNameMatch).toBe(true);
+  });
 
   it("scores exact name match highest", () => {
     const score = scorePivotRelevance(
@@ -18,7 +71,7 @@ describe("scorePivotRelevance", () => {
       queryTerms
     );
     const single = scorePivotRelevance(
-      { name: "capsuleLogQueries", signature: "function capsuleLogQueries(db)", kind: "function", filePath: "src/db/queries/capsule-log.ts" },
+      { name: "capsuleLogQueries", signature: "function capsuleLogQueries(db)", kind: "function", filePath: "src/db/queries/logging.ts" },
       queryTerms
     );
     expect(multi).toBeGreaterThan(single * 1.5);
@@ -180,6 +233,35 @@ describe("scorePivotRelevance", () => {
     );
 
     expect(hooksScore).toBeGreaterThan(routeScore);
+  });
+
+  it("suppresses ubiquitous code terms with IDF weights so validateEmail outranks getSomething", () => {
+    const ranked = rankPivotsWithScores(
+      [
+        {
+          id: 1,
+          name: "getSomething",
+          signature: "function getSomething()",
+          kind: "function",
+          filePath: "src/routes/get-something.ts",
+        },
+        {
+          id: 2,
+          name: "validateEmail",
+          signature: "function validateEmail()",
+          kind: "function",
+          filePath: "src/validators/email.ts",
+        },
+      ],
+      ["get", "validateemail"],
+      10,
+      new Map([
+        ["get", 0.2],
+        ["validateemail", 1.4],
+      ])
+    );
+
+    expect(ranked.scored[0]?.id).toBe(2);
   });
 
   it("penalizes hook type declarations for runtime hook lifecycle queries", () => {

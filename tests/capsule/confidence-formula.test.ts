@@ -12,6 +12,7 @@ describe("computeCoverageConfidence", () => {
       dependencyCoverage: 0.5,
       noiseRatio: 0.1,
       fileSummaryCount: 3,
+      tokenUtilization: 0.8,
     });
     expect(confidence).toBeGreaterThan(0.7);
   });
@@ -26,6 +27,7 @@ describe("computeCoverageConfidence", () => {
       dependencyCoverage: 0.2,
       noiseRatio: 0.4,
       fileSummaryCount: 0,
+      tokenUtilization: 0.35,
     });
     expect(confidence).toBeLessThan(0.5);
   });
@@ -40,6 +42,7 @@ describe("computeCoverageConfidence", () => {
       dependencyCoverage: 0.3,
       noiseRatio: 0.2,
       fileSummaryCount: 0,
+      tokenUtilization: 0.7,
     });
     const withSummaries = computeCoverageConfidence({
       intent: "narrow",
@@ -50,6 +53,7 @@ describe("computeCoverageConfidence", () => {
       dependencyCoverage: 0.3,
       noiseRatio: 0.2,
       fileSummaryCount: 5,
+      tokenUtilization: 0.7,
     });
     expect(withSummaries).toBeGreaterThan(without);
   });
@@ -64,6 +68,7 @@ describe("computeCoverageConfidence", () => {
       dependencyCoverage: 1.0,
       noiseRatio: 0.0,
       fileSummaryCount: 100,
+      tokenUtilization: 0.95,
     });
     const min = computeCoverageConfidence({
       intent: "narrow",
@@ -74,6 +79,7 @@ describe("computeCoverageConfidence", () => {
       dependencyCoverage: 0.0,
       noiseRatio: 1.0,
       fileSummaryCount: 0,
+      tokenUtilization: 0.1,
     });
     expect(max).toBeLessThanOrEqual(1.0);
     expect(min).toBeGreaterThanOrEqual(0.0);
@@ -89,6 +95,7 @@ describe("computeCoverageConfidence", () => {
       dependencyCoverage: 0.3,
       noiseRatio: 0.2,
       fileSummaryCount: 2,
+      tokenUtilization: 0.8,
       moduleCoverageStats: {
         packedClusters: 4,
         relevantClusters: 5,
@@ -111,6 +118,7 @@ describe("computeCoverageConfidence", () => {
       dependencyCoverage: 0.25,
       noiseRatio: 0.15,
       fileSummaryCount: 1,
+      tokenUtilization: 0.82,
       moduleCoverageStats: {
         packedClusters: 3,
         relevantClusters: 4,
@@ -133,6 +141,7 @@ describe("computeCoverageConfidence", () => {
       dependencyCoverage: 0.4,
       noiseRatio: 0.1,
       fileSummaryCount: 1,
+      tokenUtilization: 0.82,
       moduleCoverageStats: {
         packedClusters: 3,
         relevantClusters: 3,
@@ -151,6 +160,7 @@ describe("computeCoverageConfidence", () => {
       dependencyCoverage: 1,
       noiseRatio: 0,
       fileSummaryCount: 0,
+      tokenUtilization: 0.35,
       moduleCoverageStats: {
         packedClusters: 1,
         relevantClusters: 1,
@@ -175,6 +185,7 @@ describe("computeCoverageConfidence", () => {
       dependencyCoverage: 0.5,
       noiseRatio: 0.1,
       fileSummaryCount: 1,
+      tokenUtilization: 0.84,
       moduleCoverageStats: {
         packedClusters: 4,
         relevantClusters: 4,
@@ -193,6 +204,7 @@ describe("computeCoverageConfidence", () => {
       dependencyCoverage: 1,
       noiseRatio: 0,
       fileSummaryCount: 0,
+      tokenUtilization: 0.4,
       moduleCoverageStats: {
         packedClusters: 1,
         relevantClusters: 1,

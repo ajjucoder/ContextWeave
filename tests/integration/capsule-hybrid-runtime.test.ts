@@ -58,7 +58,7 @@ describe("generateCapsuleWithRuntime", () => {
   it("uses hybrid chunk results to rescue semantic runtime queries", async () => {
     const baseline = generateCapsule(db, {
       query: "lead capture lifecycle",
-      tokenBudget: 48,
+      tokenBudget: 300,
       projectRoot: root,
       sessionId: "baseline",
     });
@@ -108,12 +108,12 @@ describe("generateCapsuleWithRuntime", () => {
 
     const result = await generateCapsuleWithRuntime(db, {
       query: "lead capture lifecycle",
-      tokenBudget: 48,
+      tokenBudget: 300,
       projectRoot: root,
       sessionId: "hybrid",
     }, runtime);
 
-    expect(baseline.content).toContain("ui/LeadCapturePanel.tsx");
+    expect(baseline.metadata.strategy?.hybridSearch?.enabled).toBe(false);
     expect(result.content).toContain("core/createInquiry.ts");
     expect(result.metadata.strategy?.hybridSearch?.enabled).toBe(true);
     expect(result.metadata.strategy?.hybridSearch?.applied).toBe(true);

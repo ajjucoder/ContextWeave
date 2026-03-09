@@ -97,8 +97,8 @@ describe("formatCapsule — follow-up hints", () => {
 
     const result = formatCapsule(nodes, [], makeMetadata());
     expect(result).toContain("Follow-Up Reads");
-    expect(result).toContain('cw_read(symbol: "skeletonFn")');
-    expect(result).toContain('cw_read(symbol: "summaryFn")');
+    expect(result).toContain('symbol: "skeletonFn"');
+    expect(result).toContain('symbol: "summaryFn"');
     expect(result).toContain("These symbols were compressed. Use cw_read for full source:");
   });
 
@@ -135,7 +135,7 @@ describe("formatCapsule — follow-up hints", () => {
     );
 
     const result = formatCapsule(nodes, [], makeMetadata());
-    const matches = result.match(/cw_read\(symbol:/g) ?? [];
+    const matches = result.match(/cw_read\(/g) ?? [];
     expect(matches.length).toBe(5);
   });
 
@@ -201,7 +201,7 @@ describe("formatCapsule — follow-up hints", () => {
     }));
 
     expect(result).toContain("--- Next Actions ---");
-    expect(result).toContain('cw_read(symbol: "targetFn")');
+    expect(result).toContain('symbol: "targetFn"');
     expect(result).toContain('cw_capsule(query: "test query", path: "src/core")');
   });
 });

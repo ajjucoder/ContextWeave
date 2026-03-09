@@ -1,3 +1,4 @@
+import type Database from "better-sqlite3";
 import type {
   ScoredNode,
   ObservationRecord,
@@ -16,6 +17,9 @@ const LEVEL_LABEL: Record<number, string> = {
 
 const DOC_SCOPES = new Set(["documentation", "convention"]);
 const DOC_QUERY_RE = /\b(docs?|documentation|architecture|convention|workflow|guide|readme|claude)\b/i;
+const UI_PATH_RE = /(^|[/\\])(ui|components?|views?|pages?|templates?|marketing)([/\\]|$)|(^|[/\\])(page|layout)\.[cm]?[jt]sx?$/i;
+const UI_QUERY_RE = /\b(ui|ux|component|components|view|views|page|pages|modal|form)\b/i;
+const ACTION_SIGNAL_RE = /\b(handle|submit|create|send|post|get|load|exchange|verify|persist|callback|refresh|route)\b/i;
 
 function estimateObservationTokens(note: string): number {
   return Math.max(1, Math.ceil(note.split(/\s+/).filter(Boolean).length * 1.3));
@@ -54,14 +58,51 @@ function selectObservations(
   return selected;
 }
 
+function recordObservationHits(db: Database.Database, observationIds: number[]): void {
+  if (observationIds.length === 0) return;
+  const stmt = db.prepare(
+    "UPDATE observations SET hit_count = hit_count + 1, last_hit_at = ? WHERE id = ?"
+  );
+  const now = Date.now();
+  for (const id of observationIds) {
+    stmt.run(now, id);
+  }
+}
+
 export function formatCapsule(
   packedNodes: ScoredNode[],
   observations: ObservationRecord[],
   metadata: CapsuleMetadata,
-  fileSummaries: string[] = []
+  fileSummaries: string[] = [],
+  db?: Database.Database
 ): string {
+  const visibleNodes = (() => {
+    const intent = metadata.strategy?.intent;
+    if (
+      !(intent === "broad" || intent === "task" || intent === "debug") ||
+      UI_QUERY_RE.test(metadata.query)
+    ) {
+      return packedNodes;
+    }
+
+    const nonUiCount = packedNodes.filter((node) => !UI_PATH_RE.test(node.file.path)).length;
+    if (nonUiCount < 2) {
+      return packedNodes;
+    }
+
+    const filtered = packedNodes.filter((node) => {
+      if (!UI_PATH_RE.test(node.file.path)) return true;
+      const nameAndSignature = `${node.symbol?.name ?? ""} ${node.symbol?.signature ?? ""}`.toLowerCase();
+      return ACTION_SIGNAL_RE.test(nameAndSignature);
+    });
+    return filtered.length > 0 ? filtered : packedNodes;
+  })();
+
   const visibleObservations = selectObservations(observations, metadata);
-  const fileCount = new Set(packedNodes.map((n) => n.file.path)).size;
+  if (db && visibleObservations.length > 0) {
+    recordObservationHits(db, visibleObservations.map((o) => o.id));
+  }
+  const fileCount = new Set(visibleNodes.map((n) => n.file.path)).size;
   const pivotPct = Math.round(metadata.quality.pivotCoverage * 100);
   const dependencyPct = Math.round(metadata.quality.dependencyCoverage * 100);
   const noisePct = Math.round(metadata.quality.noiseRatio * 100);
@@ -78,7 +119,7 @@ export function formatCapsule(
     `Query: ${metadata.query}`,
     `Mode: ${metadata.mode} | Strategy: ${strategyLabel}`,
     `Tokens: ${metadata.tokensUsed}/${metadata.tokenBudget}`,
-    `Symbols: ${packedNodes.length} across ${fileCount} files`,
+    `Symbols: ${visibleNodes.length} across ${fileCount} files`,
     `Confidence: ${confidence} | Uncertainty: ${uncertainty}`,
     `Coverage confidence: ${coverageConfidencePct}%`,
     `Uncertainty flag: ${metadata.quality.uncertaintyFlag ? "true" : "false"}`,
@@ -98,7 +139,7 @@ export function formatCapsule(
     return dirParts[0] ?? "root";
   };
 
-  for (const node of packedNodes) {
+  for (const node of visibleNodes) {
     const clusterKey = clusterFromPath(node.file.path);
     const fileGroup = byCluster.get(clusterKey) ?? new Map<string, ScoredNode[]>();
     const nodes = fileGroup.get(node.file.path) ?? [];
@@ -142,7 +183,7 @@ export function formatCapsule(
 
   // Compute which query terms are already covered by FULL symbols (compression level 0)
   const coveredTerms = new Set<string>();
-  for (const node of packedNodes) {
+  for (const node of visibleNodes) {
     if (node.compressionLevel === 0 && node.symbol?.name) {
       const nameLower = node.symbol.name.toLowerCase();
       const nameTerms = nameLower.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().split(/\s+/);
@@ -154,7 +195,7 @@ export function formatCapsule(
     }
   }
 
-  const followUpCandidates = packedNodes
+  const followUpCandidates = visibleNodes
     .filter((n) => n.compressionLevel >= 1 && n.compressionLevel <= 2)
     .map((n) => {
       // Count how many uncovered query terms this symbol addresses
@@ -174,7 +215,7 @@ export function formatCapsule(
     .map((item) => item.node);
 
   const topDirectory = (() => {
-    const firstPath = packedNodes[0]?.file.path?.replaceAll("\\", "/");
+    const firstPath = visibleNodes[0]?.file.path?.replaceAll("\\", "/");
     if (!firstPath) return null;
     const parts = firstPath.split("/").filter(Boolean);
     if (parts.length <= 1) return parts[0] ?? null;
@@ -190,6 +231,27 @@ export function formatCapsule(
     parts.push("\n--- Key Context ---");
     for (const obs of highConfObs) {
       parts.push(`[${obs.scope}] ${obs.note}`);
+    }
+  }
+
+  const overlappingPatterns = (metadata.patterns ?? [])
+    .map((pattern) => ({
+      pattern,
+      overlap: pattern.files.filter((file) => visibleNodes.some((node) => node.file.path === file)).length,
+    }))
+    .filter(
+      ({ overlap }) =>
+        overlap > 0 && (metadata.strategy?.intent === "broad" || metadata.strategy?.intent === "task")
+    )
+    .sort((a, b) => b.overlap - a.overlap || b.pattern.confidence - a.pattern.confidence)
+    .slice(0, 3);
+
+  if (overlappingPatterns.length > 0) {
+    parts.push("\n--- Detected Patterns ---");
+    for (const { pattern, overlap } of overlappingPatterns) {
+      parts.push(`- ${pattern.name} (${Math.round(pattern.confidence * 100)}% confidence)`);
+      parts.push(`  ${pattern.description}`);
+      parts.push(`  ${overlap} of ${pattern.files.length} files in this capsule follow the pattern (${pattern.signature.directoryPattern})`);
     }
   }
 

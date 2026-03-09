@@ -209,7 +209,7 @@ export function registerOverviewTool(
 
         if (query && query.trim().length > 0) {
           const queryTerm = query.trim();
-          let focusedFiles = searchFilesByQuery(db, queryTerm, 8).filter((row) =>
+          let focusedFiles = searchFilesByQuery(db, queryTerm, 8, projectRoot).filter((row) =>
             withinPath(toProjectRelativePath(projectRoot, row.path), basePath)
           );
           const hybridResultsByFile = new Map<number, Awaited<ReturnType<typeof hybridSearch>>[number][]>();

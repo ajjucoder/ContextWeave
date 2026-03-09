@@ -269,4 +269,31 @@ describe("hybridSearch", () => {
     expect(results[0]?.filePath).toBe("src/auth/user-service.ts");
     expect(results.find((entry) => entry.filePath === "src/auth/runtime-flow.ts")?.recencyScore).toBeGreaterThan(0);
   });
+
+  it("prioritizes high-IDF lexical terms over ubiquitous ones in BM25 fusion", async () => {
+    const common = insertChunkFixture("src/routes/get-user.ts", "getUser", {
+      chunkText: "get user route handler",
+    });
+    const specific = insertChunkFixture("src/validators/validate-email.ts", "validateEmail", {
+      chunkText: "validate email input",
+    });
+
+    const runtime = createRuntime([]);
+    const results = await hybridSearch(db, runtime, {
+      query: "get validateemail",
+      queryTerms: ["get", "validateemail"],
+      idfWeights: new Map([
+        ["get", 0.2],
+        ["validateemail", 1.4],
+      ]),
+      queryEmbedding: new Float32Array(384),
+      projectRoot: "/repo",
+      limit: 5,
+    });
+
+    expect(results[0]?.fileId).toBe(specific.fileId);
+    expect(results.find((entry) => entry.fileId === common.fileId)?.bm25Rank).toBeGreaterThan(
+      results.find((entry) => entry.fileId === specific.fileId)?.bm25Rank ?? 0
+    );
+  });
 });

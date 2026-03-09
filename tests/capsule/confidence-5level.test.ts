@@ -68,6 +68,7 @@ describe("buildUncertainty 5-level calibration", () => {
       dependencyCoverage: 1,
       noiseRatio: 0,
       fileSummaryCount: 0,
+      tokenUtilization: 0.72,
       queryTermCoverage: 0.34,
       retrievalSurfaceScore: 0.95,
       moduleCoverageStats: {
@@ -105,7 +106,7 @@ describe("buildUncertainty 5-level calibration", () => {
     expect(result).toBeLessThanOrEqual(0.4);
   });
 
-  it("keeps compact high-precision broad results above the hard 0.4 cap", () => {
+  it("caps compact high-precision broad results at 0.4 when utilization is below 30%", () => {
     const result = computeCoverageConfidence({
       intent: "broad",
       pivotCount: 5,
@@ -126,8 +127,7 @@ describe("buildUncertainty 5-level calibration", () => {
       },
     });
 
-    expect(result).toBeGreaterThan(0.55);
-    expect(result).toBeLessThanOrEqual(0.78);
+    expect(result).toBeLessThanOrEqual(0.4);
   });
 
   it("caps broad confidence at 0.5 when fewer than 3 pivots are included", () => {
@@ -177,4 +177,5 @@ describe("buildUncertainty 5-level calibration", () => {
 
     expect(result).toBeLessThanOrEqual(0.9);
   });
+
 });

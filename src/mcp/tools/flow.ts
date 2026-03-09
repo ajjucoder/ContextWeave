@@ -17,7 +17,24 @@ interface FlowStep {
   file: string;
   line: number;
   edgeKind: string;
+  edgeWeight: number;
 }
+
+const EDGE_WEIGHTS: Record<string, number> = {
+  call: 1,
+  import: 1,
+  type_usage: 0.9,
+  inheritance: 0.9,
+  implements: 0.9,
+  jsx_render: 0.8,
+  framework_entry: 0.8,
+  dynamic_dispatch: 0.7,
+  callback: 0.7,
+  "server-action": 0.7,
+  "route-handler": 0.7,
+  reexport: 0.6,
+  reference: 0.5,
+};
 
 function findPath(
   db: Database.Database,
@@ -30,7 +47,7 @@ function findPath(
   const files = fileQueries(db);
 
   const visited = new Set<number>();
-  const parent = new Map<number, { from: number; edgeKind: string }>();
+  const parent = new Map<number, { from: number; edgeKind: string; edgeWeight: number }>();
   const queue: Array<{ id: number; depth: number }> = [{ id: sourceId, depth: 0 }];
 
   while (queue.length > 0) {
@@ -43,7 +60,8 @@ function findPath(
     const outgoing = edges.getBySource(current.id);
     for (const edge of outgoing) {
       if (!visited.has(edge.targetSymbolId)) {
-        parent.set(edge.targetSymbolId, { from: current.id, edgeKind: edge.kind });
+        const weight = EDGE_WEIGHTS[edge.kind] ?? 0.5;
+        parent.set(edge.targetSymbolId, { from: current.id, edgeKind: edge.kind, edgeWeight: weight });
         queue.push({ id: edge.targetSymbolId, depth: current.depth + 1 });
       }
     }
@@ -68,6 +86,7 @@ function findPath(
         file: file?.path ?? "unknown",
         line: symbol.startLine,
         edgeKind: p.edgeKind,
+        edgeWeight: p.edgeWeight,
       });
     }
 
@@ -83,6 +102,7 @@ function findPath(
       file: sourceFile?.path ?? "unknown",
       line: sourceSymbol.startLine,
       edgeKind: "origin",
+      edgeWeight: 1,
     });
   }
 
@@ -124,12 +144,14 @@ function traceOutgoing(
       const file = symbol ? files.getById(symbol.fileId) : undefined;
 
       if (symbol) {
+        const weight = EDGE_WEIGHTS[edge.kind] ?? 0.5;
         path.push({
           name: formatSymbolDisplayName(db, symbol),
           kind: symbol.kind,
           file: file?.path ?? "unknown",
           line: symbol.startLine,
           edgeKind: edge.kind,
+          edgeWeight: weight,
         });
         dfs(edge.targetSymbolId, path, depth + 1);
         path.pop();
@@ -233,8 +255,8 @@ export function buildFlowResult(
     const text = [
       `No outgoing flows found from "${source}" (flows_limited: true).`,
       `Symbol location: ${location}`,
-      `Reason: analysis is primarily limited to static call expressions. Prop callbacks,`,
-      `higher-order functions, and unsupported dynamic dispatch patterns may be missing.`,
+      `Reason: analysis covers call, callback, server-action, and route-handler edges.`,
+      `Higher-order functions and dynamic dispatch patterns may still be missing.`,
       `Recommendation: use cw_read to inspect "${source}" directly.`,
     ].join("\n");
     return { text, isLimited: true };

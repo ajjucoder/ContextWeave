@@ -185,7 +185,6 @@ const PROJECTS: QaProject[] = [
               "docs/policies/data-retention.md",
             ],
             expectedSnippets: ["enforceRetentionPolicy"],
-            semanticRerank: true,
             tokenBudget: 180,
           },
           {
@@ -195,7 +194,6 @@ const PROJECTS: QaProject[] = [
               "docs/policies/data-retention.md",
             ],
             expectedSnippets: ["enforceRetentionPolicy"],
-            semanticRerank: true,
             tokenBudget: 180,
           },
         ],

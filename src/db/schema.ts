@@ -59,7 +59,9 @@ CREATE TABLE IF NOT EXISTS observations (
   updated_at  INTEGER NOT NULL,
   stale       INTEGER NOT NULL DEFAULT 0,
   stale_reason TEXT,
-  archived    INTEGER NOT NULL DEFAULT 0
+  archived    INTEGER NOT NULL DEFAULT 0,
+  hit_count   INTEGER NOT NULL DEFAULT 0,
+  last_hit_at INTEGER
 );
 
 CREATE TABLE IF NOT EXISTS capsule_log (
@@ -109,10 +111,12 @@ CREATE TABLE IF NOT EXISTS file_summaries (
   edge_count     INTEGER NOT NULL DEFAULT 0,
   avg_centrality REAL    NOT NULL DEFAULT 0.0,
   summary_text   TEXT    NOT NULL DEFAULT '',
+  body_features  TEXT    NOT NULL DEFAULT '',
   computed_at    INTEGER NOT NULL DEFAULT 0
 );
 CREATE VIRTUAL TABLE IF NOT EXISTS file_summaries_fts USING fts5(
   summary_text,
+  body_features,
   content='file_summaries',
   content_rowid='file_id',
   tokenize='trigram'
@@ -136,6 +140,16 @@ CREATE TABLE IF NOT EXISTS session_context (
 CREATE TABLE IF NOT EXISTS file_clusters (
   file_id    INTEGER PRIMARY KEY REFERENCES files(id) ON DELETE CASCADE,
   cluster_id INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS patterns (
+  id          TEXT PRIMARY KEY,
+  name        TEXT NOT NULL,
+  description TEXT NOT NULL,
+  files       TEXT NOT NULL,
+  signature   TEXT NOT NULL,
+  confidence  REAL NOT NULL,
+  detected_at INTEGER NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS chunks (
@@ -186,6 +200,7 @@ CREATE INDEX IF NOT EXISTS idx_files_path_cov ON files(path, id, hash, mtime, sy
 CREATE INDEX IF NOT EXISTS idx_session_ctx_session ON session_context(session_id);
 CREATE INDEX IF NOT EXISTS idx_session_ctx_symbol ON session_context(symbol_id);
 CREATE INDEX IF NOT EXISTS idx_file_clusters_cluster ON file_clusters(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_patterns_detected_at ON patterns(detected_at);
 CREATE INDEX IF NOT EXISTS idx_observations_session ON observations(session_id);
 CREATE INDEX IF NOT EXISTS idx_observations_scope ON observations(scope, archived);
 CREATE INDEX IF NOT EXISTS idx_chunks_file ON chunks(file_id, chunk_index);

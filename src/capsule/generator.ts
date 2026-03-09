@@ -28,6 +28,7 @@ import { packNodes, packNodesStoryMode, enrichL2WithDeps } from "./packer.js";
 import { formatCapsule, buildStructuredOutput } from "./formatter.js";
 import { diagnose } from "./diagnostics.js";
 import { classifyQueryIntent } from "./intent-classifier.js";
+import { getPatternsForFiles } from "../core/pattern-detector.js";
 import { createLogger } from "../utils/logger.js";
 import { MemorySearch } from "../memory/search.js";
 import { capsuleLogQueries } from "../db/queries/capsule-log.js";
@@ -55,7 +56,6 @@ import {
   quantile,
   toDisplayPath,
 } from "./generator-helpers.js";
-import { applySemanticRerank } from "./semantic-reranker.js";
 import { hybridSearch } from "../core/hybrid-ranker.js";
 
 const logger = createLogger("generator");
@@ -70,7 +70,6 @@ interface CapsuleParams {
   maxQueryTimeMs?: number;
   path?: string;
   glob?: string;
-  semanticRerank?: boolean;
   hybridSearchResults?: HybridSearchResult[];
 }
 
@@ -108,6 +107,18 @@ const FRAMEWORK_QUERY_HINT_TERMS = new Set([
 ]);
 const UI_COMPONENT_PATH_RE = /(^|\/)(ui|components?|views?|pages?|templates?|marketing)(\/|$)/i;
 const PAGE_ENTRY_PATH_RE = /(^|\/)(page|layout)\.[cm]?[jt]sx?$/i;
+const UI_FOCUSED_QUERY_TERMS = new Set([
+  "ui",
+  "ux",
+  "component",
+  "components",
+  "view",
+  "views",
+  "page",
+  "pages",
+  "modal",
+  "form",
+]);
 const ACTION_SIGNAL_TERMS = new Set([
   "submit",
   "create",
@@ -176,7 +187,7 @@ const RUNTIME_QUERY_TERMS = new Set([
   "validation",
   "validator",
 ]);
-const TYPE_DECLARATION_PATH_RE = /(^|\/)types?(\/|$)|\.d\.ts$/i;
+const TYPE_DECLARATION_PATH_RE = /(^|\/)types?(\/|$)|\.d\.ts$|(^|\/)types?\.[cm]?[jt]sx?$/i;
 const RUNTIME_CODE_PATH_RE = /(^|\/)(src|lib|server|app|api|routes?|controllers?|services?)(\/|$)/i;
 
 function getRuntimeKindWeight(
@@ -228,6 +239,11 @@ function hasActionSignal(name: string, signature: string): boolean {
   return tokens.some((token) => ACTION_SIGNAL_TERMS.has(token));
 }
 
+function isUiLikePath(filePath: string): boolean {
+  const normalizedPath = normalizeRetrievalPath(filePath, 6);
+  return UI_COMPONENT_PATH_RE.test(normalizedPath) || PAGE_ENTRY_PATH_RE.test(normalizedPath);
+}
+
 function isTypeDeclarationPath(path: string): boolean {
   return TYPE_DECLARATION_PATH_RE.test(normalizeRetrievalPath(path, 6));
 }
@@ -277,6 +293,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   const symbols = symbolQueries(db);
   const files = fileQueries(db);
+  const getDirectCallerIds = db.prepare(
+    `SELECT source_symbol_id as symbolId FROM edges WHERE target_symbol_id = ? AND kind IN ('call', 'import') LIMIT 12`
+  );
+  const getDirectCalleeIds = db.prepare(
+    `SELECT target_symbol_id as symbolId FROM edges WHERE source_symbol_id = ? AND kind IN ('call', 'import') LIMIT 12`
+  );
   const classified = classifyQueryIntent(query);
   const intent = classified.intent;
   // For pipeline routing, symbol-lookup and debug behave like narrow (focused retrieval)
@@ -297,7 +319,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     return candidates.map((file) => file.path);
   };
 
-  const queryGroups = decomposeQuery(query);
+  const queryGroups = decomposeQuery(query, db);
   const fallbackTerms = queryGroups.length > 0
     ? mergeSubQueryTerms(queryGroups)
     : query.toLowerCase().split(/\s+/).filter((t) => t.length > 1);
@@ -310,7 +332,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const seededPivotIdsByFile = new Map<number, number[]>();
 
   const FILE_SEARCH_LIMIT = intent === "narrow" ? 50 : 80;
-  let candidateFiles = searchFilesByQuery(db, query, FILE_SEARCH_LIMIT);
+  let candidateFiles = searchFilesByQuery(db, query, FILE_SEARCH_LIMIT, params.projectRoot);
   const candidateFileBoostById = new Map<number, number>();
   const clusterHintMap = new Map<number, { id: number; terms: Set<string>; relevance: number }>();
 
@@ -342,9 +364,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   const subQueries =
     intent === "broad"
-      ? decomposeForBroad(query, classified, clusterHints)
+      ? decomposeForBroad(query, classified, clusterHints, db)
       : intent === "task"
-        ? decomposeForTask(query, classified, clusterHints)
+        ? decomposeForTask(query, classified, clusterHints, db)
         : [];
   const useMultiPass = intent !== "narrow" && subQueries.length > 1;
   const allQueryTerms = useMultiPass
@@ -352,6 +374,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     : baseQueryTerms;
   const exactQueryTerms = baseQueryTerms;
   const expandedQueryTerms = expandQueryWithSynonyms(allQueryTerms);
+  const idfWeights = queryGroups.idfWeights;
   const pivotQueryTerms =
     intent === "narrow"
       ? exactQueryTerms
@@ -441,11 +464,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       }
     }
   }
-  const semanticRerankEnabled =
-    !hybridSearchEnabled &&
-    ((params.semanticRerank ?? false) || process.env["CW_ENABLE_SEMANTIC_RERANK"] === "1");
   const exactQueryTermSet = new Set(exactQueryTerms);
   const queryLooksTestFocused = isTestQuery(allQueryTerms);
+  const queryUiFocused = allQueryTerms.some((term) => UI_FOCUSED_QUERY_TERMS.has(term.toLowerCase()));
   const explicitTypeQuery = classified.normalizedTerms.some((term) => TYPE_FOCUSED_TERMS.has(term));
 
   if (candidateFileIds && candidateFileIds.size > 0 && candidateFileIds.size <= 6) {
@@ -643,24 +664,98 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
   }
 
+  const MAX_PIVOTS =
+    intent === "narrow"
+      ? Math.max(30, Math.min(120, Math.floor(retrievalBudget / 50)))
+      : intent === "broad"
+        ? Math.max(40, Math.min(100, Math.floor(retrievalBudget / 160)))
+        : Math.max(50, Math.min(120, Math.floor(retrievalBudget / 150)));
+  const pivotFileCache = new Map<number, string>();
+  const buildPivotCandidates = (
+    candidateIds: Iterable<number>
+  ): Array<{ id: number; name: string; signature: string; kind: string; filePath: string }> => {
+    const candidates: Array<{ id: number; name: string; signature: string; kind: string; filePath: string }> = [];
+    for (const id of candidateIds) {
+      const sym = symbols.getByIdLight(id);
+      if (!sym) continue;
+      let filePath = pivotFileCache.get(sym.fileId);
+      if (filePath === undefined) {
+        const file = files.getById(sym.fileId);
+        filePath = file?.path ?? "";
+        pivotFileCache.set(sym.fileId, filePath);
+      }
+      if (suppressTypeDeclarations && isTypeDeclarationPath(filePath)) {
+        continue;
+      }
+      candidates.push({ id, name: sym.name, signature: sym.signature ?? "", kind: sym.kind, filePath });
+    }
+    return candidates;
+  };
+  const isExactSymbolNameMatch = (name: string): boolean => {
+    const nameLower = name.toLowerCase();
+    if (exactQueryTermSet.has(nameLower)) return true;
+    const nameTokens = name
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .toLowerCase()
+      .replace(/[_\-./]/g, " ")
+      .split(/\s+/)
+      .filter(Boolean);
+    return nameTokens.length > 1 && nameTokens.every((token) => exactQueryTermSet.has(token));
+  };
+
   if (rawPivotIds.size < 3 && !hybridSearchEnabled) {
-    const contentMatches = contentFallbackSearch(db, expandedQueryTerms);
-    let added = 0;
-    for (const match of contentMatches) {
-      if (suppressTypeDeclarations) {
-        const symbol = symbols.getByIdLight(match.symbolId);
-        const file = symbol ? files.getById(symbol.fileId) : null;
-        if (file && isTypeDeclarationPath(file.path)) {
-          continue;
+    const preFallbackCandidates = buildPivotCandidates(rawPivotIds);
+    const preFallbackRanking = rankPivotsWithScores(
+      preFallbackCandidates,
+      exactQueryTerms.length > 0 ? exactQueryTerms : pivotQueryTerms,
+      MAX_PIVOTS,
+      idfWeights
+    );
+    const exactPivotIds = new Set(
+      preFallbackCandidates
+        .filter((candidate) => isExactSymbolNameMatch(candidate.name))
+        .map((candidate) => candidate.id)
+    );
+    const exactPivot = preFallbackRanking.scored.find((entry) => exactPivotIds.has(entry.id));
+
+    if (exactPivot) {
+      let added = 0;
+      const relatedRows = [
+        ...(getDirectCallerIds.all(exactPivot.id) as Array<{ symbolId: number }>),
+        ...(getDirectCalleeIds.all(exactPivot.id) as Array<{ symbolId: number }>),
+      ];
+
+      for (const row of relatedRows) {
+        if (!rawPivotIds.has(row.symbolId)) {
+          rawPivotIds.add(row.symbolId);
+          added += 1;
         }
       }
-      if (!rawPivotIds.has(match.symbolId)) {
-        rawPivotIds.add(match.symbolId);
-        added++;
+
+      logger.info("exact match fast path activated", {
+        symbolId: exactPivot.id,
+        addedRelations: added,
+        totalPivots: rawPivotIds.size,
+      });
+    } else {
+      const contentMatches = contentFallbackSearch(db, expandedQueryTerms);
+      let added = 0;
+      for (const match of contentMatches) {
+        if (suppressTypeDeclarations) {
+          const symbol = symbols.getByIdLight(match.symbolId);
+          const file = symbol ? files.getById(symbol.fileId) : null;
+          if (file && isTypeDeclarationPath(file.path)) {
+            continue;
+          }
+        }
+        if (!rawPivotIds.has(match.symbolId)) {
+          rawPivotIds.add(match.symbolId);
+          added++;
+        }
       }
-    }
-    if (added > 0) {
-      logger.info("content fallback activated", { additionalPivots: added, totalPivots: rawPivotIds.size });
+      if (added > 0) {
+        logger.info("content fallback activated", { additionalPivots: added, totalPivots: rawPivotIds.size });
+      }
     }
   }
 
@@ -683,28 +778,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   logger.debug("raw pivot candidates", { count: rawPivotIds.size });
 
-  const MAX_PIVOTS =
-    intent === "narrow"
-      ? Math.max(30, Math.min(120, Math.floor(retrievalBudget / 50)))
-      : intent === "broad"
-        ? Math.max(40, Math.min(100, Math.floor(retrievalBudget / 160)))
-        : Math.max(50, Math.min(120, Math.floor(retrievalBudget / 150)));
-  let pivotCandidates: Array<{ id: number; name: string; signature: string; kind: string; filePath: string }> = [];
-  const pivotFileCache = new Map<number, string>();
-  for (const id of rawPivotIds) {
-    const sym = symbols.getByIdLight(id);
-    if (!sym) continue;
-    let filePath = pivotFileCache.get(sym.fileId);
-    if (filePath === undefined) {
-      const file = files.getById(sym.fileId);
-      filePath = file?.path ?? "";
-      pivotFileCache.set(sym.fileId, filePath);
-    }
-    if (suppressTypeDeclarations && isTypeDeclarationPath(filePath)) {
-      continue;
-    }
-    pivotCandidates.push({ id, name: sym.name, signature: sym.signature ?? "", kind: sym.kind, filePath });
-  }
+  let pivotCandidates = buildPivotCandidates(rawPivotIds);
   if (
     !suppressTypeDeclarations &&
     intent !== "narrow" &&
@@ -719,10 +793,16 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const pivotRanking = rankPivotsWithScores(
     pivotCandidates,
     pivotQueryTerms,
-    MAX_PIVOTS
+    MAX_PIVOTS,
+    idfWeights
   );
   let rankedPivots = pivotRanking.ranked;
   let pivotScores = pivotRanking.scores;
+  const exactPivotIds = new Set(
+    pivotCandidates
+      .filter((candidate) => isExactSymbolNameMatch(candidate.name))
+      .map((candidate) => candidate.id)
+  );
 
   if (intent !== "narrow" && rankedPivots.size > 0) {
     const pivotKinds = new Map(pivotCandidates.map((candidate) => [candidate.id, candidate.kind]));
@@ -954,14 +1034,23 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     const sameDirAsPivot = rankingPivotDirs.has(dirname(normalizedPath));
     const directoryWeight = getDirectoryWeight(normalizedPath);
     const fileSearchBoost = candidateFileBoostById.get(candidate.file.id) ?? 1;
+    const actionSignal = hasActionSignal(candidate.symbol.name, candidate.symbol.signature);
+    const uiPathPenalty =
+      !queryUiFocused &&
+      (intent === "broad" || intent === "task" || intent === "debug") &&
+      isUiLikePath(normalizedPath)
+        ? actionSignal ? 0.82 : 0.58
+        : 1;
     const testFilePenalty =
       !queryLooksTestFocused && isTestFile(candidate.file.path) ? 0.5 : 1;
     const localityBoost =
       (sameFileAsPivot ? 1.35 : sameDirAsPivot ? 1.2 : 1) *
       directoryWeight *
+      uiPathPenalty *
       testFilePenalty *
       fileSearchBoost;
     const lexicalBoost = 1 + Math.min(1.5, candidate.lexicalScore * 0.3);
+    const exactPivotBoost = exactPivotIds.has(candidate.symbol.id) ? 6 : 1;
 
     let hubPenalty = 1;
     if (!candidate.isPivot && candidate.distance > 0) {
@@ -1002,76 +1091,16 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       localityBoost,
       hubPenalty,
       mode,
-    }) * getRuntimeKindWeight(candidate.symbol.kind, preferRuntimeKinds);
+    }) * getRuntimeKindWeight(candidate.symbol.kind, preferRuntimeKinds) * exactPivotBoost;
   }
 
   let ranked = [...candidates].sort((a, b) => b.score - a.score);
-  let semanticRescueIds = new Set<number>();
-  let semanticRerank = {
-    enabled: semanticRerankEnabled,
-    applied: false,
-    candidateCount: 0,
-    boosted: 0,
-  };
   const hybridStrategy = {
     enabled: hybridSearchEnabled,
     applied: hybridSearchEnabled,
     candidateCount: hybridSearchResults.length,
     exactMatches: hybridSearchResults.filter((result) => result.exactMatchRank !== null).length,
   };
-
-  if (semanticRerankEnabled && (intent === "broad" || intent === "task")) {
-    const reranked = applySemanticRerank(
-      ranked.map((candidate) => ({
-        item: candidate,
-        id: candidate.symbol.id,
-        name: candidate.symbol.name,
-        signature: candidate.symbol.signature,
-        filePath: candidate.file.path,
-        docComment: candidate.symbol.docComment,
-        baseScore: candidate.score,
-        isPivot: candidate.isPivot,
-      })),
-      {
-        queryTerms: allQueryTerms,
-        expandedTerms: expandedQueryTerms,
-      }
-    );
-    semanticRescueIds = new Set(
-      reranked.ranked
-        .filter((entry) => (entry.adjustedScore ?? entry.baseScore) >= entry.baseScore)
-        .map((entry) => entry.id)
-    );
-    ranked = reranked.ranked.map((entry) => ({
-      ...entry.item,
-      score:
-        (entry.adjustedScore ?? entry.item.score) +
-        (semanticRescueIds.has(entry.id) ? 0.75 : 0),
-    }));
-    const queryUiFocused = allQueryTerms.some((term) =>
-      ["ui", "ux", "component", "components", "view", "views", "page", "pages", "modal", "form"].includes(
-        term.toLowerCase()
-      )
-    );
-    const hasNonUiSemanticRescue = ranked.some(
-      (candidate) =>
-        semanticRescueIds.has(candidate.symbol.id) &&
-        !UI_COMPONENT_PATH_RE.test(normalizeRetrievalPath(candidate.file.path, 6))
-    );
-    if (!queryUiFocused && hasNonUiSemanticRescue) {
-      ranked = ranked.filter(
-        (candidate) =>
-          semanticRescueIds.has(candidate.symbol.id) ||
-          !UI_COMPONENT_PATH_RE.test(normalizeRetrievalPath(candidate.file.path, 6))
-      );
-    }
-    semanticRerank = {
-      enabled: true,
-      applied: reranked.applied,
-      candidateCount: reranked.candidateCount,
-      boosted: reranked.boosted,
-    };
-  }
 
   function hasStrongLocality(candidate: RankedCandidate): boolean {
     if (pivotFileIds.has(candidate.file.id)) return true;
@@ -1086,6 +1115,13 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
     for (const candidate of ranked) {
       if (!candidate.isPivot) continue;
+      const preservePivot =
+        intent === "narrow" ||
+        intent === "symbol-lookup" ||
+        queryUiFocused ||
+        !isUiLikePath(candidate.file.path) ||
+        hasActionSignal(candidate.symbol.name, candidate.symbol.signature);
+      if (!preservePivot) continue;
       result.push(candidate);
       ids.add(candidate.symbol.id);
     }
@@ -1099,8 +1135,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         if (!hasLexical && !isNearby) continue;
       } else {
         const strongLocality = hasStrongLocality(candidate);
-        const semanticRescue = semanticRescueIds.has(candidate.symbol.id);
-        if (!(strongLocality || (hasLexical && isNearby) || semanticRescue)) continue;
+        if (!(strongLocality || (hasLexical && isNearby))) continue;
       }
       result.push(candidate);
       ids.add(candidate.symbol.id);
@@ -1120,16 +1155,16 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       return selectedCandidates;
     }
 
-    const maxFiles = isNarrowMultiTerm ? 4 : intent === "broad" ? (broadBudgetBoost ? 8 : 6) : 7;
-    const maxPerFile = isNarrowMultiTerm ? 4 : intent === "broad" ? (broadBudgetBoost ? 4 : 3) : 4;
-    const maxTotal = isNarrowMultiTerm ? 20 : intent === "broad" ? (broadBudgetBoost ? 30 : 20) : 24;
-    const lexicalFloor = isNarrowMultiTerm ? 2 : intent === "broad" ? (broadBudgetBoost ? 1.2 : 1.5) : 1.2;
+    const maxFiles = isNarrowMultiTerm ? 4 : intent === "broad" ? (broadBudgetBoost ? 10 : 6) : 7;
+    const maxPerFile = isNarrowMultiTerm ? 4 : intent === "broad" ? (broadBudgetBoost ? 5 : 3) : 4;
+    const maxTotal = isNarrowMultiTerm ? 20 : intent === "broad" ? (broadBudgetBoost ? 40 : 20) : 24;
+    const lexicalFloor = isNarrowMultiTerm ? 2 : intent === "broad" ? (broadBudgetBoost ? 0.9 : 1.5) : 1.2;
     const ordered = [...selectedCandidates].sort((a, b) => {
       if (a.isPivot !== b.isPivot) return a.isPivot ? -1 : 1;
       return b.score - a.score;
     });
     const topScore = ordered[0]?.score ?? 0;
-    const scoreFloor = topScore * (isNarrowMultiTerm ? 0.7 : intent === "broad" ? (broadBudgetBoost ? 0.5 : 0.6) : 0.55);
+    const scoreFloor = topScore * (isNarrowMultiTerm ? 0.7 : intent === "broad" ? (broadBudgetBoost ? 0.45 : 0.6) : 0.55);
 
     const kept: RankedCandidate[] = [];
     const includedFiles = new Set<number>();
@@ -1154,6 +1189,184 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
 
     return kept;
+  }
+
+  function pruneUiNoise(selectedCandidates: RankedCandidate[]): RankedCandidate[] {
+    if (
+      queryUiFocused ||
+      !(intent === "broad" || intent === "task" || intent === "debug") ||
+      selectedCandidates.length === 0
+    ) {
+      return selectedCandidates;
+    }
+
+    const nonUiCount = selectedCandidates.filter((candidate) => !isUiLikePath(candidate.file.path)).length;
+    if (nonUiCount < 3) {
+      return selectedCandidates;
+    }
+
+    return selectedCandidates.filter((candidate) =>
+      !isUiLikePath(candidate.file.path) || hasActionSignal(candidate.symbol.name, candidate.symbol.signature)
+    );
+  }
+
+  function ensureBroadFileSpread(selectedCandidates: RankedCandidate[]): RankedCandidate[] {
+    if (intent !== "broad" || tokenBudget < 9000 || selectedCandidates.length === 0) {
+      return selectedCandidates;
+    }
+
+    const selectedIds = new Set<number>(selectedCandidates.map((candidate) => candidate.symbol.id));
+    const selectedFileIds = new Set<number>(selectedCandidates.map((candidate) => candidate.file.id));
+    if (selectedFileIds.size >= 3) {
+      return selectedCandidates;
+    }
+
+    const augmented = [...selectedCandidates];
+    const maybeAddCandidate = (candidate: RankedCandidate): boolean => {
+      if (selectedIds.has(candidate.symbol.id) || selectedFileIds.has(candidate.file.id)) {
+        return false;
+      }
+      if (!queryUiFocused && isUiLikePath(candidate.file.path) && !hasActionSignal(candidate.symbol.name, candidate.symbol.signature)) {
+        return false;
+      }
+      augmented.push(candidate);
+      selectedIds.add(candidate.symbol.id);
+      selectedFileIds.add(candidate.file.id);
+      return selectedFileIds.size >= 3;
+    };
+
+    for (const candidate of ranked) {
+      const relevant = hasStrongLocality(candidate) || candidate.lexicalScore > 0;
+      if (!relevant) continue;
+      if (maybeAddCandidate(candidate)) return augmented;
+    }
+
+    for (const candidate of ranked) {
+      if (maybeAddCandidate(candidate)) return augmented;
+    }
+
+    const selectedDirs = new Set(augmented.map((candidate) => dirname(candidate.file.path)));
+    for (const file of files.iterateAll()) {
+      if (selectedFileIds.has(file.id) || !selectedDirs.has(dirname(file.path))) {
+        continue;
+      }
+      if (!queryUiFocused && isUiLikePath(file.path)) {
+        continue;
+      }
+
+      const bestSymbol = symbols
+        .getByFileIdLight(file.id)
+        .map((symbol) => ({
+          symbol,
+          lexicalScore: scorePivotRelevance(
+            {
+              name: symbol.name,
+              signature: symbol.signature,
+              kind: symbol.kind,
+              filePath: file.path,
+            },
+            pivotQueryTerms
+          ),
+        }))
+        .sort((a, b) => {
+          if (a.symbol.isExported !== b.symbol.isExported) {
+            return a.symbol.isExported ? -1 : 1;
+          }
+          if (b.lexicalScore !== a.lexicalScore) {
+            return b.lexicalScore - a.lexicalScore;
+          }
+          return b.symbol.centrality - a.symbol.centrality;
+        })[0];
+
+      if (!bestSymbol) continue;
+      if (
+        !queryUiFocused &&
+        isUiLikePath(file.path) &&
+        !hasActionSignal(bestSymbol.symbol.name, bestSymbol.symbol.signature)
+      ) {
+        continue;
+      }
+
+      augmented.push({
+        symbol: bestSymbol.symbol,
+        file,
+        score: bestSymbol.lexicalScore * 1.4 + bestSymbol.symbol.centrality * 4 + 0.5,
+        distance: 2,
+        isPivot: false,
+        lexicalScore: bestSymbol.lexicalScore,
+        degree: 0,
+      });
+      selectedIds.add(bestSymbol.symbol.id);
+      selectedFileIds.add(file.id);
+      if (selectedFileIds.size >= 3) return augmented;
+    }
+
+    return augmented;
+  }
+
+  function backfillWithinSelectedFiles(selectedCandidates: RankedCandidate[]): RankedCandidate[] {
+    if (intent !== "broad" || tokenBudget < 9000 || selectedCandidates.length >= 10) {
+      return selectedCandidates;
+    }
+
+    const selectedIds = new Set<number>(selectedCandidates.map((candidate) => candidate.symbol.id));
+    const selectedFileIds = new Set<number>(selectedCandidates.map((candidate) => candidate.file.id));
+    if (selectedFileIds.size === 0) {
+      return selectedCandidates;
+    }
+
+    const extras = ranked.filter(
+      (candidate) =>
+        !selectedIds.has(candidate.symbol.id) &&
+        selectedFileIds.has(candidate.file.id) &&
+        candidate.distance <= 2
+    );
+    const extraIds = new Set<number>(extras.map((candidate) => candidate.symbol.id));
+
+    if (selectedCandidates.length + extras.length < 10) {
+      for (const fileId of selectedFileIds) {
+        const file = getFile(fileId);
+        if (!file) continue;
+        const fallbackFilePath = file.path || files.getById(fileId)?.path || "";
+        if (!fallbackFilePath) continue;
+        for (const symbol of symbols.getByFileIdLight(fileId)) {
+          if (selectedIds.has(symbol.id) || extraIds.has(symbol.id)) {
+            continue;
+          }
+          const lexicalScore = scorePivotRelevance(
+            {
+              name: symbol.name,
+              signature: symbol.signature,
+              kind: symbol.kind,
+              filePath: files.getById(symbol.fileId)?.path || fallbackFilePath,
+            },
+            pivotQueryTerms
+          );
+          extras.push({
+            symbol,
+            file,
+            score: lexicalScore * 1.5 + symbol.centrality * 4 + 0.25,
+            distance: 2,
+            isPivot: false,
+            lexicalScore,
+            degree: 0,
+          });
+          extraIds.add(symbol.id);
+        }
+      }
+    }
+
+    if (extras.length === 0) {
+      return selectedCandidates;
+    }
+
+    extras.sort((a, b) => {
+      if (a.lexicalScore !== b.lexicalScore) return b.lexicalScore - a.lexicalScore;
+      return b.score - a.score;
+    });
+
+    const targetCount = Math.min(12, selectedCandidates.length + extras.length);
+    return [...selectedCandidates, ...extras.slice(0, Math.max(0, targetCount - selectedCandidates.length))];
   }
 
   function batchFetchOutgoingEdges(symbolIds: number[]): Map<number, EdgeSummary[]> {
@@ -1246,11 +1459,18 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     ? new Set(sessionCtx.getRecentSymbolIds().filter((id): id is number => id !== null))
     : new Set();
   const shouldDedupRecentSymbols =
-    recentSymbolIds.size > 0 && (intent !== "narrow" || previousSameQueryTokens !== null);
+    recentSymbolIds.size > 0 &&
+    ((intent !== "narrow" && intent !== "symbol-lookup") || previousSameQueryTokens !== null);
 
   const baseMaxDistance = intent === "task" ? 0 : intent === "broad" ? 1 : isSingleFocusNarrowQuery ? 0 : 1;
-  let selected = pruneByFileDiversity(
-    selectCandidates(baseLexThreshold, baseMaxDistance, baseCandidateLimit)
+  let selected = backfillWithinSelectedFiles(
+    ensureBroadFileSpread(
+      pruneUiNoise(
+        pruneByFileDiversity(
+          selectCandidates(baseLexThreshold, baseMaxDistance, baseCandidateLimit)
+        )
+      )
+    )
   );
   let scoredNodes = buildScoredNodes(selected);
   const buildClusterBySymbolId = (nodes: ScoredNode[]): Map<number, number> => {
@@ -1267,6 +1487,34 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   let packed: ScoredNode[] = [];
   let tokensUsed = 0;
   let fileSummaries: string[] = [];
+
+  const stripUiPackedNoise = (nodes: ScoredNode[]): { packed: ScoredNode[]; removedTokens: number } => {
+    if (
+      queryUiFocused ||
+      !(intent === "broad" || intent === "task" || intent === "debug") ||
+      nodes.length === 0
+    ) {
+      return { packed: nodes, removedTokens: 0 };
+    }
+
+    const nonUiCount = nodes.filter((node) => !isUiLikePath(node.file.path)).length;
+    if (nonUiCount < 2) {
+      return { packed: nodes, removedTokens: 0 };
+    }
+
+    const filtered = nodes.filter((node) =>
+      !isUiLikePath(node.file.path) || hasActionSignal(node.symbol.name, node.symbol.signature)
+    );
+    if (filtered.length === nodes.length) {
+      return { packed: nodes, removedTokens: 0 };
+    }
+
+    const keptIds = new Set(filtered.map((node) => node.symbol.id));
+    const removedTokens = nodes
+      .filter((node) => !keptIds.has(node.symbol.id))
+      .reduce((sum, node) => sum + node.tokenCount, 0);
+    return { packed: filtered, removedTokens };
+  };
 
   if (useMultiPass) {
     const subResults: SubCapsuleResult[] = [];
@@ -1361,10 +1609,16 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
   }
 
+  const strippedUiNoise = stripUiPackedNoise(packed);
+  packed = strippedUiNoise.packed;
+  if (strippedUiNoise.removedTokens > 0) {
+    tokensUsed = Math.max(0, tokensUsed - strippedUiNoise.removedTokens);
+  }
+
   if (
     (intent === "broad" || intent === "task") &&
     !skipPromotion &&
-    tokenBudget >= 2000 &&
+    tokenBudget >= 500 &&
     tokensUsed < tokenBudget * BROAD_TASK_MIN_UTILIZATION &&
     candidates.length > selected.length
   ) {
@@ -1382,11 +1636,26 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
             maxDist: 1,
             limit: Math.min(candidates.length, baseCandidateLimit + 12),
           },
+          ...(tokenBudget >= 5000
+            ? [
+                {
+                  lexThreshold: Math.max(0.8, baseLexThreshold * 0.7),
+                  maxDist: 2,
+                  limit: Math.min(candidates.length, baseCandidateLimit + 28),
+                },
+              ]
+            : []),
         ];
 
     for (const pass of refillPasses) {
-      const expanded = pruneByFileDiversity(
-        selectCandidates(pass.lexThreshold, pass.maxDist, pass.limit)
+      const expanded = backfillWithinSelectedFiles(
+        ensureBroadFileSpread(
+          pruneUiNoise(
+            pruneByFileDiversity(
+              selectCandidates(pass.lexThreshold, pass.maxDist, pass.limit)
+            )
+          )
+        )
       );
       if (expanded.length <= selected.length) continue;
 
@@ -1527,6 +1796,11 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
   }
   const packedClusters = new Set<number>();
+  const finalUiStrip = stripUiPackedNoise(packed);
+  packed = finalUiStrip.packed;
+  if (finalUiStrip.removedTokens > 0) {
+    tokensUsed = Math.max(0, tokensUsed - finalUiStrip.removedTokens);
+  }
   const fileSymbolCounts = new Map<string, number>();
   for (const node of packed) {
     const clusterId = clusterBySymbolId.get(node.symbol.id);
@@ -1673,7 +1947,6 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       mode: useMultiPass ? "multi-pass" : "single-pass",
       subQueryCount: useMultiPass ? subQueries.length : 1,
       hybridSearch: hybridStrategy,
-      semanticRerank,
     },
     ...(clusterGroups.length > 0 ? { clusterGroups } : {}),
     generatedAt: Date.now(),
@@ -1683,10 +1956,11 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const metadata: CapsuleMetadata = {
     ...baseMetadata,
     filesIncluded: [...uniqueFiles],
+    patterns: getPatternsForFiles(db, [...uniqueFiles]),
     diagnostics: diagnose(baseMetadata, pivotScores, intent),
   };
 
-  const content = formatCapsule(packed, observations, metadata, fileSummaries);
+  const content = formatCapsule(packed, observations, metadata, fileSummaries, db);
   const structured = buildStructuredOutput(packed, observations, metadata, content);
 
   logger.info("capsule generated", {
@@ -1765,6 +2039,7 @@ export async function generateCapsuleWithRuntime(
     const hybridSearchResults = await hybridSearch(db, embeddingRuntime, {
       query: params.query,
       queryTerms,
+      idfWeights: decomposeQuery(params.query, db).idfWeights,
       queryEmbedding,
       projectRoot: params.projectRoot,
       pathRestriction: params.path,

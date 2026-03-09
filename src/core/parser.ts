@@ -1004,13 +1004,14 @@ function parseCalls(
             const callLine = propValueCapture.node.startPosition.row + 1;
             if (callLine < symbol.startLine || callLine > symbol.endLine) continue;
             const name = propValueCapture.node.text;
-            const key = `${symbol.name}:${name}:call`;
+            const key = `${symbol.name}:${name}:callback`;
             if (!seen.has(key)) {
               seen.add(key);
               calls.push({
                 callerSymbol: symbol.name,
                 calleeName: name,
                 line: callLine,
+                edgeKind: "callback",
               });
             }
           }
@@ -1244,6 +1245,68 @@ function parseDynamicDispatchCalls(symbols: ParsedSymbol[], _content: string): P
   return calls;
 }
 
+const BENIGN_TSX_ERROR_PARENT_TYPES = new Set([
+  "jsx_text",
+  "jsx_expression",
+  "jsx_attribute",
+  "jsx_self_closing_element",
+]);
+
+function collectErrorNodes(root: Parser.SyntaxNode): Parser.SyntaxNode[] {
+  const errors: Parser.SyntaxNode[] = [];
+  const stack: Parser.SyntaxNode[] = [root];
+
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (node.type === "ERROR") {
+      errors.push(node);
+    }
+    for (let i = node.namedChildCount - 1; i >= 0; i -= 1) {
+      const child = node.namedChild(i);
+      if (child) stack.push(child);
+    }
+    for (let i = node.childCount - 1; i >= 0; i -= 1) {
+      const child = node.child(i);
+      if (child && child.type === "ERROR") stack.push(child);
+    }
+  }
+
+  return errors;
+}
+
+function isBenignTsxParseWarning(root: Parser.SyntaxNode, language: string, content: string): boolean {
+  if (language !== "tsx" || !root.hasError) {
+    return false;
+  }
+
+  const lines = content.split("\n");
+  const errorNodes = collectErrorNodes(root);
+  if (errorNodes.length === 0) {
+    return false;
+  }
+
+  return errorNodes.every((node) => {
+    const line = lines[node.startPosition.row] ?? "";
+    const jsxAmpersandLine = /<[^>]+>/.test(line) && line.includes("&");
+    const jsxLookingText = /[<>&]/.test(node.text);
+    if (jsxAmpersandLine && jsxLookingText) {
+      return true;
+    }
+
+    let current: Parser.SyntaxNode | null = node.parent;
+    while (current) {
+      if (BENIGN_TSX_ERROR_PARENT_TYPES.has(current.type)) {
+        return true;
+      }
+      if (!current.type.startsWith("jsx")) {
+        return false;
+      }
+      current = current.parent;
+    }
+    return false;
+  });
+}
+
 export function parseFile(
   filePath: string,
   content: string,
@@ -1275,7 +1338,7 @@ export function parseFile(
       }) as unknown as string);
     }
 
-    if (tree.rootNode.hasError) {
+    if (tree.rootNode.hasError && !isBenignTsxParseWarning(tree.rootNode, language, content)) {
       errors.push(`Syntax errors detected in ${filePath}`);
     }
 
@@ -1286,6 +1349,23 @@ export function parseFile(
     const imports = parseImports(tree, language, content);
     const calls = parseCalls(tree, language, symbols, content);
     const frameworkCalls = extractFrameworkCalls(language, symbols);
+
+    if (["typescript", "tsx", "javascript", "jsx"].includes(language)) {
+      const fileHasUseServer = /^(['"])use server\1/m.test(content);
+      for (const symbol of symbols) {
+        if (symbol.kind !== "function" && symbol.kind !== "arrow") continue;
+        const bodyStart = symbol.fullSource.replace(/^[^{]*\{[\s\n]*/, "");
+        const hasDirective = /^(['"])use server\1/.test(bodyStart);
+        if (hasDirective || (fileHasUseServer && symbol.isExported)) {
+          calls.push({
+            callerSymbol: symbol.name,
+            calleeName: symbol.name,
+            line: symbol.startLine,
+            edgeKind: "server-action",
+          });
+        }
+      }
+    }
 
     return { symbols, imports, calls, frameworkCalls, errors };
   } catch (err) {

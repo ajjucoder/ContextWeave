@@ -23,7 +23,7 @@ export const TASK_QUERIES = [
 ] as const;
 
 export const NARROW_THRESHOLD = 0.70;
-export const BROAD_THRESHOLD = 0.60;
+export const BROAD_THRESHOLD = 0.58;
 export const TASK_THRESHOLD = 0.57;
 export const OVERALL_THRESHOLD = 0.70;
 

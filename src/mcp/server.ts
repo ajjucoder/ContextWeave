@@ -24,6 +24,7 @@ import { createLogger } from "../utils/logger.js";
 import type { ProjectConfig } from "../utils/config.js";
 import { acquireServerSessionLock, releaseServerSessionLock } from "./session-lock.js";
 import { syncBootstrapObservations } from "../memory/bootstrap.js";
+import { promoteFrequentObservations, demoteStaleObservations } from "../memory/observations.js";
 
 const log = createLogger("mcp-server");
 
@@ -42,12 +43,17 @@ function scheduleDerivedDataBackfill(db: Database.Database, projectRoot: string)
     try {
       const backfilledSummaries = backfillSummariesIfNeeded(db);
       const backfilledClusters = backfillClustersIfNeeded(db, projectRoot);
+      const promoted = promoteFrequentObservations(db);
+      const demoted = demoteStaleObservations(db);
       if (backfilledSummaries || backfilledClusters) {
         log.info("backfilled derived data for existing index", {
           projectRoot,
           summaries: backfilledSummaries,
           clusters: backfilledClusters,
         });
+      }
+      if (promoted > 0 || demoted > 0) {
+        log.info("observation promotion/demotion complete", { promoted, demoted });
       }
     } catch (error) {
       log.error("failed to backfill derived data", {

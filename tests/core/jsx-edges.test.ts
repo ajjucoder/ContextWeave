@@ -98,7 +98,7 @@ describe("JSX component usage edges", () => {
       expect(handleClickTarget).toBeDefined();
 
       const hasCallEdge = appEdges.some(
-        (e) => e.targetSymbolId === handleClickTarget!.id && (e.kind === "call" || e.kind === "jsx_render")
+        (e) => e.targetSymbolId === handleClickTarget!.id && (e.kind === "call" || e.kind === "jsx_render" || e.kind === "callback")
       );
       expect(hasCallEdge).toBe(true);
     } finally {

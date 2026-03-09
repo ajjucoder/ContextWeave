@@ -19,6 +19,7 @@
     "bench:product": "tsx bench/cross-project-qa.ts",
     "bench:100k": "tsx bench/100k-harness.ts",
     "bench:concurrent": "tsx bench/concurrent-stress.ts",
+    "bench:quality": "tsx bench/retrieval-quality.ts",
     "lint": "tsc --noEmit"
   },
   "engines": {

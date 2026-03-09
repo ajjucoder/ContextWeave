@@ -3,8 +3,8 @@ import { classifyQueryIntent } from "../../src/capsule/intent-classifier.js";
 
 describe("classifyQueryIntent", () => {
   it("classifies narrow symbol-style lookups", () => {
-    expect(classifyQueryIntent("generateCapsule").intent).toBe("narrow");
-    expect(classifyQueryIntent("SessionContext").intent).toBe("narrow");
+    expect(classifyQueryIntent("generateCapsule").intent).toBe("symbol-lookup");
+    expect(classifyQueryIntent("SessionContext").intent).toBe("symbol-lookup");
   });
 
   it("classifies broad architectural queries", () => {
@@ -58,10 +58,9 @@ describe("classifyQueryIntent", () => {
     expect(classified.normalizedTerms).not.toContain("why");
   });
 
-  it("keeps real action verbs as task even when question words are present", () => {
+  it("prioritizes debug intent when a fix-style question includes bug signals", () => {
     const classified = classifyQueryIntent("how do I fix the auth bug");
-    // "fix" is an action verb → task
-    expect(classified.intent).toBe("task");
+    expect(classified.intent).toBe("debug");
     expect(classified.actionVerbs).toContain("fix");
   });
 });

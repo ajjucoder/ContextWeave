@@ -91,7 +91,7 @@ describe("watcher behavior", () => {
       { embeddings: undefined }
     );
     expect(onReindex).toHaveBeenCalledWith("/repo/src/file.ts", 3);
-    expect(mockRemoveFile).toHaveBeenCalledWith(db, "/repo/src/file.ts");
+    expect(mockRemoveFile).toHaveBeenCalledWith(db, "/repo/src/file.ts", "/repo");
     expect(onRemove).toHaveBeenCalledWith("/repo/src/file.ts");
     expect(onError).not.toHaveBeenCalled();
 

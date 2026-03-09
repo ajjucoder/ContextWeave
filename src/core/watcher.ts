@@ -1,6 +1,6 @@
 import * as parcelWatcher from "@parcel/watcher";
 import type Database from "better-sqlite3";
-import { basename, resolve } from "node:path";
+import { basename, relative, resolve } from "node:path";
 import type { EmbeddingRuntime, IndexDiff } from "./types.js";
 import { BUILTIN_IGNORE_PATTERNS, indexProject, indexSingleFile, isIgnoredForIndexing, isSecurityExcludedPath, removeFile } from "./indexer.js";
 import { detectLanguage } from "./parser.js";
@@ -89,7 +89,8 @@ export async function startWatcher(options: WatcherOptions): Promise<void> {
       log.debug(`reindexed ${filePath}: ${result.symbolCount} symbols`);
 
       if (result.diff) {
-        const fileRecord = files.getByPath(filePath);
+        const relPath = relative(projectRoot, filePath).replace(/\\/g, "/");
+        const fileRecord = files.getByPath(relPath);
         if (fileRecord) {
           staleness.propagateFromDiff(result.diff, fileRecord.id);
           captureFileChangeObservation(db, filePath, result.diff, fileRecord.id, sessionId ?? "default", projectRoot);
@@ -110,7 +111,7 @@ export async function startWatcher(options: WatcherOptions): Promise<void> {
     if (!language) return;
 
     try {
-      removeFile(db, filePath);
+      removeFile(db, filePath, projectRoot);
       log.debug(`removed ${filePath} from index`);
       onRemove?.(filePath);
     } catch (err) {

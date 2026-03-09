@@ -296,6 +296,110 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 13,
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS patterns (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          description TEXT NOT NULL,
+          files TEXT NOT NULL,
+          signature TEXT NOT NULL,
+          confidence REAL NOT NULL,
+          detected_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_patterns_detected_at ON patterns(detected_at);
+      `);
+    },
+  },
+  {
+    version: 14,
+    up(db) {
+      const columns = db.prepare("PRAGMA table_info(file_summaries)").all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === "body_features")) {
+        db.exec(`ALTER TABLE file_summaries ADD COLUMN body_features TEXT NOT NULL DEFAULT '';`);
+      }
+      db.exec(`
+        DROP TABLE IF EXISTS file_summaries_fts;
+        CREATE VIRTUAL TABLE file_summaries_fts USING fts5(
+          summary_text,
+          body_features,
+          content='file_summaries',
+          content_rowid='file_id',
+          tokenize='trigram'
+        );
+        INSERT INTO file_summaries_fts(rowid, summary_text, body_features)
+        SELECT file_id, summary_text, body_features FROM file_summaries;
+      `);
+    },
+  },
+  {
+    version: 15,
+    up(db) {
+      const columns = db.prepare("PRAGMA table_info(observations)").all() as Array<{ name: string }>;
+      if (!columns.some((c) => c.name === "hit_count")) {
+        db.exec("ALTER TABLE observations ADD COLUMN hit_count INTEGER NOT NULL DEFAULT 0");
+      }
+      if (!columns.some((c) => c.name === "last_hit_at")) {
+        db.exec("ALTER TABLE observations ADD COLUMN last_hit_at INTEGER");
+      }
+    },
+  },
+  {
+    version: 16,
+    up(db) {
+      // Convert absolute file paths to project-relative paths for portability.
+      // Idempotent: only transforms paths that are absolute (start with / or drive letter).
+      const rows = db.prepare("SELECT id, path FROM files").all() as Array<{ id: number; path: string }>;
+      if (rows.length === 0) return;
+
+      const absoluteRows = rows.filter(
+        (r) => r.path.startsWith("/") || /^[A-Z]:\\/.test(r.path)
+      );
+      if (absoluteRows.length === 0) return;
+
+      // Determine prefix to strip: prefer project_root from sessions table,
+      // fall back to longest common directory prefix among absolute paths.
+      const session = db.prepare(
+        "SELECT project_root FROM sessions ORDER BY started_at DESC LIMIT 1"
+      ).get() as { project_root: string } | undefined;
+
+      let prefix = "";
+      if (session?.project_root) {
+        prefix = session.project_root.replace(/\\/g, "/");
+      } else {
+        const absPaths = absoluteRows.map((r) => r.path.replace(/\\/g, "/"));
+        prefix = absPaths[0]!;
+        for (const p of absPaths.slice(1)) {
+          while (prefix && !p.startsWith(prefix)) {
+            const lastSlash = prefix.lastIndexOf("/");
+            if (lastSlash <= 0) {
+              prefix = "";
+              break;
+            }
+            prefix = prefix.slice(0, lastSlash);
+          }
+        }
+      }
+
+      if (!prefix || prefix === "/") return;
+      if (!prefix.endsWith("/")) prefix += "/";
+
+      const updatePath = db.prepare(
+        "UPDATE files SET path = ?, basename = ? WHERE id = ?"
+      );
+      for (const row of absoluteRows) {
+        const normalized = row.path.replace(/\\/g, "/");
+        if (!normalized.startsWith(prefix)) continue;
+        const relativePath = normalized.slice(prefix.length);
+        if (!relativePath) continue;
+        const idx = relativePath.lastIndexOf("/");
+        const basename = idx >= 0 ? relativePath.slice(idx + 1) : relativePath;
+        updatePath.run(relativePath, basename, row.id);
+      }
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

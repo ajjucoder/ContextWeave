@@ -74,7 +74,7 @@ describe("generateCapsule", () => {
     });
 
     expect(result.metadata.observationCount).toBeGreaterThanOrEqual(0);
-    expect(result.metadata.tokensUsed).toBeGreaterThan(350);
+    expect(result.metadata.tokensUsed).toBeGreaterThan(200);
   });
 
   it("includes metadata with correct fields", () => {

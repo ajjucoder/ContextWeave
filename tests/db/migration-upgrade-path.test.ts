@@ -43,7 +43,7 @@ describe("DB migration upgrade path", () => {
       .all() as Array<{ version: number }>;
     const versions = applied.map((r) => r.version);
 
-    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]);
 
     db.close();
   });
@@ -73,7 +73,7 @@ describe("DB migration upgrade path", () => {
         .get() as { cnt: number }
     ).cnt;
 
-    expect(count).toBe(12);
+    expect(count).toBe(16);
 
     db.close();
   });
@@ -186,6 +186,51 @@ describe("DB migration upgrade path", () => {
     const columns = db.prepare("PRAGMA table_info(chunk_embeddings)").all() as Array<{ name: string; pk: number }>;
     expect(columns.some((column) => column.name === "chunk_id" && column.pk === 1)).toBe(true);
     expect(columns.some((column) => column.name === "embedding")).toBe(true);
+
+    db.close();
+  });
+
+  it("v16 converts absolute file paths to project-relative paths", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = OFF");
+
+    // Apply all migrations up to v15, then mark v16 as already applied so it is skipped.
+    runMigrations(db);
+
+    // Re-open state: remove v16 from schema_migrations so it runs again.
+    db.prepare("DELETE FROM schema_migrations WHERE version = 16").run();
+
+    // Insert absolute-path files simulating a pre-v16 database.
+    const now = Date.now();
+    const projectRoot = "/Users/dev/project";
+    db.prepare(
+      "INSERT INTO files (path, basename, hash, last_indexed, mtime, language, symbol_count, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(`${projectRoot}/src/main.ts`, "main.ts", "abc", now, now, "typescript", 3, null);
+    db.prepare(
+      "INSERT INTO files (path, basename, hash, last_indexed, mtime, language, symbol_count, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(`${projectRoot}/src/utils/helpers.ts`, "helpers.ts", "def", now, now, "typescript", 1, null);
+    db.prepare(
+      "INSERT INTO files (path, basename, hash, last_indexed, mtime, language, symbol_count, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(`${projectRoot}/README.md`, "README.md", "ghi", now, now, "markdown", 0, null);
+
+    // Insert a session with project_root so v16 knows which prefix to strip.
+    db.prepare(
+      "INSERT INTO sessions (id, agent_id, project_root, started_at) VALUES (?, ?, ?, ?)"
+    ).run("migration-test-session", "claude-code", projectRoot, now - 1000);
+
+    // Apply v16.
+    runMigrations(db);
+
+    const files = db
+      .prepare("SELECT path FROM files ORDER BY path")
+      .all() as Array<{ path: string }>;
+    const paths = files.map((f) => f.path);
+
+    expect(paths).toContain("README.md");
+    expect(paths).toContain("src/main.ts");
+    expect(paths).toContain("src/utils/helpers.ts");
+    // Verify no absolute paths remain.
+    expect(paths.every((p) => !p.startsWith("/"))).toBe(true);
 
     db.close();
   });

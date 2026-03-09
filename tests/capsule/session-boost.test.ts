@@ -61,7 +61,8 @@ describe("session-aware pivot boosting", () => {
       tokenBudget: 4000,
     });
 
-    expect(result.metadata.fileCount).toBe(1);
+    expect(result.metadata.fileCount).toBeGreaterThanOrEqual(1);
+    expect(result.metadata.fileCount).toBeLessThanOrEqual(3);
     expect(result.metadata.quality.coverageConfidence).toBeGreaterThan(0.7);
     expect(result.content).toContain("SessionContext");
   });

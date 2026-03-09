@@ -12,6 +12,7 @@ const EXACT_WEIGHT = 2;
 export interface HybridSearchOptions {
   query: string;
   queryTerms: string[];
+  idfWeights?: Map<string, number>;
   queryEmbedding: Float32Array;
   limit?: number;
   pathRestriction?: string;
@@ -103,6 +104,11 @@ function computeRecencyScore(mtime: number, now: number): number {
 function rrfTerm(rank: number | null, weight: number): number {
   if (rank === null) return 0;
   return weight * (1 / (RRF_K + rank));
+}
+
+function termWeight(term: string, idfWeights?: Map<string, number>): number {
+  const raw = idfWeights?.get(term.toLowerCase()) ?? 1;
+  return raw < 0.5 ? raw * 0.5 : raw;
 }
 
 export async function hybridSearch(
@@ -232,18 +238,28 @@ export async function hybridSearch(
   }
 
   const bm25Seeds = new Map<number, RankedChunkSeed>();
-  let bm25Rank = 1;
-  for (const term of terms) {
+  const bm25Scores = new Map<number, { seed: RankedChunkSeed; score: number }>();
+  for (const term of [...terms].sort((a, b) => termWeight(b, options.idfWeights) - termWeight(a, options.idfWeights))) {
     if (term.length < 3) continue;
+    const weight = termWeight(term, options.idfWeights);
+    let localRank = 1;
     for (const match of symbols.searchFTS(term, limit * 3)) {
-      const seed = resolveChunk(match.fileId, match.startLine, bm25Rank);
-      if (!seed || bm25Seeds.has(seed.chunkId)) continue;
-      bm25Seeds.set(seed.chunkId, seed);
-      bm25Rank += 1;
-      if (bm25Seeds.size >= limit * 3) break;
+      const seed = resolveChunk(match.fileId, match.startLine, localRank);
+      if (!seed) continue;
+      const existing = bm25Scores.get(seed.chunkId);
+      bm25Scores.set(seed.chunkId, {
+        seed: existing?.seed ?? seed,
+        score: (existing?.score ?? 0) + weight / (localRank + 2),
+      });
+      localRank += 1;
     }
-    if (bm25Seeds.size >= limit * 3) break;
   }
+  [...bm25Scores.values()]
+    .sort((a, b) => b.score - a.score)
+    .slice(0, limit * 3)
+    .forEach((entry, index) => {
+      bm25Seeds.set(entry.seed.chunkId, { ...entry.seed, rank: index + 1 });
+    });
 
   const vectorSeeds = new Map<number, RankedChunkSeed>();
   const vectorResults = embeddingRuntime.vectorStore.search(options.queryEmbedding, vectorLimit);

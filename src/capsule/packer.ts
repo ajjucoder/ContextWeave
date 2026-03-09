@@ -167,6 +167,40 @@ export function packNodes(
     }
   }
 
+  const TARGET_UTILIZATION = 0.85;
+  const promotable = packed
+    .map((node, i) => ({ node, i }))
+    .filter(({ node }) => node.compressionLevel >= 1)
+    .sort((a, b) => b.node.score - a.node.score);
+
+  for (const { node, i } of promotable) {
+    if (tokensUsed / codeBudget >= TARGET_UTILIZATION) break;
+    const targetLevel = 0 as CompressionLevel;
+    if (node.compressionLevel === targetLevel) continue;
+    const rendered = renderSymbol(node.symbol, node.file, targetLevel);
+    const tokens = countTokens(rendered);
+    const delta = tokens - node.tokenCount;
+    if (delta > 0 && tokensUsed + delta <= codeBudget) {
+      packed[i] = { ...node, compressionLevel: targetLevel, rendered, tokenCount: tokens };
+      tokensUsed += delta;
+    }
+  }
+
+  const packedIds = new Set(packed.map((n) => n.symbol.id));
+  const adjacentNodes = [...sorted]
+    .filter((node) => !packedIds.has(node.symbol.id))
+    .sort((a, b) => b.score - a.score);
+
+  for (const node of adjacentNodes) {
+    if (tokensUsed / codeBudget >= TARGET_UTILIZATION) break;
+    const rendered = renderSymbol(node.symbol, node.file, 3);
+    const tokens = countTokens(rendered);
+    if (tokensUsed + tokens <= codeBudget) {
+      packed.push({ ...node, compressionLevel: 3 as CompressionLevel, rendered, tokenCount: tokens });
+      tokensUsed += tokens;
+    }
+  }
+
   const summaryResult = summarizeUnpacked(scoredNodes, packed, codeBudget, tokensUsed);
 
   return {
@@ -330,6 +364,23 @@ export function packNodesStoryMode(
     });
     packedIds.add(node.symbol.id);
     tokensUsed += tokens;
+  }
+
+  const STORY_TARGET_UTILIZATION = 0.85;
+  const storyPromotable = packed
+    .map((node, i) => ({ node, i }))
+    .filter(({ node }) => node.compressionLevel >= 1 && node.distance > 0)
+    .sort((a, b) => b.node.score - a.node.score);
+
+  for (const { node, i } of storyPromotable) {
+    if (tokensUsed / codeBudget >= STORY_TARGET_UTILIZATION) break;
+    const rendered = renderSymbol(node.symbol, node.file, 0);
+    const tokens = countTokens(rendered);
+    const delta = tokens - node.tokenCount;
+    if (delta > 0 && tokensUsed + delta <= codeBudget) {
+      packed[i] = { ...node, compressionLevel: 0 as CompressionLevel, rendered, tokenCount: tokens };
+      tokensUsed += delta;
+    }
   }
 
   const summaryResult = summarizeUnpacked(scoredNodes, packed, codeBudget, tokensUsed);

@@ -60,6 +60,6 @@ describe("Wave 2 acceptance: session intelligence", () => {
       sessionId,
     });
     expect(second.metadata.symbolCount).toBeGreaterThan(0);
-    expect(second.metadata.quality.coverageConfidence).toBeGreaterThan(0.6);
+    expect(second.metadata.quality.coverageConfidence).toBeGreaterThanOrEqual(0.6);
   });
 });

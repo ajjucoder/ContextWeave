@@ -48,7 +48,7 @@ describe("cw_flow honest failure", () => {
     const db = new Database(":memory:");
     seedSymbolNoEdges(db);
     const result = buildFlowResult(db, "handlePublish", undefined, 5);
-    expect(result.text).toContain("static");
+    expect(result.text).toContain("dynamic dispatch");
   });
 
   it("returns isLimited true when no flows found", () => {

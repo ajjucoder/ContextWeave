@@ -21,7 +21,10 @@ export type EdgeKind =
   | "inheritance"
   | "implements"
   | "jsx_render"
-  | "framework_entry";
+  | "framework_entry"
+  | "callback"
+  | "server-action"
+  | "route-handler";
 
 export type CompressionLevel = 0 | 1 | 2 | 3;
 
@@ -218,7 +221,7 @@ export interface ParsedCall {
   callerSymbol: string;
   calleeName: string;
   line: number;
-  edgeKind?: "call" | "dynamic_dispatch" | "jsx_render" | "type_usage" | "inheritance" | "implements" | "framework_entry";
+  edgeKind?: "call" | "dynamic_dispatch" | "jsx_render" | "type_usage" | "inheritance" | "implements" | "framework_entry" | "callback" | "server-action" | "route-handler";
 }
 
 export interface ParsedFrameworkCall {
@@ -303,6 +306,23 @@ export interface CapsuleQuality {
   };
 }
 
+export interface PatternSignature {
+  importShape: string[];
+  exportShape: string[];
+  hookUsage: string[];
+  symbolKinds: string[];
+  directoryPattern: string;
+}
+
+export interface CodePattern {
+  id: string;
+  name: string;
+  description: string;
+  files: string[];
+  confidence: number;
+  signature: PatternSignature;
+}
+
 export interface CapsuleMetadata {
   query: string;
   mode: CapsuleMode;
@@ -325,18 +345,14 @@ export interface CapsuleMetadata {
       candidateCount: number;
       exactMatches: number;
     };
-    semanticRerank?: {
-      enabled: boolean;
-      applied: boolean;
-      candidateCount: number;
-      boosted: number;
-    };
+
   };
   clusterGroups?: Array<{
     id: number;
     symbolCount: number;
     fileCount: number;
   }>;
+  patterns?: CodePattern[];
   generatedAt: number;
   timeLimited?: boolean;
 }

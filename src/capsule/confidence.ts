@@ -10,7 +10,7 @@ export interface ConfidenceParams {
   dependencyCoverage: number;
   noiseRatio: number;
   fileSummaryCount: number;
-  tokenUtilization?: number;
+  tokenUtilization: number;
   queryTermCoverage?: number;
   retrievalSurfaceScore?: number;
   moduleCoverageStats?: {
@@ -69,6 +69,19 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
     relevantCoverage >= 0.6 &&
     dependencyCoverage >= 0.7 &&
     noiseRatio <= 0.2;
+  const compactButGrounded =
+    intent !== "symbol-lookup" &&
+    (
+      (fileSummaryCount >= 2 && relevantCoverage >= 0.6) ||
+      (
+        retrievalSurfaceScore >= 0.75 &&
+        pivotCoverage >= 0.75 &&
+        relevantCoverage >= 0.6 &&
+        dependencyCoverage >= 0.75 &&
+        noiseRatio <= 0.1 &&
+        pivotsIncluded >= 4
+      )
+    );
 
   let confidence = clamp(
     relevantCoverage * 0.5 +
@@ -81,16 +94,6 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
     retrievalSurfaceScore < 0.75 ||
     relevantCoverage < 0.6 ||
     noiseRatio > 0.35;
-  const compactButGrounded =
-    (fileSummaryCount >= 2 && relevantCoverage >= 0.6) ||
-    (
-      pivotCoverage >= 0.75 &&
-      relevantCoverage >= 0.6 &&
-      dependencyCoverage >= 0.75 &&
-      noiseRatio <= 0.1 &&
-      pivotsIncluded >= 4
-    );
-
   if (intent === "broad") {
     confidence = clamp(
       moduleCoverage * 0.35 +
@@ -136,7 +139,7 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
     }
   }
 
-  if (intent !== "narrow" && thinRetrieval && tokenUtilization !== undefined) {
+  if (intent !== "narrow" && intent !== "symbol-lookup" && thinRetrieval) {
     if (compactButGrounded) {
       if (tokenUtilization < 0.3) {
         confidence = Math.min(confidence, 0.78);
@@ -158,12 +161,7 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
     confidence = Math.min(confidence, 0.5);
   }
 
-  if (
-    intent !== "narrow" &&
-    thinRetrieval &&
-    !compactButGrounded &&
-    ((tokenUtilization ?? 0) <= 0.6 || relevantCoverage <= 0.6)
-  ) {
+  if (!(tokenUtilization > 0.6 && pivotCoverage > 0.6)) {
     confidence = Math.min(confidence, 0.9);
   }
 

@@ -83,6 +83,54 @@ describe("file summaries", () => {
     expect(paths).toContain("docs/partner-policy.md");
   });
 
+  it("extracts body-aware features like API calls, JSX text, SQL identifiers, and env vars", () => {
+    const localDb = new Database(":memory:");
+    localDb.pragma("foreign_keys = ON");
+    createSchema(localDb);
+    const now = Date.now();
+    const files = fileQueries(localDb);
+    const syms = symbolQueries(localDb);
+
+    const fileId = files.insert({
+      path: "src/realtime/session-panel.tsx",
+      hash: "body-a",
+      lastIndexed: now,
+      mtime: now,
+      language: "tsx",
+      symbolCount: 1,
+      error: null,
+    });
+    syms.insert({
+      fileId,
+      name: "SessionPanel",
+      kind: "function",
+      startLine: 1,
+      endLine: 30,
+      signature: "function SessionPanel()",
+      bodyHash: "body-a1",
+      fullSource: `export function SessionPanel() {\n  const channel = supabase.from("sessions");\n  const sql = "SELECT * FROM sessions JOIN accounts";\n  const url = process.env.DATABASE_URL;\n  return <h1>Welcome to Dashboard</h1>;\n}`,
+      isExported: true,
+      docComment: null,
+      centrality: 2,
+      lastSeen: now,
+    });
+
+    upsertFileSummary(localDb, fileId);
+
+    const row = localDb.prepare("SELECT body_features FROM file_summaries WHERE file_id = ?").get(fileId) as
+      | { body_features: string }
+      | undefined;
+    expect(row?.body_features).toContain("supabase.from");
+    expect(row?.body_features).toContain("sessions");
+    expect(row?.body_features).toContain("welcome to dashboard");
+    expect(row?.body_features).toContain("database_url");
+
+    expect(searchFilesByQuery(localDb, "realtime supabase session", 10).map((r) => r.path)).toContain(
+      "src/realtime/session-panel.tsx"
+    );
+    localDb.close();
+  });
+
   it("prefers runtime files over test files for broad non-test queries", () => {
     const localDb = new Database(":memory:");
     localDb.pragma("foreign_keys = ON");

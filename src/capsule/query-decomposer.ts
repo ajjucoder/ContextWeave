@@ -1,3 +1,5 @@
+import type Database from "better-sqlite3";
+import { splitIdentifier } from "../utils/camel-split.js";
 import type { ClassifiedQuery } from "./intent-classifier.js";
 
 const STOP_WORDS = new Set(["a", "an", "the", "in", "on", "at", "for", "of", "with", "and", "or", "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "may", "might", "must", "can", "from", "to", "by", "as", "into", "about", "between", "through"]);
@@ -67,6 +69,8 @@ export interface ClusterHint {
   relevance?: number;
 }
 
+export type DecomposedQueryGroups = string[][] & { idfWeights: Map<string, number> };
+
 function uniq(values: string[]): string[] {
   return [...new Set(values)];
 }
@@ -74,9 +78,39 @@ function uniq(values: string[]): string[] {
 function sanitizeTerms(terms: string[]): string[] {
   return uniq(
     terms
+      .flatMap((term) => {
+        const trimmed = term.trim();
+        const splits = splitIdentifier(trimmed);
+        const joined = splits.length > 1 ? [splits.join(""), ...splits.slice(1).map((_, index) => splits.slice(index + 1).join(""))] : [];
+        return [trimmed, ...splits, ...joined];
+      })
       .map((term) => term.toLowerCase().trim())
       .filter((term) => term.length > 1 && !STOP_WORDS.has(term))
   );
+}
+
+export function computeTermIDF(db: Database.Database, terms: string[]): Map<string, number> {
+  const normalizedTerms = sanitizeTerms(terms);
+  const weights = new Map<string, number>();
+  if (normalizedTerms.length === 0) {
+    return weights;
+  }
+
+  const totalFiles = (db.prepare("SELECT COUNT(*) as c FROM files").get() as { c: number }).c;
+  if (totalFiles === 0) {
+    return new Map(normalizedTerms.map((term) => [term, 1]));
+  }
+
+  const countStmt = db.prepare(`
+    SELECT COUNT(DISTINCT file_id) as c
+    FROM symbols
+    WHERE lower(name) LIKE '%' || ? || '%'
+  `);
+  for (const term of normalizedTerms) {
+    const filesContaining = (countStmt.get(term) as { c: number }).c;
+    weights.set(term, Math.log(totalFiles / (1 + filesContaining)));
+  }
+  return weights;
 }
 
 function termsLooselyOverlap(left: string, right: string): boolean {
@@ -149,23 +183,23 @@ function rankClusters(clusterHints: ClusterHint[]): ClusterHint[] {
     .slice(0, MAX_SMART_SUB_QUERIES);
 }
 
-function buildBaseTerms(classified: ClassifiedQuery, fallbackQuery: string): string[] {
+function buildBaseTerms(classified: ClassifiedQuery, fallbackQuery: string, db?: Database.Database): string[] {
   const candidates = sanitizeTerms([...classified.focusTerms, ...classified.normalizedTerms]);
   if (candidates.length > 0) return candidates;
-  return mergeSubQueryTerms(decomposeQuery(fallbackQuery));
+  return mergeSubQueryTerms(decomposeQuery(fallbackQuery, db));
 }
 
-export function decomposeQuery(query: string): string[][] {
-  const terms = query
-    .toLowerCase()
-    .replace(/[^a-z0-9_\s]/g, " ")
-    .split(/\s+/)
-    .filter((t) => t.length > 1 && !STOP_WORDS.has(t));
+export function decomposeQuery(query: string, db?: Database.Database): DecomposedQueryGroups {
+  const terms = sanitizeTerms(query.replace(/[^A-Za-z0-9_\s]/g, " ").split(/\s+/));
+  const groups = [] as DecomposedQueryGroups;
+  groups.idfWeights = db ? computeTermIDF(db, terms) : new Map(terms.map((term) => [term, 1]));
 
-  if (terms.length === 0) return [];
-  if (terms.length < MIN_TERMS_TO_SPLIT) return [terms];
+  if (terms.length === 0) return groups;
+  if (terms.length < MIN_TERMS_TO_SPLIT) {
+    groups.push(terms);
+    return groups;
+  }
 
-  const groups: string[][] = [];
   let i = 0;
   while (i < terms.length) {
     groups.push(terms.slice(i, i + MAX_TERMS_PER_GROUP));
@@ -191,9 +225,10 @@ export function mergeSubQueryTerms(groups: string[][]): string[] {
 export function decomposeForBroad(
   query: string,
   classified: ClassifiedQuery,
-  clusterHints: ClusterHint[] = []
+  clusterHints: ClusterHint[] = [],
+  db?: Database.Database
 ): SubQuery[] {
-  const baseTerms = buildBaseTerms(classified, query);
+  const baseTerms = buildBaseTerms(classified, query, db);
   const rankedClusters = rankClusters(clusterHints).filter((cluster) =>
     clusterMatchesBaseTerms(cluster, baseTerms)
   );
@@ -220,7 +255,7 @@ export function decomposeForBroad(
     ];
   }
 
-  const grouped = decomposeQuery(baseTerms.join(" "));
+  const grouped = decomposeQuery(baseTerms.join(" "), db);
   const selected = grouped.slice(0, MAX_SMART_SUB_QUERIES);
   if (selected.length === 0) return [];
 
@@ -237,9 +272,10 @@ export function decomposeForBroad(
 export function decomposeForTask(
   query: string,
   classified: ClassifiedQuery,
-  clusterHints: ClusterHint[] = []
+  clusterHints: ClusterHint[] = [],
+  db?: Database.Database
 ): SubQuery[] {
-  const baseTerms = buildBaseTerms(classified, query);
+  const baseTerms = buildBaseTerms(classified, query, db);
   const bundles = deriveTaskBundles(classified.actionVerbs, classified.impliedModules).slice(0, MAX_SMART_SUB_QUERIES);
   const rankedClusters = rankClusters(clusterHints);
   const subQueryCount = Math.max(2, Math.min(MAX_SMART_SUB_QUERIES, Math.max(bundles.length, rankedClusters.length || 0)));

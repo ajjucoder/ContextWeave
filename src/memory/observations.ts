@@ -4,6 +4,60 @@ import { observationQueries } from "../db/queries/observations.js";
 import { BM25Index } from "./bm25.js";
 import { symbolQueries } from "../db/queries/symbols.js";
 
+const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+export function promoteFrequentObservations(db: Database.Database): number {
+  const result = db.prepare(`
+    UPDATE observations
+    SET scope = 'convention', confidence = 0.9, updated_at = ?
+    WHERE hit_count >= 3 AND scope != 'convention' AND archived = 0
+  `).run(Date.now());
+  return result.changes;
+}
+
+export function demoteStaleObservations(db: Database.Database): number {
+  const now = Date.now();
+  const staleThreshold = now - THIRTY_DAYS_MS;
+
+  const rows = db.prepare(`
+    SELECT id, confidence, last_hit_at, created_at
+    FROM observations
+    WHERE archived = 0
+      AND (last_hit_at < ? OR (last_hit_at IS NULL AND created_at < ?))
+  `).all(staleThreshold, staleThreshold) as Array<{
+    id: number;
+    confidence: number;
+    last_hit_at: number | null;
+    created_at: number;
+  }>;
+
+  if (rows.length === 0) return 0;
+
+  const updateConfidence = db.prepare(
+    "UPDATE observations SET confidence = ?, updated_at = ? WHERE id = ?"
+  );
+  const archiveObs = db.prepare(
+    "UPDATE observations SET confidence = ?, archived = 1, updated_at = ? WHERE id = ?"
+  );
+
+  let demoted = 0;
+  for (const row of rows) {
+    const referenceTime = row.last_hit_at ?? row.created_at;
+    const stalePeriods = Math.floor((now - referenceTime) / THIRTY_DAYS_MS);
+    const decay = stalePeriods * 0.1;
+    const newConfidence = Math.max(0, row.confidence - decay);
+
+    if (newConfidence < 0.1) {
+      archiveObs.run(newConfidence, now, row.id);
+    } else {
+      updateConfidence.run(newConfidence, now, row.id);
+    }
+    demoted++;
+  }
+
+  return demoted;
+}
+
 type ObservationQueries = ReturnType<typeof observationQueries>;
 type SymbolQueries = ReturnType<typeof symbolQueries>;
 

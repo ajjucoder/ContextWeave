@@ -49,6 +49,8 @@ describe("computeSessionStats", () => {
     expect(stats.uniqueSymbols).toBe(0);
     expect(stats.firstPassRate).toBe(0);
     expect(stats.correctionRate).toBe(0);
+    expect(stats.budgetUtilization).toBe(0);
+    expect(stats.averageFollowUpReads).toBe(0);
   });
 
   it("aggregates capsule log entries correctly", () => {
@@ -64,6 +66,10 @@ describe("computeSessionStats", () => {
     expect(stats.uniqueSymbols).toBe(4);
     expect(stats.firstPassRate).toBe(0.5);
     expect(stats.correctionRate).toBe(0.5);
+    // budgetUtilization: avg of (2400/4000 + 3100/4000) / 2 = (0.6 + 0.775) / 2 = 0.6875
+    expect(stats.budgetUtilization).toBeCloseTo(0.6875, 5);
+    // averageFollowUpReads: 1 followedUp out of 2 = 0.5
+    expect(stats.averageFollowUpReads).toBeCloseTo(0.5, 5);
   });
 
   it("calculates estimated savings", () => {
@@ -83,6 +89,22 @@ describe("computeSessionStats", () => {
     const stats = computeSessionStats(db, "s1", "/test");
     expect(stats.uniqueFiles).toBe(2);
     expect(stats.uniqueSymbols).toBe(3);
+  });
+
+  it("computes budgetUtilization and averageFollowUpReads correctly", () => {
+    setupSession("s1");
+    // log1: 2000/4000 = 0.5 utilization, no follow-up
+    insertCapsuleLog("s1", "query A", 4000, 2000, ["fnA"], ["src/a.ts"], false);
+    // log2: 4000/4000 = 1.0 utilization, followed up
+    insertCapsuleLog("s1", "query B", 4000, 4000, ["fnB"], ["src/b.ts"], true);
+    // log3: 1000/4000 = 0.25 utilization, no follow-up
+    insertCapsuleLog("s1", "query C", 4000, 1000, ["fnC"], ["src/c.ts"], false);
+
+    const stats = computeSessionStats(db, "s1", "/test");
+    // budgetUtilization = (0.5 + 1.0 + 0.25) / 3 = 0.5833...
+    expect(stats.budgetUtilization).toBeCloseTo((0.5 + 1.0 + 0.25) / 3, 5);
+    // averageFollowUpReads = 1 followed-up / 3 total = 0.333...
+    expect(stats.averageFollowUpReads).toBeCloseTo(1 / 3, 5);
   });
 
   it("only counts capsules for the specified session", () => {

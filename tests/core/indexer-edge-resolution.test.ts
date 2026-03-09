@@ -63,8 +63,8 @@ describe("indexer edge resolution", () => {
     const symbols = symbolQueries(db);
     const edges = edgeQueries(db);
 
-    const importerFile = files.getByPath(resolve(TEMP_DIR, "importer.ts"));
-    const moduleFile = files.getByPath(resolve(TEMP_DIR, "module.ts"));
+    const importerFile = files.getByPath("importer.ts");
+    const moduleFile = files.getByPath("module.ts");
     expect(importerFile).toBeDefined();
     expect(moduleFile).toBeDefined();
 
@@ -113,8 +113,8 @@ describe("indexer edge resolution", () => {
     const symbols = symbolQueries(db);
     const edges = edgeQueries(db);
 
-    const expressFile = files.getByPath(resolve(TEMP_DIR, "express.js"));
-    const applicationFile = files.getByPath(resolve(TEMP_DIR, "application.js"));
+    const expressFile = files.getByPath("express.js");
+    const applicationFile = files.getByPath("application.js");
     expect(expressFile).toBeDefined();
     expect(applicationFile).toBeDefined();
 

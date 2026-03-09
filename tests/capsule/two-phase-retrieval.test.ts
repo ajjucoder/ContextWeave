@@ -68,7 +68,6 @@ describe("two-phase retrieval", () => {
       tokenBudget: 4000,
     });
 
-    expect(result.metadata.strategy?.semanticRerank?.enabled).toBe(false);
-    expect(result.metadata.strategy?.semanticRerank?.applied).toBe(false);
+    expect(result.metadata.strategy?.semanticRerank).toBeUndefined();
   });
 });

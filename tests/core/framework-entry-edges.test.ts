@@ -303,7 +303,7 @@ module.exports = { registerOAuthRoutes };
 
     const registrarOutgoing = edges.getBySource(registerOAuthRoutes!.id);
     const registrarTargets = new Set(
-      registrarOutgoing.filter((edge) => edge.kind === "framework_entry").map((edge) => edge.targetSymbolId)
+      registrarOutgoing.filter((edge) => edge.kind === "framework_entry" || edge.kind === "route-handler").map((edge) => edge.targetSymbolId)
     );
     expect(registrarTargets.has(handleOAuthCallback!.id)).toBe(true);
 

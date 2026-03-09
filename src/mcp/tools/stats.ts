@@ -2,12 +2,12 @@ import { z } from "zod/v3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
 import { capsuleLogQueries } from "../../db/queries/capsule-log.js";
-import { statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { getRegisterTool } from "./register-helper.js";
 import { resolve } from "node:path";
+import { countTokens } from "../../utils/tokens.js";
 
 const AVG_FILE_TOKENS_FALLBACK = 3000;
-const BYTES_PER_TOKEN_ESTIMATE = 4;
 export const FOLLOW_UP_METRICS_SAMPLE_LIMIT = 200;
 
 export interface SessionStats {
@@ -20,6 +20,8 @@ export interface SessionStats {
   estimatedSavingsPercent: number;
   firstPassRate: number;
   correctionRate: number;
+  budgetUtilization: number;
+  averageFollowUpReads: number;
 }
 
 export interface FollowUpMetrics {
@@ -73,6 +75,8 @@ export function computeSessionStats(
       estimatedSavingsPercent: 0,
       firstPassRate: 0,
       correctionRate: 0,
+      budgetUtilization: 0,
+      averageFollowUpReads: 0,
     };
   }
 
@@ -89,23 +93,32 @@ export function computeSessionStats(
   }
   const followUpMetrics = computeFollowUpMetrics(logs);
 
-  let estimatedRawTokens = 0;
+  let totalFileTokens = 0;
   for (const filePath of allFiles) {
     try {
       const fullPath = resolve(projectRoot, filePath);
-      const size = statSync(fullPath).size;
-      estimatedRawTokens += Math.ceil(size / BYTES_PER_TOKEN_ESTIMATE);
+      const content = readFileSync(fullPath, "utf-8");
+      totalFileTokens += countTokens(content);
     } catch {
-      estimatedRawTokens += AVG_FILE_TOKENS_FALLBACK;
+      totalFileTokens += AVG_FILE_TOKENS_FALLBACK;
     }
   }
 
-  estimatedRawTokens = Math.max(estimatedRawTokens, totalUsed);
+  const estimatedRawTokens = Math.max(totalFileTokens, totalUsed);
 
   const savings =
     estimatedRawTokens > 0
       ? Math.round(((estimatedRawTokens - totalUsed) / estimatedRawTokens) * 100)
       : 0;
+
+  let budgetUtilizationSum = 0;
+  for (const log of logs) {
+    budgetUtilizationSum += log.tokenBudget > 0 ? log.tokensUsed / log.tokenBudget : 0;
+  }
+  const budgetUtilization = budgetUtilizationSum / logs.length;
+
+  const followUpCount = logs.reduce((sum, log) => sum + (log.followedUp ? 1 : 0), 0);
+  const averageFollowUpReads = followUpCount / logs.length;
 
   return {
     capsulesGenerated: logs.length,
@@ -117,6 +130,8 @@ export function computeSessionStats(
     estimatedSavingsPercent: Math.max(0, savings),
     firstPassRate: followUpMetrics.firstPassRate,
     correctionRate: followUpMetrics.correctionRate,
+    budgetUtilization,
+    averageFollowUpReads,
   };
 }
 
@@ -132,13 +147,15 @@ function formatStats(stats: SessionStats, sessionId: string): string {
     `Unique symbols served: ${stats.uniqueSymbols}`,
     `First-pass rate:       ${formatRatePct(stats.firstPassRate)}`,
     `Correction rate:       ${formatRatePct(stats.correctionRate)}`,
+    `Budget utilization:    ${formatRatePct(stats.budgetUtilization)}`,
+    `Avg follow-up reads:   ${stats.averageFollowUpReads.toFixed(2)}`,
   ];
 
   if (stats.capsulesGenerated > 0) {
     lines.push(
       "",
-      "Estimated savings:",
-      `  Raw file reads (est): ~${stats.estimatedRawTokens.toLocaleString()} tokens`,
+      "Savings vs equivalent grep+read:",
+      `  grep+read cost (est): ~${stats.estimatedRawTokens.toLocaleString()} tokens`,
       `  ContextWeave used:    ~${stats.totalTokensUsed.toLocaleString()} tokens`,
       `  Estimated savings:    ~${(stats.estimatedRawTokens - stats.totalTokensUsed).toLocaleString()} tokens (${stats.estimatedSavingsPercent}% reduction)`
     );
