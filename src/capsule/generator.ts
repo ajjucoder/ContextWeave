@@ -23,9 +23,10 @@ import { getDirectoryWeight } from "../utils/directory-weights.js";
 import { isFrameworkEntryPath } from "../utils/path-retrieval.js";
 import { scoreNode, assignCompressionLevel } from "./scorer.js";
 import { rankPivotsWithScores, scorePivotRelevance } from "./pivot-scorer.js";
+import { ACTION_SIGNAL_TERMS, UI_COMPONENT_PATH_RE, PAGE_ENTRY_PATH_RE } from "./signals.js";
 import { renderSymbol, type EdgeSummary } from "./compressor.js";
 import { packNodes, packNodesStoryMode, enrichL2WithDeps } from "./packer.js";
-import { formatCapsule, buildStructuredOutput } from "./formatter.js";
+import { formatCapsule, buildStructuredOutput, selectObservations } from "./formatter.js";
 import { diagnose } from "./diagnostics.js";
 import { classifyQueryIntent } from "./intent-classifier.js";
 import { getPatternsForFiles } from "../core/pattern-detector.js";
@@ -39,6 +40,7 @@ import {
   decomposeForBroad,
   decomposeForTask,
   decomposeQuery,
+  decomposeTerms,
   mergeSubQueryTerms,
   type ClusterHint,
 } from "./query-decomposer.js";
@@ -95,6 +97,44 @@ const MAX_BFS_HOPS = 8;
 const EDGE_BATCH_CHUNK_SIZE = 400;
 const DEDUP_COMPRESSION_LEVEL = 2;
 
+const idfStmtCache = new WeakMap<Database.Database, ReturnType<Database.Database["prepare"]>>();
+export function computeTermIDF(db: Database.Database, terms: string[]): Map<string, number> {
+  const normalizedTerms = decomposeTerms(terms);
+  if (normalizedTerms.length === 0) return new Map();
+
+  const totalFiles = (db.prepare("SELECT COUNT(*) as c FROM files").get() as { c: number }).c;
+  if (totalFiles === 0) return new Map(normalizedTerms.map((term) => [term, 1]));
+
+  let countStmt = idfStmtCache.get(db);
+  if (!countStmt) {
+    countStmt = db.prepare("SELECT COUNT(DISTINCT file_id) as c FROM symbols WHERE lower(name) LIKE '%' || ? || '%'");
+    idfStmtCache.set(db, countStmt);
+  }
+  const weights = new Map<string, number>();
+  for (const term of normalizedTerms) {
+    const filesContaining = (countStmt.get(term) as { c: number }).c;
+    weights.set(term, Math.log(totalFiles / (1 + filesContaining)));
+  }
+  return weights;
+}
+
+const obsHitStmtCache = new WeakMap<Database.Database, Database.Statement<[number, number]>>();
+function recordObservationHits(db: Database.Database, observationIds: number[]): void {
+  if (observationIds.length === 0) return;
+  let stmt = obsHitStmtCache.get(db);
+  if (!stmt) {
+    stmt = db.prepare<[number, number]>("UPDATE observations SET hit_count = hit_count + 1, last_hit_at = ? WHERE id = ?");
+    obsHitStmtCache.set(db, stmt);
+  }
+  const now = Date.now();
+  const s = stmt;
+  db.transaction(() => {
+    for (const id of observationIds) {
+      s.run(now, id);
+    }
+  })();
+}
+
 interface CachedEdgeStmts {
   getDirectCallerIds: ReturnType<Database.Database["prepare"]>;
   getDirectCalleeIds: ReturnType<Database.Database["prepare"]>;
@@ -125,8 +165,6 @@ const FRAMEWORK_QUERY_HINT_TERMS = new Set([
   "page",
   "layout",
 ]);
-const UI_COMPONENT_PATH_RE = /(^|\/)(ui|components?|views?|pages?|templates?|marketing)(\/|$)/i;
-const PAGE_ENTRY_PATH_RE = /(^|\/)(page|layout)\.[cm]?[jt]sx?$/i;
 const UI_FOCUSED_QUERY_TERMS = new Set([
   "ui",
   "ux",
@@ -138,28 +176,6 @@ const UI_FOCUSED_QUERY_TERMS = new Set([
   "pages",
   "modal",
   "form",
-]);
-const ACTION_SIGNAL_TERMS = new Set([
-  "submit",
-  "create",
-  "send",
-  "load",
-  "get",
-  "save",
-  "persist",
-  "fetch",
-  "update",
-  "delete",
-  "exchange",
-  "verify",
-  "handle",
-  "route",
-  "authenticate",
-  "write",
-  "read",
-  "sync",
-  "callback",
-  "notify",
 ]);
 const TYPE_FOCUSED_TERMS = new Set([
   "type",
@@ -334,9 +350,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     return candidates.map((file) => file.path);
   };
 
-  const queryGroups = decomposeQuery(query, db);
-  const fallbackTerms = queryGroups.length > 0
-    ? mergeSubQueryTerms(queryGroups)
+  const queryGroups = decomposeQuery(query);
+  const fallbackTerms = queryGroups.groups.length > 0
+    ? mergeSubQueryTerms(queryGroups.groups)
     : query.toLowerCase().split(/\s+/).filter((t) => t.length > 1);
   const intentTerms =
     intent === "task"
@@ -379,9 +395,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   const subQueries =
     intent === "broad"
-      ? decomposeForBroad(query, classified, clusterHints, db)
+      ? decomposeForBroad(query, classified, clusterHints)
       : intent === "task"
-        ? decomposeForTask(query, classified, clusterHints, db)
+        ? decomposeForTask(query, classified, clusterHints)
         : [];
   const useMultiPass = intent !== "narrow" && subQueries.length > 1;
   const allQueryTerms = useMultiPass
@@ -389,7 +405,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     : baseQueryTerms;
   const exactQueryTerms = baseQueryTerms;
   const expandedQueryTerms = expandQueryWithSynonyms(allQueryTerms);
-  const idfWeights = queryGroups.idfWeights;
+  const idfWeights = computeTermIDF(db, allQueryTerms);
   const pivotQueryTerms =
     intent === "narrow"
       ? exactQueryTerms
@@ -1975,7 +1991,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     diagnostics: diagnose(baseMetadata, pivotScores, intent),
   };
 
-  const content = formatCapsule(packed, observations, metadata, fileSummaries, db);
+  const visibleObs = selectObservations(observations, metadata);
+  recordObservationHits(db, visibleObs.map((o) => o.id));
+  const content = formatCapsule(packed, observations, metadata, fileSummaries);
   const structured = buildStructuredOutput(packed, observations, metadata, content);
 
   logger.info("capsule generated", {
@@ -2054,7 +2072,7 @@ export async function generateCapsuleWithRuntime(
     const hybridSearchResults = await hybridSearch(db, embeddingRuntime, {
       query: params.query,
       queryTerms,
-      idfWeights: decomposeQuery(params.query, db).idfWeights,
+      idfWeights: computeTermIDF(db, queryTerms),
       queryEmbedding,
       projectRoot: params.projectRoot,
       pathRestriction: params.path,

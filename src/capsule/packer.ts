@@ -1,6 +1,7 @@
 import type { ScoredNode, CompressionLevel } from "../core/types.js";
 import { renderSymbol, renderFileSummary } from "./compressor.js";
 import { countTokens } from "../utils/tokens.js";
+import { EXTENDED_ACTION_SIGNAL_TERMS as ACTION_SIGNAL_TERMS, isUiLikePath } from "./signals.js";
 
 export interface PackResult {
   packed: ScoredNode[];
@@ -11,33 +12,6 @@ export interface PackResult {
 
 const COMPRESSION_LEVELS: CompressionLevel[] = [0, 1, 2, 3];
 const FILE_SUMMARY_MIN_SYMBOLS = 3;
-const UI_ENTRY_PATH_RE = /(^|\/)(components?|views?|templates?|marketing)(\/|$)|(^|\/)(page|layout)\.[cm]?[jt]sx?$/i;
-const ACTION_SIGNAL_TERMS = new Set([
-  "submit",
-  "create",
-  "send",
-  "load",
-  "get",
-  "save",
-  "persist",
-  "fetch",
-  "update",
-  "delete",
-  "exchange",
-  "verify",
-  "handle",
-  "route",
-  "authenticate",
-  "write",
-  "read",
-  "sync",
-  "callback",
-  "notify",
-  "parse",
-  "transform",
-  "compile",
-  "dispatch",
-]);
 
 function hasActionSignal(name: string, signature: string): boolean {
   const tokens = `${name} ${signature}`
@@ -308,7 +282,7 @@ export function packNodesStoryMode(
       const targetLevel =
         node.distance === 0 &&
         node.compressionLevel > 0 &&
-        UI_ENTRY_PATH_RE.test(node.file.path)
+        isUiLikePath(node.file.path)
           ? node.compressionLevel
           : preferredLevel;
 

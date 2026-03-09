@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { splitIdentifier } from "../utils/camel-split.js";
+import { termWeight } from "../capsule/signals.js";
 import type { EmbeddingRuntime, HybridSearchResult, SymbolKind } from "./types.js";
 import { symbolQueries } from "../db/queries/symbols.js";
 import { globToRegExp, toProjectRelativePath, withinPath } from "../mcp/tools/path-filters.js";
@@ -104,11 +105,6 @@ function computeRecencyScore(mtime: number, now: number): number {
 function rrfTerm(rank: number | null, weight: number): number {
   if (rank === null) return 0;
   return weight * (1 / (RRF_K + rank));
-}
-
-function termWeight(term: string, idfWeights?: Map<string, number>): number {
-  const raw = idfWeights?.get(term.toLowerCase()) ?? 1;
-  return raw < 0.5 ? raw * 0.5 : raw;
 }
 
 export async function hybridSearch(

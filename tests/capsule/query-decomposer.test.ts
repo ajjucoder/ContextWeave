@@ -3,30 +3,31 @@ import Database from "better-sqlite3";
 import { createSchema } from "../../src/db/schema.js";
 import { fileQueries } from "../../src/db/queries/files.js";
 import { symbolQueries } from "../../src/db/queries/symbols.js";
-import { computeTermIDF, decomposeQuery, mergeSubQueryTerms } from "../../src/capsule/query-decomposer.js";
+import { decomposeQuery, mergeSubQueryTerms } from "../../src/capsule/query-decomposer.js";
+import { computeTermIDF } from "../../src/capsule/generator.js";
 
 describe("decomposeQuery", () => {
   it("returns single group for short query", () => {
-    const groups = decomposeQuery("BFS traversal");
+    const { groups } = decomposeQuery("BFS traversal");
     expect(groups).toHaveLength(1);
     expect(groups[0]).toEqual(["bfs", "traversal"]);
   });
 
   it("splits long query into 2-term groups", () => {
-    const groups = decomposeQuery("capsule generation pipeline scoring compression");
+    const { groups } = decomposeQuery("capsule generation pipeline scoring compression");
     expect(groups.length).toBeGreaterThanOrEqual(2);
     expect(groups.every((g) => g.length >= 1)).toBe(true);
   });
 
   it("preserves adjacency — no cross-group reordering", () => {
-    const groups = decomposeQuery("alpha beta gamma delta epsilon");
+    const { groups } = decomposeQuery("alpha beta gamma delta epsilon");
     const allTerms = groups.flat();
     expect(allTerms).toContain("alpha");
     expect(allTerms).toContain("epsilon");
   });
 
   it("returns empty array for empty query", () => {
-    const groups = decomposeQuery("");
+    const { groups } = decomposeQuery("");
     expect(groups).toHaveLength(0);
   });
 
@@ -46,9 +47,6 @@ describe("decomposeQuery", () => {
     const weights = computeTermIDF(db, ["get", "validateemail"]);
     expect(weights.get("get")).toBeLessThan(0.5);
     expect(weights.get("validateemail")).toBeGreaterThan(weights.get("get") ?? 0);
-
-    const groups = decomposeQuery("getValidateEmail route", db);
-    expect(groups.idfWeights.get("validateemail")).toBeGreaterThan(groups.idfWeights.get("get") ?? 0);
     db.close();
   });
 });

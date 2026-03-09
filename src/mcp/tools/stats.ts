@@ -2,10 +2,9 @@ import { z } from "zod/v3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
 import { capsuleLogQueries } from "../../db/queries/capsule-log.js";
-import { readFileSync } from "node:fs";
+import { statSync } from "node:fs";
 import { getRegisterTool } from "./register-helper.js";
 import { resolve } from "node:path";
-import { countTokens } from "../../utils/tokens.js";
 
 const AVG_FILE_TOKENS_FALLBACK = 3000;
 export const FOLLOW_UP_METRICS_SAMPLE_LIMIT = 200;
@@ -93,12 +92,13 @@ export function computeSessionStats(
   }
   const followUpMetrics = computeFollowUpMetrics(logs);
 
+  const CHARS_PER_TOKEN = 3.3;
   let totalFileTokens = 0;
   for (const filePath of allFiles) {
     try {
       const fullPath = resolve(projectRoot, filePath);
-      const content = readFileSync(fullPath, "utf-8");
-      totalFileTokens += countTokens(content);
+      const { size } = statSync(fullPath);
+      totalFileTokens += Math.ceil(size / CHARS_PER_TOKEN);
     } catch {
       totalFileTokens += AVG_FILE_TOKENS_FALLBACK;
     }

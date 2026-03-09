@@ -1,4 +1,5 @@
-import type Database from "better-sqlite3";
+import { isUiLikePath } from "./signals.js";
+import { splitIdentifier } from "../utils/camel-split.js";
 import type {
   ScoredNode,
   ObservationRecord,
@@ -17,7 +18,6 @@ const LEVEL_LABEL: Record<number, string> = {
 
 const DOC_SCOPES = new Set(["documentation", "convention"]);
 const DOC_QUERY_RE = /\b(docs?|documentation|architecture|convention|workflow|guide|readme|claude)\b/i;
-const UI_PATH_RE = /(^|[/\\])(ui|components?|views?|pages?|templates?|marketing)([/\\]|$)|(^|[/\\])(page|layout)\.[cm]?[jt]sx?$/i;
 const UI_QUERY_RE = /\b(ui|ux|component|components|view|views|page|pages|modal|form)\b/i;
 const ACTION_SIGNAL_RE = /\b(handle|submit|create|send|post|get|load|exchange|verify|persist|callback|refresh|route)\b/i;
 
@@ -25,7 +25,7 @@ function estimateObservationTokens(note: string): number {
   return Math.max(1, Math.ceil(note.split(/\s+/).filter(Boolean).length * 1.3));
 }
 
-function selectObservations(
+export function selectObservations(
   observations: ObservationRecord[],
   metadata: CapsuleMetadata
 ): ObservationRecord[] {
@@ -58,25 +58,11 @@ function selectObservations(
   return selected;
 }
 
-function recordObservationHits(db: Database.Database, observationIds: number[]): void {
-  if (observationIds.length === 0) return;
-  const stmt = db.prepare(
-    "UPDATE observations SET hit_count = hit_count + 1, last_hit_at = ? WHERE id = ?"
-  );
-  const now = Date.now();
-  db.transaction(() => {
-    for (const id of observationIds) {
-      stmt.run(now, id);
-    }
-  })();
-}
-
 export function formatCapsule(
   packedNodes: ScoredNode[],
   observations: ObservationRecord[],
   metadata: CapsuleMetadata,
-  fileSummaries: string[] = [],
-  db?: Database.Database
+  fileSummaries: string[] = []
 ): string {
   const visibleNodes = (() => {
     const intent = metadata.strategy?.intent;
@@ -87,13 +73,13 @@ export function formatCapsule(
       return packedNodes;
     }
 
-    const nonUiCount = packedNodes.filter((node) => !UI_PATH_RE.test(node.file.path)).length;
+    const nonUiCount = packedNodes.filter((node) => !isUiLikePath(node.file.path)).length;
     if (nonUiCount < 2) {
       return packedNodes;
     }
 
     const filtered = packedNodes.filter((node) => {
-      if (!UI_PATH_RE.test(node.file.path)) return true;
+      if (!isUiLikePath(node.file.path)) return true;
       const nameAndSignature = `${node.symbol?.name ?? ""} ${node.symbol?.signature ?? ""}`.toLowerCase();
       return ACTION_SIGNAL_RE.test(nameAndSignature);
     });
@@ -101,9 +87,6 @@ export function formatCapsule(
   })();
 
   const visibleObservations = selectObservations(observations, metadata);
-  if (db && visibleObservations.length > 0) {
-    recordObservationHits(db, visibleObservations.map((o) => o.id));
-  }
   const fileCount = new Set(visibleNodes.map((n) => n.file.path)).size;
   const pivotPct = Math.round(metadata.quality.pivotCoverage * 100);
   const dependencyPct = Math.round(metadata.quality.dependencyCoverage * 100);
@@ -188,9 +171,9 @@ export function formatCapsule(
   for (const node of visibleNodes) {
     if (node.compressionLevel === 0 && node.symbol?.name) {
       const nameLower = node.symbol.name.toLowerCase();
-      const nameTerms = nameLower.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().split(/\s+/);
+      const nameTerms = splitIdentifier(node.symbol.name);
       for (const qt of queryTerms) {
-        if (nameLower.includes(qt) || nameTerms.some((nt) => nt === qt)) {
+        if (nameLower.includes(qt) || nameTerms.includes(qt)) {
           coveredTerms.add(qt);
         }
       }
@@ -202,9 +185,9 @@ export function formatCapsule(
     .map((n) => {
       // Count how many uncovered query terms this symbol addresses
       const nameLower = (n.symbol?.name ?? "").toLowerCase();
-      const nameTerms = nameLower.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().split(/\s+/);
+      const nameTerms = splitIdentifier(n.symbol?.name ?? "");
       const uncoveredHits = queryTerms.filter(
-        (qt) => !coveredTerms.has(qt) && (nameLower.includes(qt) || nameTerms.some((nt) => nt === qt))
+        (qt) => !coveredTerms.has(qt) && (nameLower.includes(qt) || nameTerms.includes(qt))
       ).length;
       return { node: n, uncoveredHits };
     })

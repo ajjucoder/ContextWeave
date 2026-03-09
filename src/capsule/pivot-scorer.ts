@@ -1,4 +1,5 @@
 import { normalizeRetrievalPath } from "../utils/path-retrieval.js";
+import { ACTION_SIGNAL_TERMS, termWeight } from "./signals.js";
 
 export interface PivotCandidate {
   name: string;
@@ -30,28 +31,6 @@ const CONFIG_PATH_RE =
 const TYPE_DECLARATION_RE = /(^|\/)types?(\/|$)|\.d\.ts$/i;
 const UI_NAME_RE =
   /(hero|faq|tabs?|timeline|header|banner|testimonial|view|card|modal|panel|avatar|badge|skeleton|placeholder)/i;
-const ACTION_SIGNAL_TERMS = new Set([
-  "submit",
-  "create",
-  "send",
-  "load",
-  "get",
-  "save",
-  "persist",
-  "fetch",
-  "update",
-  "delete",
-  "exchange",
-  "verify",
-  "handle",
-  "route",
-  "authenticate",
-  "write",
-  "read",
-  "sync",
-  "callback",
-  "notify",
-]);
 const CONFIG_QUERY_TERMS = new Set([
   "config",
   "configuration",
@@ -145,11 +124,6 @@ function stemMatch(token: string, term: string): boolean {
   return true;
 }
 
-function resolveTermWeight(term: string, idfWeights?: Map<string, number>): number {
-  const raw = idfWeights?.get(term.toLowerCase()) ?? 1;
-  return raw < 0.5 ? raw * 0.5 : raw;
-}
-
 function describePivotRelevance(
   candidate: PivotCandidate,
   queryTerms: string[],
@@ -198,15 +172,15 @@ function describePivotRelevance(
   const exactNameMatch = exactCaseInsensitiveMatch || camelCaseMatch || pathSegmentMatch;
 
   const weightedNameHits = queryTerms.reduce(
-    (sum, term) => sum + (nameTokens.some((t) => stemMatch(t, term)) ? resolveTermWeight(term, idfWeights) : 0),
+    (sum, term) => sum + (nameTokens.some((t) => stemMatch(t, term)) ? termWeight(term, idfWeights) : 0),
     0
   );
   const weightedSigHits = queryTerms.reduce(
-    (sum, term) => sum + (sigLower.includes(term) ? resolveTermWeight(term, idfWeights) : 0),
+    (sum, term) => sum + (sigLower.includes(term) ? termWeight(term, idfWeights) : 0),
     0
   );
   const weightedPathHits = queryTerms.reduce(
-    (sum, term) => sum + (pathTokens.some((t) => stemMatch(t, term)) ? resolveTermWeight(term, idfWeights) : 0),
+    (sum, term) => sum + (pathTokens.some((t) => stemMatch(t, term)) ? termWeight(term, idfWeights) : 0),
     0
   );
 
@@ -215,7 +189,7 @@ function describePivotRelevance(
   }
 
   const totalTermWeight = Math.max(
-    queryTerms.reduce((sum, term) => sum + resolveTermWeight(term, idfWeights), 0),
+    queryTerms.reduce((sum, term) => sum + termWeight(term, idfWeights), 0),
     1
   );
 
