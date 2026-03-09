@@ -50,9 +50,17 @@ function normalizeDirectoryPath(filePath: string): string {
     .toLowerCase();
 }
 
-function matchesPrefix(filePath: string, prefix: string): boolean {
-  const normalizedPath = normalizeDirectoryPath(filePath);
-  const normalizedPrefix = normalizeDirectoryPath(prefix);
+const NORMALIZED_PREFIX_DOWNWEIGHTS = PREFIX_DOWNWEIGHTS.map(({ prefix, weight }) => ({
+  prefix: normalizeDirectoryPath(prefix),
+  weight,
+}));
+
+const NORMALIZED_PREFIX_UPWEIGHTS = PREFIX_UPWEIGHTS.map(({ prefix, weight }) => ({
+  prefix: normalizeDirectoryPath(prefix),
+  weight,
+}));
+
+function matchesNormalizedPrefix(normalizedPath: string, normalizedPrefix: string): boolean {
   return normalizedPrefix.length > 0 && (normalizedPath === normalizedPrefix || normalizedPath.startsWith(`${normalizedPrefix}/`));
 }
 
@@ -83,14 +91,14 @@ export function getDirectoryWeight(filePath: string, projectRoot?: string): numb
     }
   }
 
-  for (const { prefix, weight } of PREFIX_DOWNWEIGHTS) {
-    if (matchesPrefix(normalizedPath, prefix)) {
+  for (const { prefix, weight } of NORMALIZED_PREFIX_DOWNWEIGHTS) {
+    if (matchesNormalizedPrefix(normalizedPath, prefix)) {
       downweight = Math.min(downweight, weight);
     }
   }
 
   for (const archiveDir of archiveDirs) {
-    if (matchesPrefix(normalizedPath, archiveDir)) {
+    if (matchesNormalizedPrefix(normalizedPath, normalizeDirectoryPath(archiveDir))) {
       downweight = Math.min(downweight, 0.1);
     }
   }
@@ -100,14 +108,14 @@ export function getDirectoryWeight(filePath: string, projectRoot?: string): numb
   }
 
   let upweight = 1.0;
-  for (const { prefix, weight } of PREFIX_UPWEIGHTS) {
-    if (matchesPrefix(normalizedPath, prefix)) {
+  for (const { prefix, weight } of NORMALIZED_PREFIX_UPWEIGHTS) {
+    if (matchesNormalizedPrefix(normalizedPath, prefix)) {
       upweight = Math.max(upweight, weight);
     }
   }
 
   for (const primaryDir of primaryDirs) {
-    if (matchesPrefix(normalizedPath, primaryDir)) {
+    if (matchesNormalizedPrefix(normalizedPath, normalizeDirectoryPath(primaryDir))) {
       upweight = Math.max(upweight, 1.5);
     }
   }

@@ -1455,8 +1455,6 @@ export async function indexSingleFile(
     }
   }
 
-  detectPatterns(db);
-
   return {
     symbolCount: result.symbolCount,
     errors: result.errors,

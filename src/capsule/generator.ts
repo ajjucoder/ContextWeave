@@ -95,6 +95,26 @@ const MAX_BFS_HOPS = 8;
 const EDGE_BATCH_CHUNK_SIZE = 400;
 const DEDUP_COMPRESSION_LEVEL = 2;
 
+interface CachedEdgeStmts {
+  getDirectCallerIds: ReturnType<Database.Database["prepare"]>;
+  getDirectCalleeIds: ReturnType<Database.Database["prepare"]>;
+}
+const edgeStmtCache = new WeakMap<Database.Database, CachedEdgeStmts>();
+function getEdgeStmts(db: Database.Database): CachedEdgeStmts {
+  const cached = edgeStmtCache.get(db);
+  if (cached) return cached;
+  const stmts: CachedEdgeStmts = {
+    getDirectCallerIds: db.prepare(
+      `SELECT source_symbol_id as symbolId FROM edges WHERE target_symbol_id = ? AND kind IN ('call', 'import') LIMIT 12`
+    ),
+    getDirectCalleeIds: db.prepare(
+      `SELECT target_symbol_id as symbolId FROM edges WHERE source_symbol_id = ? AND kind IN ('call', 'import') LIMIT 12`
+    ),
+  };
+  edgeStmtCache.set(db, stmts);
+  return stmts;
+}
+
 const FRAMEWORK_QUERY_HINT_TERMS = new Set([
   "next",
   "nextjs",
@@ -293,12 +313,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   const symbols = symbolQueries(db);
   const files = fileQueries(db);
-  const getDirectCallerIds = db.prepare(
-    `SELECT source_symbol_id as symbolId FROM edges WHERE target_symbol_id = ? AND kind IN ('call', 'import') LIMIT 12`
-  );
-  const getDirectCalleeIds = db.prepare(
-    `SELECT target_symbol_id as symbolId FROM edges WHERE source_symbol_id = ? AND kind IN ('call', 'import') LIMIT 12`
-  );
+  const { getDirectCallerIds, getDirectCalleeIds } = getEdgeStmts(db);
   const classified = classifyQueryIntent(query);
   const intent = classified.intent;
   // For pipeline routing, symbol-lookup and debug behave like narrow (focused retrieval)

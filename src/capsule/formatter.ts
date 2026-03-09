@@ -64,9 +64,11 @@ function recordObservationHits(db: Database.Database, observationIds: number[]):
     "UPDATE observations SET hit_count = hit_count + 1, last_hit_at = ? WHERE id = ?"
   );
   const now = Date.now();
-  for (const id of observationIds) {
-    stmt.run(now, id);
-  }
+  db.transaction(() => {
+    for (const id of observationIds) {
+      stmt.run(now, id);
+    }
+  })();
 }
 
 export function formatCapsule(

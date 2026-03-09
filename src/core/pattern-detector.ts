@@ -6,6 +6,14 @@ import { edgeQueries } from "../db/queries/edges.js";
 import type { CodePattern, PatternSignature, SymbolRecord } from "./types.js";
 
 const PATTERN_QUERY = "SELECT id, name, description, files, signature, confidence FROM patterns ORDER BY confidence DESC, name ASC";
+const patternStmtCache = new WeakMap<Database.Database, ReturnType<Database.Database["prepare"]>>();
+function getPatternStmt(db: Database.Database) {
+  const cached = patternStmtCache.get(db);
+  if (cached) return cached;
+  const stmt = db.prepare(PATTERN_QUERY);
+  patternStmtCache.set(db, stmt);
+  return stmt;
+}
 
 const norm = (v: string) => v.replaceAll("\\", "/");
 const uniqSort = (values: Iterable<string>) => [...new Set(values)].filter(Boolean).sort((a, b) => a.localeCompare(b));
@@ -115,7 +123,7 @@ export function detectPatterns(db: Database.Database): CodePattern[] {
 export function getPatternsForFiles(db: Database.Database, filePaths: string[]): CodePattern[] {
   if (filePaths.length === 0) return [];
   const wanted = new Set(filePaths.map(norm));
-  return (db.prepare(PATTERN_QUERY).all() as Array<{ id: string; name: string; description: string; files: string; signature: string; confidence: number }>)
+  return (getPatternStmt(db).all() as Array<{ id: string; name: string; description: string; files: string; signature: string; confidence: number }>)
     .map((row) => ({ ...row, files: JSON.parse(row.files) as string[], signature: JSON.parse(row.signature) as PatternSignature }))
     .filter((row) => row.files.some((file) => wanted.has(norm(file))));
 }
