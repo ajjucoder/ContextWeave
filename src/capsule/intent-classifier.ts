@@ -1,4 +1,4 @@
-export type QueryIntent = "narrow" | "broad" | "task";
+export type QueryIntent = "symbol-lookup" | "narrow" | "broad" | "debug" | "task";
 
 export interface ClassifiedQuery {
   intent: QueryIntent;
@@ -66,6 +66,27 @@ const STOP_WORDS = new Set([
 // "how does auth work" should classify as narrow/broad, not task.
 const QUESTION_WORDS = new Set(["how", "what", "why", "where", "when"]);
 const FLOW_SCOPE_TERMS = new Set(["flow", "pipeline", "architecture", "lifecycle", "journey", "boundary"]);
+// Broad semantic indicators: presence of these (combined with question words or alone) → broad
+const BROAD_SIGNALS = new Set([
+  "architecture",
+  "end-to-end",
+  "connect",
+  "connects",
+  "connected",
+  "explain",
+  "overview",
+  "structure",
+  "lifecycle",
+  "journey",
+  "boundary",
+  "pipeline",
+  "flow",
+  "system",
+]);
+// Debug intent: query is about errors/bugs, not about implementing a fix
+const DEBUG_SIGNALS = new Set(["error", "bug", "broken", "failing", "crash", "exception", "undefined", "null", "TypeError", "wrong", "unexpected"]);
+// Identifier-like single token: symbol lookup
+const IDENTIFIER_RE = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
 
 export const TASK_VERBS = new Set([
   "find",
@@ -131,23 +152,45 @@ function inferModules(terms: string[]): string[] {
   return uniq(implied);
 }
 
-function classifyIntent(actionVerbs: string[], normalizedTerms: string[], hasQuestionWord: boolean): QueryIntent {
+function classifyIntent(
+  actionVerbs: string[],
+  normalizedTerms: string[],
+  hasQuestionWord: boolean,
+  rawQuery: string
+): QueryIntent {
+  // Single identifier token → symbol lookup (DB-confirmed at call site if possible)
+  const trimmed = rawQuery.trim();
+  if (IDENTIFIER_RE.test(trimmed)) return "symbol-lookup";
+
+  // Debug signals take precedence over task verbs for error queries
+  if (normalizedTerms.some((t) => DEBUG_SIGNALS.has(t))) return "debug";
+
   // Real action verbs (not question words) → task intent with multi-pass pipeline
   if (actionVerbs.length > 0) return "task";
-  if (!hasQuestionWord && normalizedTerms.length >= 3 && normalizedTerms.some((term) => FLOW_SCOPE_TERMS.has(term))) {
-    return "broad";
-  }
-  // Question-word queries are exploration: use term count to decide narrow vs broad
+
+  // Semantic broad signals: "architecture", "explain", "connect", "end to end", etc.
+  const hasBroadSignal =
+    normalizedTerms.some((t) => BROAD_SIGNALS.has(t)) ||
+    FLOW_SCOPE_TERMS.size > 0 && normalizedTerms.some((t) => FLOW_SCOPE_TERMS.has(t)) ||
+    /end.to.end/i.test(rawQuery);
+
+  if (hasBroadSignal) return "broad";
+
+  // Question words alone do NOT make a query broad — only semantic indicators do
   if (hasQuestionWord) {
-    return normalizedTerms.length >= 4 ? "broad" : "narrow";
+    // "where is X" / "what is X" with few terms → narrow
+    return normalizedTerms.length >= 5 ? "broad" : "narrow";
   }
+
   if (normalizedTerms.length <= 2) return "narrow";
-  if (normalizedTerms.length >= 4) return "broad";
+  if (normalizedTerms.length >= 5) return "broad";
   return "narrow";
 }
 
 function budgetMultiplier(intent: QueryIntent): number {
+  if (intent === "symbol-lookup") return 0.75;
   if (intent === "narrow") return 1.0;
+  if (intent === "debug") return 1.25;
   if (intent === "broad") return 1.5;
   return 2.0;
 }
@@ -169,7 +212,7 @@ export function classifyQueryIntent(query: string): ClassifiedQuery {
       .map((token) => token.normalized)
   );
 
-  const intent = classifyIntent(actionVerbs, normalizedTerms, hasQuestionWord);
+  const intent = classifyIntent(actionVerbs, normalizedTerms, hasQuestionWord, query);
 
   const signalTerms = uniq(
     filtered

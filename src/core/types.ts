@@ -249,9 +249,39 @@ export interface ScoredNode {
   outgoingEdges?: { targetName: string; kind: string }[];
 }
 
+export interface StructuredCapsuleFile {
+  path: string;
+  relevance: number;
+  reason: string;
+  symbols: string[];
+  startLine?: number;
+  endLine?: number;
+}
+
+export interface StructuredCapsuleSuggestedRead {
+  tool: "cw_read";
+  args: { file: string; symbol: string };
+  reason: string;
+}
+
+export interface StructuredCapsuleOutput {
+  query: string;
+  intent: QueryIntent;
+  confidence: "HIGH" | "MEDIUM" | "LOW";
+  uncertainty: string;
+  tokenBudget: number;
+  tokensUsed: number;
+  tokenUtilization: number;
+  files: StructuredCapsuleFile[];
+  suggestedReads: StructuredCapsuleSuggestedRead[];
+  observations: string[];
+  text: string;
+}
+
 export interface CapsuleOutput {
   content: string;
   metadata: CapsuleMetadata;
+  structured?: StructuredCapsuleOutput;
 }
 
 export type CapsuleUncertainty = "very_low" | "low" | "medium" | "high" | "critical";

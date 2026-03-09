@@ -41,9 +41,16 @@ export function registerCapsuleTool(
           glob,
         }, embeddingRuntime);
 
-        return {
-          content: [{ type: "text" as const, text: result.content }],
-        };
+        const contentParts: Array<{ type: "text"; text: string }> = [
+          { type: "text" as const, text: result.content },
+        ];
+        if (result.structured) {
+          contentParts.push({
+            type: "text" as const,
+            text: `\n<!-- structured_output: ${JSON.stringify(result.structured)} -->`,
+          });
+        }
+        return { content: contentParts };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         return {

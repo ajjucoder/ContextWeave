@@ -25,7 +25,7 @@ import { scoreNode, assignCompressionLevel } from "./scorer.js";
 import { rankPivotsWithScores, scorePivotRelevance } from "./pivot-scorer.js";
 import { renderSymbol, type EdgeSummary } from "./compressor.js";
 import { packNodes, packNodesStoryMode, enrichL2WithDeps } from "./packer.js";
-import { formatCapsule } from "./formatter.js";
+import { formatCapsule, buildStructuredOutput } from "./formatter.js";
 import { diagnose } from "./diagnostics.js";
 import { classifyQueryIntent } from "./intent-classifier.js";
 import { createLogger } from "../utils/logger.js";
@@ -279,6 +279,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const files = fileQueries(db);
   const classified = classifyQueryIntent(query);
   const intent = classified.intent;
+  // For pipeline routing, symbol-lookup and debug behave like narrow (focused retrieval)
+  const pipelineIntent = intent === "symbol-lookup" || intent === "debug" ? "narrow" : intent;
   const retrievalBudget = Math.max(
     tokenBudget,
     Math.round(tokenBudget * classified.suggestedBudgetMultiplier)
@@ -403,6 +405,38 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         if (!existing.includes(symbolId)) {
           existing.push(symbolId);
           seededPivotIdsByFile.set(result.fileId, existing);
+        }
+      }
+    }
+
+    // Phase 4.2: Graph expansion — walk edges from top hybrid results to find connected context
+    if (intent !== "symbol-lookup") {
+      const top10SymbolIds = [...rawPivotIds].slice(0, 10);
+      const expansion: { symbolId: number; fileId: number }[] = [];
+      const getConnectedSymbols = db.prepare(`
+        SELECT s.id as symbolId, s.file_id as fileId FROM edges e
+        JOIN symbols s ON (
+          CASE WHEN e.source_symbol_id = ? THEN e.target_symbol_id ELSE e.source_symbol_id END = s.id
+        )
+        WHERE (e.source_symbol_id = ? OR e.target_symbol_id = ?)
+          AND e.kind IN ('call', 'implements', 'type_usage', 'inheritance')
+        LIMIT 6
+      `);
+      for (const symbolId of top10SymbolIds) {
+        if (expansion.length >= 20) break;
+        const rows = getConnectedSymbols.all(symbolId, symbolId, symbolId) as Array<{ symbolId: number; fileId: number }>;
+        for (const row of rows) {
+          if (!rawPivotIds.has(row.symbolId)) {
+            expansion.push(row);
+            if (expansion.length >= 20) break;
+          }
+        }
+      }
+      for (const { symbolId, fileId } of expansion) {
+        rawPivotIds.add(symbolId);
+        // Boost files that appear in graph expansion but weren't in hybrid results
+        if (!candidateFileBoostById.has(fileId)) {
+          candidateFileBoostById.set(fileId, 1.1);
         }
       }
     }
@@ -1653,6 +1687,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   };
 
   const content = formatCapsule(packed, observations, metadata, fileSummaries);
+  const structured = buildStructuredOutput(packed, observations, metadata, content);
 
   logger.info("capsule generated", {
     symbolCount: packed.length,
@@ -1706,7 +1741,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     });
   }
 
-  return { content, metadata };
+  return { content, metadata, structured };
 }
 
 export async function generateCapsuleWithRuntime(

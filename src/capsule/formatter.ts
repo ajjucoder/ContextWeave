@@ -1,4 +1,11 @@
-import type { ScoredNode, ObservationRecord, CapsuleMetadata } from "../core/types.js";
+import type {
+  ScoredNode,
+  ObservationRecord,
+  CapsuleMetadata,
+  StructuredCapsuleOutput,
+  StructuredCapsuleFile,
+  StructuredCapsuleSuggestedRead,
+} from "../core/types.js";
 
 const LEVEL_LABEL: Record<number, string> = {
   0: "full",
@@ -126,10 +133,45 @@ export function formatCapsule(
     }
   }
 
+  // Extract query terms for query-aware follow-up ranking (Phase 4.5)
+  const queryTerms = metadata.query
+    .replace(/[^a-zA-Z0-9_\s]/g, " ")
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t.length > 2);
+
+  // Compute which query terms are already covered by FULL symbols (compression level 0)
+  const coveredTerms = new Set<string>();
+  for (const node of packedNodes) {
+    if (node.compressionLevel === 0 && node.symbol?.name) {
+      const nameLower = node.symbol.name.toLowerCase();
+      const nameTerms = nameLower.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().split(/\s+/);
+      for (const qt of queryTerms) {
+        if (nameLower.includes(qt) || nameTerms.some((nt) => nt === qt)) {
+          coveredTerms.add(qt);
+        }
+      }
+    }
+  }
+
   const followUpCandidates = packedNodes
     .filter((n) => n.compressionLevel >= 1 && n.compressionLevel <= 2)
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
-    .slice(0, 5);
+    .map((n) => {
+      // Count how many uncovered query terms this symbol addresses
+      const nameLower = (n.symbol?.name ?? "").toLowerCase();
+      const nameTerms = nameLower.replace(/([a-z])([A-Z])/g, "$1 $2").toLowerCase().split(/\s+/);
+      const uncoveredHits = queryTerms.filter(
+        (qt) => !coveredTerms.has(qt) && (nameLower.includes(qt) || nameTerms.some((nt) => nt === qt))
+      ).length;
+      return { node: n, uncoveredHits };
+    })
+    .sort((a, b) => {
+      // Rank by uncovered term hits first, then by score
+      if (b.uncoveredHits !== a.uncoveredHits) return b.uncoveredHits - a.uncoveredHits;
+      return (b.node.score ?? 0) - (a.node.score ?? 0);
+    })
+    .slice(0, 5)
+    .map((item) => item.node);
 
   const topDirectory = (() => {
     const firstPath = packedNodes[0]?.file.path?.replaceAll("\\", "/");
@@ -159,8 +201,13 @@ export function formatCapsule(
     for (const node of followUpCandidates) {
       const lineCount = (node.symbol?.endLine ?? 0) - (node.symbol?.startLine ?? 0) + 1;
       const name = node.symbol?.name ?? "unknown";
+      const filePath = node.file?.path ?? "";
       const scoreStr = (node.score ?? 0).toFixed(2);
-      parts.push(`  cw_read(symbol: "${name}")  — ${lineCount} lines, scored ${scoreStr}`);
+      if (filePath) {
+        parts.push(`  cw_read(file: "${filePath}", symbol: "${name}")  — ${lineCount} lines, scored ${scoreStr}`);
+      } else {
+        parts.push(`  cw_read(symbol: "${name}")  — ${lineCount} lines, scored ${scoreStr}`);
+      }
     }
   }
 
@@ -191,7 +238,11 @@ export function formatCapsule(
     if (followUpCandidates.length > 0) {
       const first = followUpCandidates[0]!;
       const symbolName = first.symbol?.name ?? "unknown";
-      parts.push(`- Read the highest-value compressed symbol next: cw_read(symbol: "${symbolName}")`);
+      const filePath = first.file?.path ?? "";
+      const readArgs = filePath
+        ? `file: "${filePath}", symbol: "${symbolName}"`
+        : `symbol: "${symbolName}"`;
+      parts.push(`- Read the highest-value compressed symbol next: cw_read(${readArgs})`);
     } else {
       parts.push(`- Expand the search surface first: cw_overview(query: "${metadata.query}")`);
       parts.push(`- If you need exact text matches, run: cw_grep(query: "${metadata.query}")`);
@@ -209,4 +260,74 @@ export function formatCapsule(
   }
 
   return parts.join("\n");
+}
+
+export function buildStructuredOutput(
+  packedNodes: ScoredNode[],
+  observations: ObservationRecord[],
+  metadata: CapsuleMetadata,
+  text: string
+): StructuredCapsuleOutput {
+  const intent = metadata.strategy?.intent ?? "narrow";
+  const confidence = metadata.quality.lowConfidence ? "LOW" : metadata.quality.coverageConfidence >= 0.75 ? "HIGH" : "MEDIUM";
+  const tokenUtilization = metadata.tokenBudget > 0 ? metadata.tokensUsed / metadata.tokenBudget : 0;
+
+  // Build per-file data
+  const fileMap = new Map<string, { relevance: number; symbols: string[]; startLine?: number; endLine?: number }>();
+  for (const node of packedNodes) {
+    const path = node.file.path;
+    const entry = fileMap.get(path) ?? { relevance: 0, symbols: [] };
+    entry.relevance = Math.max(entry.relevance, node.score ?? 0);
+    if (node.symbol?.name) entry.symbols.push(node.symbol.name);
+    if (node.symbol?.startLine !== undefined) {
+      if (entry.startLine === undefined || node.symbol.startLine < entry.startLine) {
+        entry.startLine = node.symbol.startLine;
+      }
+    }
+    if (node.symbol?.endLine !== undefined) {
+      if (entry.endLine === undefined || node.symbol.endLine > entry.endLine) {
+        entry.endLine = node.symbol.endLine;
+      }
+    }
+    fileMap.set(path, entry);
+  }
+
+  const maxRelevance = Math.max(...[...fileMap.values()].map((e) => e.relevance), 1);
+  const files: StructuredCapsuleFile[] = [...fileMap.entries()]
+    .sort((a, b) => b[1].relevance - a[1].relevance)
+    .map(([path, entry]) => ({
+      path,
+      relevance: Math.round((entry.relevance / maxRelevance) * 100) / 100,
+      reason: `Matched ${entry.symbols.length} symbol(s): ${entry.symbols.slice(0, 3).join(", ")}`,
+      symbols: entry.symbols,
+      startLine: entry.startLine,
+      endLine: entry.endLine,
+    }));
+
+  // Build suggested reads from compressed nodes
+  const suggestedReads: StructuredCapsuleSuggestedRead[] = packedNodes
+    .filter((n) => n.compressionLevel >= 1 && n.symbol?.name && n.file?.path)
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    .slice(0, 5)
+    .map((n) => ({
+      tool: "cw_read" as const,
+      args: { file: n.file.path, symbol: n.symbol!.name },
+      reason: `Compressed at level ${n.compressionLevel}, score ${(n.score ?? 0).toFixed(2)}`,
+    }));
+
+  const visibleObs = observations.filter((o) => o.confidence >= 0.5);
+
+  return {
+    query: metadata.query,
+    intent,
+    confidence,
+    uncertainty: metadata.quality.uncertainty,
+    tokenBudget: metadata.tokenBudget,
+    tokensUsed: metadata.tokensUsed,
+    tokenUtilization: Math.round(tokenUtilization * 100) / 100,
+    files,
+    suggestedReads,
+    observations: visibleObs.map((o) => `[${o.scope}] ${o.note}`),
+    text,
+  };
 }
