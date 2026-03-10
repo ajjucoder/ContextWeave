@@ -203,6 +203,41 @@ export function packNodes(
     }
   }
 
+  // Dedup: remove symbols whose line range is contained within a fuller rendering of another symbol in the same file
+  {
+    const byFile = new Map<string, Array<{ node: ScoredNode; idx: number }>>();
+    for (let i = 0; i < packed.length; i++) {
+      const key = packed[i]!.file.path;
+      const arr = byFile.get(key) ?? [];
+      arr.push({ node: packed[i]!, idx: i });
+      byFile.set(key, arr);
+    }
+    const removeIndices = new Set<number>();
+    for (const entries of byFile.values()) {
+      if (entries.length < 2) continue;
+      entries.sort((a, b) => (a.node.symbol.startLine ?? 0) - (b.node.symbol.startLine ?? 0));
+      for (let i = 0; i < entries.length; i++) {
+        for (let j = i + 1; j < entries.length; j++) {
+          const outer = entries[i]!;
+          const inner = entries[j]!;
+          const oStart = outer.node.symbol.startLine ?? 0;
+          const oEnd = outer.node.symbol.endLine ?? 0;
+          const iStart = inner.node.symbol.startLine ?? 0;
+          const iEnd = inner.node.symbol.endLine ?? 0;
+          if (iStart > oStart && iEnd <= oEnd && outer.node.compressionLevel <= inner.node.compressionLevel) {
+            removeIndices.add(inner.idx);
+            tokensUsed -= inner.node.tokenCount;
+          }
+        }
+      }
+    }
+    if (removeIndices.size > 0) {
+      const filtered = packed.filter((_, i) => !removeIndices.has(i));
+      packed.length = 0;
+      packed.push(...filtered);
+    }
+  }
+
   const summaryResult = summarizeUnpacked(scoredNodes, packed, codeBudget, tokensUsed);
 
   return {
@@ -343,6 +378,25 @@ export function packNodesStoryMode(
     }
   }
 
+  // Relevance-based promotion: high-score nodes deserve better compression regardless of distance
+  const topPackedScore = packed.reduce((max, n) => Math.max(max, n.score), 0);
+  const relevancePromotable = packed
+    .map((node, i) => ({ node, i }))
+    .filter(({ node }) => node.compressionLevel >= 2 && node.score >= topPackedScore * 0.8)
+    .sort((a, b) => b.node.score - a.node.score);
+
+  for (const { node, i } of relevancePromotable) {
+    if (tokensUsed / codeBudget >= 0.9) break;
+    const targetLevel = node.score >= topPackedScore * 0.95 ? 0 : 1;
+    const rendered = renderSymbol(node.symbol, node.file, targetLevel as CompressionLevel);
+    const tokens = countTokens(rendered);
+    const delta = tokens - node.tokenCount;
+    if (delta > 0 && tokensUsed + delta <= codeBudget) {
+      packed[i] = { ...node, compressionLevel: targetLevel as CompressionLevel, rendered, tokenCount: tokens };
+      tokensUsed += delta;
+    }
+  }
+
   const primaryFileIds = new Set(packed.map((node) => node.file.id));
   const tailNodes = [...scoredNodes]
     .filter((node) => !packedIds.has(node.symbol.id))
@@ -405,6 +459,41 @@ export function packNodesStoryMode(
       packed.push({ ...node, compressionLevel: level, rendered, tokenCount: tokens });
       packedIds.add(node.symbol.id);
       tokensUsed += tokens;
+    }
+  }
+
+  // Dedup: remove symbols whose line range is contained within a fuller rendering of another symbol in the same file
+  {
+    const byFile = new Map<string, Array<{ node: ScoredNode; idx: number }>>();
+    for (let i = 0; i < packed.length; i++) {
+      const key = packed[i]!.file.path;
+      const arr = byFile.get(key) ?? [];
+      arr.push({ node: packed[i]!, idx: i });
+      byFile.set(key, arr);
+    }
+    const removeIndices = new Set<number>();
+    for (const entries of byFile.values()) {
+      if (entries.length < 2) continue;
+      entries.sort((a, b) => (a.node.symbol.startLine ?? 0) - (b.node.symbol.startLine ?? 0));
+      for (let i = 0; i < entries.length; i++) {
+        for (let j = i + 1; j < entries.length; j++) {
+          const outer = entries[i]!;
+          const inner = entries[j]!;
+          const oStart = outer.node.symbol.startLine ?? 0;
+          const oEnd = outer.node.symbol.endLine ?? 0;
+          const iStart = inner.node.symbol.startLine ?? 0;
+          const iEnd = inner.node.symbol.endLine ?? 0;
+          if (iStart > oStart && iEnd <= oEnd && outer.node.compressionLevel <= inner.node.compressionLevel) {
+            removeIndices.add(inner.idx);
+            tokensUsed -= inner.node.tokenCount;
+          }
+        }
+      }
+    }
+    if (removeIndices.size > 0) {
+      const filtered = packed.filter((_, i) => !removeIndices.has(i));
+      packed.length = 0;
+      packed.push(...filtered);
     }
   }
 

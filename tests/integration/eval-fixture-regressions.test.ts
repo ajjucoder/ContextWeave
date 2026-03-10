@@ -60,6 +60,6 @@ describe("eval fixture regressions", () => {
     expect(capsule.content).toContain("handleLogin");
     expect(capsule.content).toContain("AuthService");
     expect(capsule.metadata.quality.coverageConfidence).toBeGreaterThan(0.39);
-    expect(capsule.metadata.quality.reasons).not.toContain("query term coverage below 60%");
+    expect(capsule.metadata.quality.reasons).not.toContain("no pivot symbol match");
   });
 });

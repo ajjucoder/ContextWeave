@@ -184,16 +184,18 @@ export function formatCapsule(
   const followUpCandidates = visibleNodes
     .filter((n) => n.compressionLevel >= 1 && n.compressionLevel <= 2)
     .map((n) => {
-      // Count how many uncovered query terms this symbol addresses
       const nameLower = (n.symbol?.name ?? "").toLowerCase();
       const nameTerms = splitIdentifier(n.symbol?.name ?? "");
       const uncoveredHits = queryTerms.filter(
         (qt) => !coveredTerms.has(qt) && (nameLower.includes(qt) || nameTerms.includes(qt))
       ).length;
-      return { node: n, uncoveredHits };
+      const hasQueryOverlap =
+        uncoveredHits > 0 ||
+        queryTerms.some((qt) => nameLower.includes(qt) || nameTerms.includes(qt));
+      return { node: n, uncoveredHits, hasQueryOverlap };
     })
+    .filter((item) => item.hasQueryOverlap)
     .sort((a, b) => {
-      // Rank by uncovered term hits first, then by score
       if (b.uncoveredHits !== a.uncoveredHits) return b.uncoveredHits - a.uncoveredHits;
       return (b.node.score ?? 0) - (a.node.score ?? 0);
     })
@@ -305,6 +307,11 @@ export function formatCapsule(
     for (const obs of lowConfObs) {
       parts.push(`[${obs.scope}] ${obs.note} (confidence: ${obs.confidence})`);
     }
+  }
+
+  if (metadata.previouslyCovered && metadata.previouslyCovered.length > 0) {
+    parts.push(`\n--- Previously Shown (skipped to save tokens) ---`);
+    parts.push(metadata.previouslyCovered.join(", "));
   }
 
   return parts.join("\n");

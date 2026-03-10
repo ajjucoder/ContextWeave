@@ -24,7 +24,8 @@ export type EdgeKind =
   | "framework_entry"
   | "callback"
   | "server-action"
-  | "route-handler";
+  | "route-handler"
+  | "event";
 
 export type CompressionLevel = 0 | 1 | 2 | 3;
 
@@ -228,9 +229,11 @@ export interface ParsedFrameworkCall {
   callerSymbol: string;
   targetName: string;
   line: number;
-  framework: "next_fetch" | "express_route";
+  framework: "next_fetch" | "express_route" | "convex_mutation" | "convex_query" | "convex_action";
   httpMethod?: string;
   routePath?: string;
+  convexModule?: string;
+  convexExport?: string;
 }
 
 export interface ParseResult {
@@ -361,6 +364,7 @@ export interface CapsuleMetadata {
   generatedAt: number;
   timeLimited?: boolean;
   symbolNotFound?: boolean;
+  previouslyCovered?: string[];
 }
 
 export interface ModeWeights {

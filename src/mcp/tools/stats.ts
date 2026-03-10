@@ -146,11 +146,19 @@ function formatStats(stats: SessionStats, sessionId: string): string {
     `Avg follow-up reads:   ${stats.averageFollowUpReads.toFixed(2)}`,
   ];
 
-  if (stats.capsulesGenerated > 0 && stats.estimatedSavingsPercent > 0) {
+  const qualityNote = stats.budgetUtilization >= 0.5
+    ? "Budget utilization healthy"
+    : stats.budgetUtilization >= 0.3
+      ? "Budget underutilized — capsules may be incomplete"
+      : "Budget severely underutilized — consider broader queries or higher budgets";
+  lines.push(`Quality: ${qualityNote}`);
+
+  if (stats.capsulesGenerated > 0) {
     lines.push(
       "",
-      `Estimated savings vs targeted grep+read: ~${(stats.estimatedRawTokens - stats.totalTokensUsed).toLocaleString()} tokens`,
-      "(estimated vs targeted grep+read — actual savings vary)"
+      `Estimated grep+read baseline: ~${stats.estimatedRawTokens.toLocaleString()} tokens`,
+      `Actual CW tokens used: ${stats.totalTokensUsed.toLocaleString()} tokens`,
+      "(baseline estimate assumes ~30% of referenced files read via grep — actual varies by query complexity)"
     );
   }
 

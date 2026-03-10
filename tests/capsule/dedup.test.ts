@@ -44,16 +44,21 @@ describe("deduplication across session queries", () => {
     expect(second.content.length).toBeGreaterThan(0);
   });
 
-  it("previously shown symbols are marked in second capsule content", () => {
+  it("previously shown symbols are listed in metadata and not repeated in capsule body", () => {
     const sessionId = "dedup-test-session-2";
     const query = "rankPivots";
 
     generateCapsule(db, { query, tokenBudget: 4000, sessionId });
     const second = generateCapsule(db, { query, tokenBudget: 4000, sessionId });
 
+    // Symbols that were deduped must not appear inline in the body (no token waste),
+    // but should be surfaced via metadata.previouslyCovered.
+    expect(second.content).not.toContain("[previously shown]");
+    expect(second.content).not.toContain("Previously covered:");
+    // Either fewer tokens were used (dedup fired) or previouslyCovered is populated.
     expect(
       second.metadata.tokensUsed < 4000 ||
-      second.content.includes("[previously shown]")
+      (second.metadata.previouslyCovered !== undefined && second.metadata.previouslyCovered.length > 0)
     ).toBe(true);
   });
 });

@@ -178,7 +178,9 @@ describe("mcp navigation tools", () => {
     const text = result.content[0]?.text ?? "";
     expect(result.isError).not.toBe(true);
     expect(text).toContain('Query Focus: "missingSymbol"');
-    expect(text).toContain("No focused file matches found.");
+    expect(text).not.toContain("No focused file matches found.");
+    expect(text).toContain("No exact symbol match found. Top files by relevance:");
+    expect(text).toContain('cw_capsule(query: "missingSymbol")');
     expect(text).toContain('cw_grep(query: "missingSymbol")');
   });
 

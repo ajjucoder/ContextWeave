@@ -145,6 +145,17 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
     confidence = Math.min(confidence, 0.5);
   }
 
+  if (moduleCoverageStats && moduleCoverageStats.relevantClusters > 0) {
+    const scatterRatio = moduleCoverageStats.packedClusters / moduleCoverageStats.relevantClusters;
+    if (scatterRatio > 3) {
+      confidence *= 0.85;
+    }
+  }
+
+  if (intent !== "broad" && totalRelevantPivots > 0 && relevantPivotsIncluded < totalRelevantPivots * 0.5) {
+    confidence = Math.min(confidence, 0.55);
+  }
+
   return clamp(confidence);
 }
 

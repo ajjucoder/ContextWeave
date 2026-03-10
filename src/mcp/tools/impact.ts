@@ -33,6 +33,8 @@ export function traceImpact(db: Database.Database, symbolId: number, maxDepth: n
     { id: symbolId, depth: 0, edgeKind: "root" },
   ];
 
+  const rootFileId = symbols.getById(symbolId)?.fileId ?? -1;
+
   while (queue.length > 0) {
     const current = queue.shift()!;
     if (visited.has(current.id)) continue;
@@ -59,6 +61,10 @@ export function traceImpact(db: Database.Database, symbolId: number, maxDepth: n
     for (const edge of dependents) {
       if (visited.has(edge.sourceSymbolId)) continue;
       if (current.depth >= 1 && (edge.kind === "import" || edge.kind === "reexport")) continue;
+      if (current.depth >= 2) {
+        const edgeSourceSymbol = symbols.getById(edge.sourceSymbolId);
+        if (edgeSourceSymbol && edgeSourceSymbol.fileId === rootFileId) continue;
+      }
       queue.push({
         id: edge.sourceSymbolId,
         depth: current.depth + 1,

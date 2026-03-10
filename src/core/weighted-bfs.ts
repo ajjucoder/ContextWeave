@@ -33,6 +33,7 @@ const EDGE_WEIGHTS: Record<string, number> = {
   callback: 0.7,
   "server-action": 0.7,
   "route-handler": 0.7,
+  event: 0.8,
 };
 
 function edgeCost(kind: string, sourceDir: string, targetDir: string, targetPath: string): number {

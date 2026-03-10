@@ -35,6 +35,7 @@ import { MemorySearch } from "../memory/search.js";
 import { capsuleLogQueries } from "../db/queries/capsule-log.js";
 import { sessionQueries } from "../db/queries/sessions.js";
 import { captureQueryObservation } from "../memory/passive.js";
+import { ObservationStore } from "../memory/observations.js";
 import { SessionContext } from "./session-context.js";
 import {
   decomposeForBroad,
@@ -1135,6 +1136,14 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       hubPenalty,
       mode,
     }) * getRuntimeKindWeight(candidate.symbol.kind, preferRuntimeKinds) * exactPivotBoost;
+
+    if (mode !== "debug" && candidate.lexicalScore === 0 && candidate.distance > 1) {
+      candidate.score *= 0.4;
+    }
+
+    if (mode !== "debug" && candidate.distance > 0 && !queryLooksTestFocused && isTestFile(candidate.file.path)) {
+      candidate.score *= 0.5;
+    }
   }
 
   let ranked = [...candidates].sort((a, b) => b.score - a.score);
@@ -1558,7 +1567,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   );
   const narrowHardCap = isSingleFocusNarrowQuery ? 48 : 80;
   const hardCap =
-    intent === "narrow" ? narrowHardCap : intent === "broad" ? 120 : 84;
+    intent === "narrow" ? narrowHardCap : intent === "broad" ? Math.max(120, Math.floor(tokenBudget / 50)) : 84;
   const baseCandidateLimit = Math.min(dynamicLimit, hardCap);
 
   const recentSymbolIds: Set<number> = hasExplicitSession && sessionCtx
@@ -1840,7 +1849,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       }
     }
 
-    if (tokensUsed < tokenBudget * 0.40 && selected.length > 0) {
+    if (tokensUsed < tokenBudget * 0.50 && selected.length > 0) {
       const fileScores = new Map<number, number>();
       for (const candidate of selected) {
         const current = fileScores.get(candidate.file.id) ?? 0;
@@ -2139,6 +2148,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     generatedAt: Date.now(),
     ...(timeLimited && { timeLimited: true }),
     ...(symbolNotFound && { symbolNotFound: true }),
+    ...(dedupDroppedNames.length > 0 ? { previouslyCovered: dedupDroppedNames } : {}),
   };
 
   const metadata: CapsuleMetadata = {
@@ -2152,9 +2162,6 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const visibleObs = selectObservations(observations, metadata);
   recordObservationHits(db, visibleObs.map((o) => o.id));
   let content = formatCapsule(packed, observations, metadata, fileSummaries);
-  if (dedupDroppedNames.length > 0) {
-    content += `\nPreviously covered: ${dedupDroppedNames.join(", ")}\n`;
-  }
   if (symbolNotFound) {
     const note = `Note: No symbol named '${query}' found in the index. Showing related symbols.\n`;
     content = note + content;
@@ -2192,6 +2199,29 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         fileId: node.symbol.fileId,
       }));
       sessionCtx.record(symbolsToRecord, query);
+    });
+  }
+
+  if (hasExplicitSession && !uncertaintyFlag && packed.length > 0) {
+    safeWrite("capsule-insight", () => {
+      const alreadyStored = db.prepare<[string], { count: number }>(
+        "SELECT COUNT(*) AS count FROM observations WHERE session_id = ? AND scope = 'capsule-insight' LIMIT 1"
+      ).get(sessionId!) ?? { count: 0 };
+      if (alreadyStored.count === 0) {
+        const topNames = packed
+          .slice(0, 3)
+          .map((n) => n.symbol.name);
+        const fileCount = uniqueFiles.size;
+        const symbolCount = packed.length;
+        const store = new ObservationStore(db);
+        store.create({
+          sessionId: sessionId!,
+          scope: "capsule-insight",
+          note: `Query "${query}" resolved to ${fileCount} file${fileCount !== 1 ? "s" : ""} across ${symbolCount} symbols (top: ${topNames.join(", ")})`,
+          symbolId: packed[0]?.symbol.id,
+          confidence: effectiveCoverageConfidence,
+        });
+      }
     });
   }
 

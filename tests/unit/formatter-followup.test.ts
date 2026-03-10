@@ -89,16 +89,16 @@ function makeMetadata(overrides: Partial<CapsuleMetadata> = {}): CapsuleMetadata
 }
 
 describe("formatCapsule — follow-up hints", () => {
-  it("includes Follow-Up Reads section when L1/L2 nodes are present", () => {
+  it("includes Follow-Up Reads section when L1/L2 nodes match query terms", () => {
     const nodes = [
-      makeNode({ compressionLevel: 1, score: 0.9, symbol: { id: 1, fileId: 1, name: "skeletonFn", kind: "function", startLine: 5, endLine: 20, signature: "", bodyHash: "", fullSource: "", isExported: true, docComment: null, centrality: 0.5, lastSeen: 0 } }),
-      makeNode({ compressionLevel: 2, score: 0.7, symbol: { id: 2, fileId: 1, name: "summaryFn", kind: "function", startLine: 1, endLine: 8, signature: "", bodyHash: "", fullSource: "", isExported: true, docComment: null, centrality: 0.5, lastSeen: 0 } }),
+      makeNode({ compressionLevel: 1, score: 0.9, symbol: { id: 1, fileId: 1, name: "testSkeleton", kind: "function", startLine: 5, endLine: 20, signature: "", bodyHash: "", fullSource: "", isExported: true, docComment: null, centrality: 0.5, lastSeen: 0 } }),
+      makeNode({ compressionLevel: 2, score: 0.7, symbol: { id: 2, fileId: 1, name: "querySummary", kind: "function", startLine: 1, endLine: 8, signature: "", bodyHash: "", fullSource: "", isExported: true, docComment: null, centrality: 0.5, lastSeen: 0 } }),
     ];
 
     const result = formatCapsule(nodes, [], makeMetadata());
     expect(result).toContain("Follow-Up Reads");
-    expect(result).toContain('symbol: "skeletonFn"');
-    expect(result).toContain('symbol: "summaryFn"');
+    expect(result).toContain('symbol: "testSkeleton"');
+    expect(result).toContain('symbol: "querySummary"');
     expect(result).toContain("These symbols were compressed. Use cw_read for full source:");
   });
 
@@ -119,7 +119,7 @@ describe("formatCapsule — follow-up hints", () => {
         symbol: {
           id: i + 1,
           fileId: 1,
-          name: `fn${i}`,
+          name: `testQuery${i}`,
           kind: "function",
           startLine: 1,
           endLine: 5,
@@ -147,7 +147,7 @@ describe("formatCapsule — follow-up hints", () => {
         symbol: {
           id: 1,
           fileId: 1,
-          name: "targetFn",
+          name: "testTargetFn",
           kind: "function",
           startLine: 10,
           endLine: 29,
@@ -175,7 +175,7 @@ describe("formatCapsule — follow-up hints", () => {
         symbol: {
           id: 1,
           fileId: 1,
-          name: "targetFn",
+          name: "testTargetFn",
           kind: "function",
           startLine: 10,
           endLine: 29,
@@ -201,7 +201,7 @@ describe("formatCapsule — follow-up hints", () => {
     }));
 
     expect(result).toContain("--- Next Actions ---");
-    expect(result).toContain('symbol: "targetFn"');
+    expect(result).toContain('symbol: "testTargetFn"');
     expect(result).toContain('cw_capsule(query: "test query", path: "src/core")');
   });
 });

@@ -1,11 +1,13 @@
 import type { ParsedFrameworkCall, ParsedSymbol } from "../core/types.js";
 import { expressFrameworkPlugin } from "./plugins/express.js";
 import { nextFrameworkPlugin } from "./plugins/next.js";
+import { convexFrameworkPlugin } from "./plugins/convex.js";
 import type { FrameworkResolveContext, FrameworkTracePlugin } from "./types.js";
 
 const FRAMEWORK_TRACE_PLUGINS: FrameworkTracePlugin[] = [
   nextFrameworkPlugin,
   expressFrameworkPlugin,
+  convexFrameworkPlugin,
 ];
 
 export function extractFrameworkCalls(language: string, symbols: ParsedSymbol[]): ParsedFrameworkCall[] {

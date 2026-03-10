@@ -278,8 +278,19 @@ export function registerOverviewTool(
           lines.push("", `Query Focus: \"${queryTerm}\"`);
 
           if (focusedFiles.length === 0) {
-            lines.push("- No focused file matches found.");
-            lines.push(`- Next: cw_grep(query: "${queryTerm}") for exact text matches.`);
+            lines.push("No exact symbol match found. Top files by relevance:");
+            const topRelevantFiles = [...files]
+              .sort((a, b) => b.symbolCount - a.symbolCount || a.path.localeCompare(b.path))
+              .slice(0, 5);
+            for (const file of topRelevantFiles) {
+              const rows = getSymbolStmt().all(`%${queryTerm.replace(/[\\%_]/g, "\\$&")}%`, file.id);
+              const exportsLabel = rows.length > 0
+                ? rows.map((r) => r.name).join(", ")
+                : `${file.symbolCount} symbols`;
+              lines.push(`- ${file.path} (${file.symbolCount} symbols — ${exportsLabel})`);
+            }
+            lines.push(`- Suggested: cw_capsule(query: "${queryTerm}") for deeper context`);
+            lines.push(`- Or: cw_grep(query: "${queryTerm}") for exact text matches`);
           } else {
             const escaped = queryTerm.replace(/[\\%_]/g, "\\$&");
             for (const file of focusedFiles) {

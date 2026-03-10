@@ -22,6 +22,7 @@ import { profileRepo, persistProfile } from "./repo-profiler.js";
 import { buildConventionGraph, persistConventions } from "./convention-graph.js";
 import { loadTsconfigPaths, resolveAliasedImport, type TsconfigPaths } from "../utils/tsconfig-paths.js";
 import { resolveFrameworkTargets } from "../frameworks/registry.js";
+import { synthesizeEventEdges } from "./event-edge-synthesis.js";
 
 const log = createLogger("indexer");
 
@@ -58,6 +59,9 @@ export const BUILTIN_IGNORE_PATTERNS = [
   "vendor",
   ".bundle",
   ".claude",
+  ".worktrees",
+  "__fixtures__",
+  "__snapshots__",
 ];
 
 interface WorkerFileParseResult {
@@ -95,7 +99,8 @@ function shouldIgnore(filePath: string): boolean {
   const parts = normalizedPath.split("/").filter(Boolean);
   return (
     BUILTIN_IGNORE_PATTERNS.some((pattern) => parts.includes(pattern)) ||
-    parts.some((part) => part.startsWith(".qa-temp-"))
+    parts.some((part) => part.startsWith(".qa-temp-")) ||
+    parts.some((part) => /^\.git-worktree/.test(part))
   );
 }
 
@@ -836,7 +841,7 @@ function resolveEdges(
     );
     const kind = call.edgeKind ?? "call";
     for (const target of targetCandidates) {
-      if (callerId === target.id) continue;
+      if (callerId === target.id && kind !== "server-action") continue;
       edges.insert({
         sourceSymbolId: callerId,
         targetSymbolId: target.id,
@@ -1203,6 +1208,7 @@ export async function indexProject(
   let totalSymbols = 0;
   const changedFileIds: number[] = [];
   const pendingEdgeResolutions: Array<{ filePath: string; parseResult: ParseResult }> = [];
+  const seenContentHashes = new Map<string, string>();
   const indexAll = db.transaction(() => {
     for (const batchResult of workerResults) {
       for (const parsed of batchResult) {
@@ -1210,6 +1216,13 @@ export async function indexProject(
           allErrors.push(`${parsed.filePath}: ${parsed.error ?? "parser returned no result"}`);
           continue;
         }
+
+        const existingPath = seenContentHashes.get(parsed.hash);
+        if (existingPath !== undefined && parsed.filePath.length > existingPath.length) {
+          log.debug("skipping duplicate file content", { path: parsed.filePath, duplicateOf: existingPath });
+          continue;
+        }
+        seenContentHashes.set(parsed.hash, parsed.filePath);
 
         const result = writeParseResult(
           db,
@@ -1310,6 +1323,8 @@ export async function indexProject(
 
   const conventionGraph = buildConventionGraph(db, projectRoot);
   persistConventions(db, conventionGraph);
+
+  synthesizeEventEdges(db);
 
   log.info(`indexed ${toProcess.length} files, ${totalSymbols} symbols`);
   return { filesIndexed: filePaths.length, symbolsFound: totalSymbols, errors: allErrors };

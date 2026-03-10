@@ -32,6 +32,7 @@ const EDGE_WEIGHTS: Record<string, number> = {
   callback: 0.7,
   "server-action": 0.7,
   "route-handler": 0.7,
+  event: 0.8,
   reexport: 0.6,
   reference: 0.5,
 };
@@ -130,12 +131,12 @@ function traceOutgoing(
   function dfs(currentId: number, path: FlowStep[], depth: number, firstHopId: number | null): void {
     if (allPaths.length >= MAX_PATHS * 3) return;
     if (depth > maxHops) {
-      if (path.length > 1) allPaths.push({ steps: [...path], firstHop: firstHopId });
+      if (path.length > 0) allPaths.push({ steps: [...path], firstHop: firstHopId });
       return;
     }
 
     const outgoing = edges.getBySource(currentId);
-    if (outgoing.length === 0 && path.length > 1) {
+    if (outgoing.length === 0 && path.length > 0) {
       allPaths.push({ steps: [...path], firstHop: firstHopId });
       return;
     }
@@ -209,24 +210,24 @@ function traceIncoming(
   const files = fileQueries(db);
 
   const MAX_PATHS = 10;
-  const paths: FlowStep[][] = [];
+  const allPaths: TracedPath[] = [];
   const visited = new Set<number>();
 
-  function dfs(currentId: number, path: FlowStep[], depth: number): void {
-    if (paths.length >= MAX_PATHS) return;
+  function dfs(currentId: number, path: FlowStep[], depth: number, firstHopId: number | null): void {
+    if (allPaths.length >= MAX_PATHS * 3) return;
     if (depth > maxHops) {
-      if (path.length > 1) paths.push([...path]);
+      if (path.length > 0) allPaths.push({ steps: [...path], firstHop: firstHopId });
       return;
     }
 
     const incoming = edges.getByTarget(currentId);
-    if (incoming.length === 0 && path.length > 1) {
-      paths.push([...path]);
+    if (incoming.length === 0 && path.length > 0) {
+      allPaths.push({ steps: [...path], firstHop: firstHopId });
       return;
     }
 
     for (const edge of incoming) {
-      if (paths.length >= MAX_PATHS) return;
+      if (allPaths.length >= MAX_PATHS * 3) return;
       if (visited.has(edge.sourceSymbolId)) continue;
       visited.add(edge.sourceSymbolId);
 
@@ -243,7 +244,8 @@ function traceIncoming(
           edgeKind: edge.kind,
           edgeWeight: weight,
         });
-        dfs(edge.sourceSymbolId, path, depth + 1);
+        const hop = firstHopId ?? edge.sourceSymbolId;
+        dfs(edge.sourceSymbolId, path, depth + 1, hop);
         path.pop();
       }
 
@@ -251,8 +253,36 @@ function traceIncoming(
     }
   }
 
-  dfs(targetId, [], 0);
-  return paths;
+  dfs(targetId, [], 0, null);
+
+  const grouped = new Map<number | null, TracedPath[]>();
+  for (const p of allPaths) {
+    const bucket = grouped.get(p.firstHop) ?? [];
+    bucket.push(p);
+    grouped.set(p.firstHop, bucket);
+  }
+
+  const result: FlowStep[][] = [];
+  const buckets = [...grouped.values()];
+  let round = 0;
+  const perBranchLimit = 2;
+  while (result.length < MAX_PATHS) {
+    let added = false;
+    for (const bucket of buckets) {
+      const start = round * perBranchLimit;
+      const slice = bucket.slice(start, start + perBranchLimit);
+      for (const entry of slice) {
+        if (result.length >= MAX_PATHS) break;
+        result.push(entry.steps);
+        added = true;
+      }
+      if (result.length >= MAX_PATHS) break;
+    }
+    if (!added) break;
+    round++;
+  }
+
+  return result;
 }
 
 function resolveSymbol(db: Database.Database, name: string): number | null {

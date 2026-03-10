@@ -210,6 +210,74 @@ export function handleRequest(input: number) {
     }
   });
 
+  it("traces single-hop outgoing call to imported function inside function body", async () => {
+    const root = makeRoot();
+    const db = makeDb();
+    try {
+      mkdirSync(join(root, "src"), { recursive: true });
+
+      writeFileSync(
+        join(root, "src", "actions.ts"),
+        `export function submitComment(data: string) { return data; }\n`
+      );
+
+      writeFileSync(
+        join(root, "src", "form.ts"),
+        `import { submitComment } from "./actions";
+
+export function handleSubmit(e: Event) {
+  e.preventDefault();
+  submitComment("test");
+}
+`
+      );
+
+      await indexProject(db, root);
+
+      const result = buildFlowResult(db, "handleSubmit", undefined, 5);
+
+      expect(result.isLimited).toBe(false);
+      expect(result.text).toContain("submitComment");
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("traces single-hop incoming caller to a function with one direct caller", async () => {
+    const root = makeRoot();
+    const db = makeDb();
+    try {
+      mkdirSync(join(root, "src"), { recursive: true });
+
+      writeFileSync(
+        join(root, "src", "actions.ts"),
+        `export function submitComment(data: string) { return data; }\n`
+      );
+
+      writeFileSync(
+        join(root, "src", "form.ts"),
+        `import { submitComment } from "./actions";
+
+export function handleSubmit(e: Event) {
+  e.preventDefault();
+  submitComment("test");
+}
+`
+      );
+
+      await indexProject(db, root);
+
+      const result = buildFlowResult(db, "submitComment", undefined, 5, "incoming");
+
+      expect(result.isLimited).toBe(false);
+      expect(result.text).toContain("handleSubmit");
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("direction:both returns both outgoing and incoming sections with 2+ hop chains", async () => {
     const root = makeRoot();
     const db = makeDb();
@@ -257,6 +325,103 @@ export function top() { return high(); }
 
       expect(result.text).toContain("Outgoing flows");
       expect(result.text).toContain("Incoming flows");
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Flow tracing — server action boundary synthesis", () => {
+  it("synthesizes server-action edges for file-level use server directive", async () => {
+    const root = makeRoot();
+    const db = makeDb();
+    try {
+      mkdirSync(join(root, "src"), { recursive: true });
+
+      writeFileSync(
+        join(root, "src", "actions.ts"),
+        `'use server';
+
+export async function createPost(data: FormData) {
+  return { ok: true };
+}
+`
+      );
+
+      writeFileSync(
+        join(root, "src", "client.tsx"),
+        `import { createPost } from "./actions";
+
+export function PostForm() {
+  async function submit(data: FormData) {
+    await createPost(data);
+  }
+  return null;
+}
+`
+      );
+
+      await indexProject(db, root);
+
+      const syms = symbolQueries(db);
+      const edges = edgeQueries(db);
+
+      const createPostSym = syms.getByName("createPost")[0];
+      expect(createPostSym).toBeDefined();
+
+      const incomingEdges = edges.getByTarget(createPostSym!.id);
+      const serverActionEdge = incomingEdges.find((e) => e.kind === "server-action");
+      expect(serverActionEdge).toBeDefined();
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("Flow tracing — WebSocket method dispatch synthesis", () => {
+  it("synthesizes event edges between WS caller and matching WS handler by method name", async () => {
+    const root = makeRoot();
+    const db = makeDb();
+    try {
+      mkdirSync(join(root, "src"), { recursive: true });
+
+      writeFileSync(
+        join(root, "src", "wsClient.ts"),
+        `export function sendPing(ws: WebSocket) {
+  ws.request("ping");
+}
+`
+      );
+
+      writeFileSync(
+        join(root, "src", "wsServer.ts"),
+        `export function handleMessage(msg: { method: string }) {
+  switch (msg.method) {
+    case "ping":
+      return "pong";
+  }
+}
+`
+      );
+
+      await indexProject(db, root);
+
+      const syms = symbolQueries(db);
+      const edges = edgeQueries(db);
+
+      const senderSym = syms.getByName("sendPing").find((s) => s.kind === "function");
+      expect(senderSym).toBeDefined();
+
+      const handlerSym = syms.getByName("handleMessage").find((s) => s.kind === "function");
+      expect(handlerSym).toBeDefined();
+
+      const outgoingEdges = edges.getBySource(senderSym!.id);
+      const wsEdge = outgoingEdges.find(
+        (e) => e.targetSymbolId === handlerSym!.id && e.kind === "event"
+      );
+      expect(wsEdge).toBeDefined();
     } finally {
       db.close();
       rmSync(root, { recursive: true, force: true });

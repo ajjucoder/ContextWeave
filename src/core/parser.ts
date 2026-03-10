@@ -999,10 +999,13 @@ function parseCalls(
             }
           }
 
+          const propNameCapture = match.captures.find((c) => c.name === "prop_name");
           const propValueCapture = match.captures.find((c) => c.name === "prop_value");
           if (propValueCapture) {
             const callLine = propValueCapture.node.startPosition.row + 1;
             if (callLine < symbol.startLine || callLine > symbol.endLine) continue;
+            const propName = propNameCapture?.node.text ?? "";
+            if (!/^on[A-Z]|^handle|^callback|^ref$/i.test(propName)) continue;
             const rawName = propValueCapture.node.text;
             const name = rawName.includes(".") ? rawName.split(".").pop()! : rawName;
             const key = `${symbol.name}:${name}:callback`;
