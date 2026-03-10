@@ -317,7 +317,8 @@ export function buildStructuredOutput(
   text: string
 ): StructuredCapsuleOutput {
   const intent = metadata.strategy?.intent ?? "narrow";
-  const confidence = metadata.quality.lowConfidence ? "LOW" : metadata.quality.coverageConfidence >= 0.75 ? "HIGH" : "MEDIUM";
+  const confidenceScore = metadata.quality.coverageConfidence;
+  const confidence = confidenceScore < 0.45 ? "LOW" : confidenceScore < 0.75 ? "MEDIUM" : "HIGH";
   const tokenUtilization = metadata.tokenBudget > 0 ? metadata.tokensUsed / metadata.tokenBudget : 0;
 
   // Build per-file data

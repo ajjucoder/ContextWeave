@@ -1178,6 +1178,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       const isNearby = candidate.distance <= maxDist;
       if (intent === "narrow") {
         if (!hasLexical && !isNearby) continue;
+        const overlap = computeQueryOverlap(candidate.symbol.name);
+        if (overlap === 0 && !hasDirectEdgeToPivot(candidate.symbol.id)) continue;
       } else {
         const strongLocality = hasStrongLocality(candidate);
         if (!(strongLocality || (hasLexical && isNearby))) continue;
