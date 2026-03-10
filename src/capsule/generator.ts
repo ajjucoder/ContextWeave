@@ -902,6 +902,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     pivotScores = filteredEntries.map(([, score]) => score);
   }
 
+  const SINGLE_IDENTIFIER_RE = /^[a-zA-Z_]\w*$/;
+  const queryLower = query.toLowerCase();
+  const symbolNotFound =
+    SINGLE_IDENTIFIER_RE.test(query) &&
+    pivotCandidates.every((candidate) => candidate.name.toLowerCase() !== queryLower);
+
   const sessionId = params.sessionId?.trim();
   const hasExplicitSession = typeof sessionId === "string" && sessionId.length > 0;
   const sessionCtx = hasExplicitSession ? new SessionContext(db, sessionId) : null;
@@ -1963,6 +1969,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         );
 
   const reasons: string[] = [];
+  if (symbolNotFound) reasons.push("symbol not found in index");
   if (pivotCount === 0) reasons.push("no pivot symbol match");
   if (pivotCount > 0 && pivotCoverage < 0.5) reasons.push("pivot coverage below 50%");
   if (selectedNonPivots > 0 && dependencyCoverage < 0.25) {
@@ -2004,12 +2011,15 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       maxSymbolsPerFile,
     },
   });
+  const effectiveCoverageConfidence = symbolNotFound
+    ? Math.min(coverageConfidence, 0.44)
+    : coverageConfidence;
   const confidenceFloor = intent === "narrow" ? 0.55 : 0.6;
-  const uncertaintyFlag = reasons.length > 0 || coverageConfidence < confidenceFloor;
-  if (coverageConfidence < confidenceFloor) {
+  const uncertaintyFlag = reasons.length > 0 || effectiveCoverageConfidence < confidenceFloor;
+  if (effectiveCoverageConfidence < confidenceFloor) {
     reasons.push(`overall coverage confidence below ${Math.round(confidenceFloor * 100)}%`);
   }
-  const uncertainty = buildUncertainty(uncertaintyFlag, reasons.length, coverageConfidence, tokenUtilization);
+  const uncertainty = buildUncertainty(uncertaintyFlag, reasons.length, effectiveCoverageConfidence, tokenUtilization);
 
   const clusterGroupStats = new Map<number, { symbolCount: number; fileIds: Set<number> }>();
   for (const node of packed) {
@@ -2044,7 +2054,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       pivotsIncluded,
       pivotCoverage,
       dependencyCoverage,
-      coverageConfidence,
+      coverageConfidence: effectiveCoverageConfidence,
       noiseRatio,
       uncertaintyFlag,
       lowConfidence: uncertaintyFlag,
@@ -2064,6 +2074,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     ...(clusterGroups.length > 0 ? { clusterGroups } : {}),
     generatedAt: Date.now(),
     ...(timeLimited && { timeLimited: true }),
+    ...(symbolNotFound && { symbolNotFound: true }),
   };
 
   const metadata: CapsuleMetadata = {
@@ -2076,7 +2087,11 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
   const visibleObs = selectObservations(observations, metadata);
   recordObservationHits(db, visibleObs.map((o) => o.id));
-  const content = formatCapsule(packed, observations, metadata, fileSummaries);
+  let content = formatCapsule(packed, observations, metadata, fileSummaries);
+  if (symbolNotFound) {
+    const note = `Note: No symbol named '${query}' found in the index. Showing related symbols.\n`;
+    content = note + content;
+  }
   const structured = buildStructuredOutput(packed, observations, metadata, content);
 
   logger.info("capsule generated", {

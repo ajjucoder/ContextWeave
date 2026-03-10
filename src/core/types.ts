@@ -353,8 +353,14 @@ export interface CapsuleMetadata {
     fileCount: number;
   }>;
   patterns?: CodePattern[];
+  layerCoverages?: Array<{
+    layer: string;
+    count: number;
+    filled: number;
+  }>;
   generatedAt: number;
   timeLimited?: boolean;
+  symbolNotFound?: boolean;
 }
 
 export interface ModeWeights {
