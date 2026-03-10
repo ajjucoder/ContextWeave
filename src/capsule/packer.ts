@@ -91,7 +91,32 @@ export function packNodes(
   let l3Count = 0;
   const maxL3 = Math.max(5, Math.ceil(sorted.length * l3Cap));
 
+  const maxScore = sorted[0]?.score ?? 0;
+  const primaryCandidate = sorted.find((n) => n.score >= maxScore * 0.90);
+  let primaryPackedId: number | null = null;
+  let effectiveBudget = codeBudget;
+
+  if (primaryCandidate) {
+    const primaryRendered = renderSymbol(primaryCandidate.symbol, primaryCandidate.file, 0);
+    const primaryTokens = countTokens(primaryRendered);
+    const reserved = Math.min(Math.floor(codeBudget * 0.4), primaryTokens);
+
+    if (primaryTokens <= codeBudget) {
+      packed.push({
+        ...primaryCandidate,
+        compressionLevel: 0 as CompressionLevel,
+        rendered: primaryRendered,
+        tokenCount: primaryTokens,
+      });
+      tokensUsed += primaryTokens;
+      primaryPackedId = primaryCandidate.symbol.id;
+      effectiveBudget = codeBudget - reserved + primaryTokens;
+      if (effectiveBudget > codeBudget) effectiveBudget = codeBudget;
+    }
+  }
+
   for (const node of sorted) {
+    if (primaryPackedId !== null && node.symbol.id === primaryPackedId) continue;
     const startLevel = node.compressionLevel;
     let placed = false;
 
@@ -101,7 +126,7 @@ export function packNodes(
       const rendered = renderSymbol(node.symbol, node.file, level);
       const tokens = countTokens(rendered);
 
-      if (tokensUsed + tokens <= codeBudget) {
+      if (tokensUsed + tokens <= effectiveBudget) {
         packed.push({
           ...node,
           compressionLevel: level,
@@ -119,7 +144,7 @@ export function packNodes(
   }
 
   // Promotion pass: upgrade L3→L2→L1→L0 when budget remains
-  const remainingBudget = codeBudget - tokensUsed;
+  const remainingBudget = effectiveBudget - tokensUsed;
   if (remainingBudget > 50) {
     const l3Indices = packed
       .map((node, i) => ({ node, i }))
@@ -132,7 +157,7 @@ export function packNodes(
         const tokens = countTokens(rendered);
         const delta = tokens - node.tokenCount;
 
-        if (delta > 0 && tokensUsed + delta <= codeBudget) {
+        if (delta > 0 && tokensUsed + delta <= effectiveBudget) {
           packed[i] = { ...node, compressionLevel: targetLevel, rendered, tokenCount: tokens };
           tokensUsed += delta;
           break;
@@ -148,13 +173,13 @@ export function packNodes(
     .sort((a, b) => b.node.score - a.node.score);
 
   for (const { node, i } of promotable) {
-    if (tokensUsed / codeBudget >= TARGET_UTILIZATION) break;
+    if (tokensUsed / effectiveBudget >= TARGET_UTILIZATION) break;
     const targetLevel = 0 as CompressionLevel;
     if (node.compressionLevel === targetLevel) continue;
     const rendered = renderSymbol(node.symbol, node.file, targetLevel);
     const tokens = countTokens(rendered);
     const delta = tokens - node.tokenCount;
-    if (delta > 0 && tokensUsed + delta <= codeBudget) {
+    if (delta > 0 && tokensUsed + delta <= effectiveBudget) {
       packed[i] = { ...node, compressionLevel: targetLevel, rendered, tokenCount: tokens };
       tokensUsed += delta;
     }
@@ -166,10 +191,10 @@ export function packNodes(
     .sort((a, b) => b.score - a.score);
 
   for (const node of adjacentNodes) {
-    if (tokensUsed / codeBudget >= TARGET_UTILIZATION) break;
+    if (tokensUsed / effectiveBudget >= TARGET_UTILIZATION) break;
     const rendered = renderSymbol(node.symbol, node.file, 3);
     const tokens = countTokens(rendered);
-    if (tokensUsed + tokens <= codeBudget) {
+    if (tokensUsed + tokens <= effectiveBudget) {
       packed.push({ ...node, compressionLevel: 3 as CompressionLevel, rendered, tokenCount: tokens });
       tokensUsed += tokens;
     }
@@ -354,6 +379,29 @@ export function packNodesStoryMode(
     if (delta > 0 && tokensUsed + delta <= codeBudget) {
       packed[i] = { ...node, compressionLevel: 0 as CompressionLevel, rendered, tokenCount: tokens };
       tokensUsed += delta;
+    }
+  }
+
+  const DEEP_FILL_UTILIZATION_THRESHOLD = 0.50;
+  if (tokensUsed / codeBudget < DEEP_FILL_UTILIZATION_THRESHOLD) {
+    const packedFileIds = new Set(
+      packed
+        .filter((node) => node.compressionLevel <= 1)
+        .map((node) => node.file.id)
+    );
+    const deepFillCandidates = scoredNodes
+      .filter((node) => !packedIds.has(node.symbol.id) && packedFileIds.has(node.file.id))
+      .sort((a, b) => b.score - a.score);
+
+    for (const node of deepFillCandidates) {
+      if (tokensUsed / codeBudget >= DEEP_FILL_UTILIZATION_THRESHOLD) break;
+      const level: CompressionLevel = tokensUsed / codeBudget < 0.35 ? 2 : 3;
+      const rendered = renderSymbol(node.symbol, node.file, level);
+      const tokens = countTokens(rendered);
+      if (tokensUsed + tokens > codeBudget) continue;
+      packed.push({ ...node, compressionLevel: level, rendered, tokenCount: tokens });
+      packedIds.add(node.symbol.id);
+      tokensUsed += tokens;
     }
   }
 
