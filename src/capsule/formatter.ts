@@ -92,7 +92,8 @@ export function formatCapsule(
   const dependencyPct = Math.round(metadata.quality.dependencyCoverage * 100);
   const noisePct = Math.round(metadata.quality.noiseRatio * 100);
   const coverageConfidencePct = Math.round(metadata.quality.coverageConfidence * 100);
-  const confidence = metadata.quality.lowConfidence ? "LOW" : "HIGH";
+  const coverageConf = metadata.quality.coverageConfidence;
+  const confidence = coverageConf < 0.45 ? "LOW" : coverageConf < 0.75 ? "MEDIUM" : "HIGH";
   const uncertainty = metadata.quality.uncertainty.toUpperCase();
 
   const strategyLabel = metadata.strategy

@@ -21,6 +21,12 @@ export interface ConfidenceParams {
   };
 }
 
+export type ConfidenceLabel = "LOW" | "MEDIUM" | "HIGH";
+
+export function confidenceToLabel(confidence: number): ConfidenceLabel {
+  return confidence < 0.45 ? "LOW" : confidence < 0.75 ? "MEDIUM" : "HIGH";
+}
+
 function clamp(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
@@ -69,19 +75,6 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
     relevantCoverage >= 0.6 &&
     dependencyCoverage >= 0.7 &&
     noiseRatio <= 0.2;
-  const compactButGrounded =
-    intent !== "symbol-lookup" &&
-    (
-      (fileSummaryCount >= 2 && relevantCoverage >= 0.6) ||
-      (
-        retrievalSurfaceScore >= 0.75 &&
-        pivotCoverage >= 0.75 &&
-        relevantCoverage >= 0.6 &&
-        dependencyCoverage >= 0.75 &&
-        noiseRatio <= 0.1 &&
-        pivotsIncluded >= 4
-      )
-    );
 
   let confidence = clamp(
     relevantCoverage * 0.5 +
@@ -90,10 +83,6 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
       summaryBoost +
       0.182
   );
-  const thinRetrieval =
-    retrievalSurfaceScore < 0.75 ||
-    relevantCoverage < 0.6 ||
-    noiseRatio > 0.35;
   if (intent === "broad") {
     confidence = clamp(
       moduleCoverage * 0.35 +
@@ -139,30 +128,21 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
     }
   }
 
-  if (intent !== "narrow" && intent !== "symbol-lookup" && thinRetrieval) {
-    if (compactButGrounded) {
-      if (tokenUtilization < 0.3) {
-        confidence = Math.min(confidence, 0.78);
-      } else if (tokenUtilization < 0.5) {
-        confidence = Math.min(confidence, 0.82);
-      }
-    } else if (tokenUtilization < 0.3) {
-      confidence = Math.min(confidence, 0.4);
-    } else if (tokenUtilization < 0.5) {
-      confidence = Math.min(confidence, 0.6);
-    }
+  if (tokenUtilization < 0.30) {
+    confidence = Math.min(confidence, 0.40);
+  } else if (tokenUtilization < 0.50) {
+    confidence = Math.min(confidence, 0.60);
+  }
+  if (tokenUtilization <= 0.60 || pivotCoverage <= 0.60) {
+    confidence = Math.min(confidence, 0.89);
   }
 
-  if (intent === "broad" && thinRetrieval && pivotsIncluded < 3) {
+  if (intent === "broad" && pivotsIncluded < 3) {
     confidence = Math.min(confidence, 0.5);
   }
 
   if (intent !== "narrow" && relevantCoverage < 0.3) {
     confidence = Math.min(confidence, 0.5);
-  }
-
-  if (!(tokenUtilization > 0.6 && pivotCoverage > 0.6)) {
-    confidence = Math.min(confidence, 0.9);
   }
 
   return clamp(confidence);
