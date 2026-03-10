@@ -352,15 +352,49 @@ export function buildStructuredOutput(
       endLine: entry.endLine,
     }));
 
-  // Build suggested reads from compressed nodes
+  // Build suggested reads using query-relevance scoring (same logic as text follow-ups)
+  const structuredQueryTerms = metadata.query
+    .replace(/[^a-zA-Z0-9_\s]/g, " ")
+    .toLowerCase()
+    .split(/\s+/)
+    .filter((t) => t.length > 2);
+
+  const structuredCoveredTerms = new Set<string>();
+  for (const node of packedNodes) {
+    if (node.compressionLevel === 0 && node.symbol?.name) {
+      const nameLower = node.symbol.name.toLowerCase();
+      const nameTerms = splitIdentifier(node.symbol.name);
+      for (const qt of structuredQueryTerms) {
+        if (nameLower.includes(qt) || nameTerms.includes(qt)) {
+          structuredCoveredTerms.add(qt);
+        }
+      }
+    }
+  }
+
   const suggestedReads: StructuredCapsuleSuggestedRead[] = packedNodes
     .filter((n) => n.compressionLevel >= 1 && n.symbol?.name && n.file?.path)
-    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0))
+    .map((n) => {
+      const nameLower = (n.symbol?.name ?? "").toLowerCase();
+      const nameTerms = splitIdentifier(n.symbol?.name ?? "");
+      const uncoveredHits = structuredQueryTerms.filter(
+        (qt) => !structuredCoveredTerms.has(qt) && (nameLower.includes(qt) || nameTerms.includes(qt))
+      ).length;
+      const hasQueryOverlap =
+        uncoveredHits > 0 ||
+        structuredQueryTerms.some((qt) => nameLower.includes(qt) || nameTerms.includes(qt));
+      return { node: n, uncoveredHits, hasQueryOverlap };
+    })
+    .filter((item) => item.hasQueryOverlap)
+    .sort((a, b) => {
+      if (b.uncoveredHits !== a.uncoveredHits) return b.uncoveredHits - a.uncoveredHits;
+      return (b.node.score ?? 0) - (a.node.score ?? 0);
+    })
     .slice(0, 5)
-    .map((n) => ({
+    .map((item) => ({
       tool: "cw_read" as const,
-      args: { file: n.file.path, symbol: n.symbol!.name },
-      reason: `Compressed at level ${n.compressionLevel}, score ${(n.score ?? 0).toFixed(2)}`,
+      args: { file: item.node.file.path, symbol: item.node.symbol!.name },
+      reason: `Compressed at level ${item.node.compressionLevel}, score ${(item.node.score ?? 0).toFixed(2)}`,
     }));
 
   const visibleObs = observations.filter((o) => o.confidence >= 0.5);
