@@ -91,7 +91,7 @@ const DEFAULT_TOKEN_BUDGET = 4000;
 const DEFAULT_MAX_QUERY_TIME_MS = 500;
 const NARROW_MIN_UTILIZATION = 0.45;
 const BROAD_TASK_MIN_UTILIZATION = 0.6;
-const BROAD_TASK_TARGET_UTILIZATION = 0.7;
+const BROAD_TASK_TARGET_UTILIZATION = 0.85;
 const OBSERVATION_BUDGET_FRACTION = 0.2;
 const MAX_BFS_VISITED_DIVISOR = 20;
 const MAX_BFS_VISITED_CAP = 300;
@@ -1799,6 +1799,71 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
       if (tokensUsed >= tokenBudget * BROAD_TASK_TARGET_UTILIZATION) {
         break;
+      }
+    }
+
+    if (
+      tokensUsed < tokenBudget * 0.50 &&
+      tokenBudget >= 4000 &&
+      candidates.length > selected.length
+    ) {
+      const expandedLimit = Math.min(candidates.length, baseCandidateLimit * 2);
+      const expandedLexThreshold = Math.max(0, baseLexThreshold * 0.7);
+      const deepExpanded = backfillWithinSelectedFiles(
+        ensureBroadFileSpread(
+          pruneUiNoise(
+            pruneByFileDiversity(
+              selectCandidates(expandedLexThreshold, 2, expandedLimit)
+            )
+          )
+        )
+      );
+      if (deepExpanded.length > selected.length) {
+        const deepExpandedNodes = buildScoredNodes(deepExpanded);
+        const deepExpandedClusterMap = buildClusterBySymbolId(deepExpandedNodes);
+        const deepExpandedResult = packNodesStoryMode(
+          deepExpandedNodes,
+          tokenBudget,
+          codeRatio,
+          deepExpandedClusterMap
+        );
+        if (deepExpandedResult.tokensUsed > tokensUsed) {
+          selected = deepExpanded;
+          scoredNodes = deepExpandedNodes;
+          clusterBySymbolId = deepExpandedClusterMap;
+          packed = deepExpandedResult.packed;
+          tokensUsed = deepExpandedResult.tokensUsed;
+          fileSummaries = deepExpandedResult.fileSummaries;
+          logger.debug("deep-expand pass", { n: selected.length, tokensUsed });
+        }
+      }
+    }
+
+    if (tokensUsed < tokenBudget * 0.40 && selected.length > 0) {
+      const fileScores = new Map<number, number>();
+      for (const candidate of selected) {
+        const current = fileScores.get(candidate.file.id) ?? 0;
+        fileScores.set(candidate.file.id, current + candidate.score);
+      }
+      const topFileIds = [...fileScores.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([id]) => id);
+      const topFileIdSet = new Set(topFileIds);
+      const storySelected = selected.filter((c) => topFileIdSet.has(c.file.id));
+      if (storySelected.length > 0 && storySelected.length < selected.length) {
+        const storyNodes = buildScoredNodes(storySelected);
+        const storyClusterMap = buildClusterBySymbolId(storyNodes);
+        const storyResult = packNodesStoryMode(storyNodes, tokenBudget, codeRatio, storyClusterMap);
+        if (storyResult.tokensUsed > tokensUsed) {
+          selected = storySelected;
+          scoredNodes = storyNodes;
+          clusterBySymbolId = storyClusterMap;
+          packed = storyResult.packed;
+          tokensUsed = storyResult.tokensUsed;
+          fileSummaries = storyResult.fileSummaries;
+          logger.debug("story-complete fallback", { files: topFileIds.length, tokensUsed });
+        }
       }
     }
   }
