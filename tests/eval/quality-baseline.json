@@ -16,7 +16,7 @@
     "contextweave-src": {
       "precision": 0.3333333333333333,
       "recall": 0.75,
-      "avgConfidence": 0.5451976771196282,
+      "avgConfidence": 0.5249479674796748,
       "avgTokenEfficiency": 0.9823644413777239,
       "p95LatencyMs": 30.721207999999933,
       "taskSuccessRate": 1,
@@ -29,7 +29,7 @@
       "precision": 0.375,
       "recall": 0.6041666666666666,
       "avgConfidence": 0.4,
-      "avgTokenEfficiency": 0.44886363636363635,
+      "avgTokenEfficiency": 0.40980113636363635,
       "p95LatencyMs": 3.922458000000006,
       "taskSuccessRate": 1,
       "firstPassSuccessRate": 1,

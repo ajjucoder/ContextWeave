@@ -87,6 +87,7 @@ export function packNodes(
 
   const sorted = [...scoredNodes].sort((a, b) => b.score - a.score);
   const packed: ScoredNode[] = [];
+  const packedSymbolIds = new Set<number>();
   let tokensUsed = 0;
   let l3Count = 0;
   const maxL3 = Math.max(5, Math.ceil(sorted.length * l3Cap));
@@ -109,6 +110,7 @@ export function packNodes(
       });
       tokensUsed += primaryTokens;
       primaryPackedId = primaryCandidate.symbol.id;
+      packedSymbolIds.add(primaryPackedId);
       effectiveBudget = codeBudget - reserved + primaryTokens;
       if (effectiveBudget > codeBudget) effectiveBudget = codeBudget;
     }
@@ -116,6 +118,7 @@ export function packNodes(
 
   for (const node of sorted) {
     if (primaryPackedId !== null && node.symbol.id === primaryPackedId) continue;
+    if (packedSymbolIds.has(node.symbol.id)) continue;
     const startLevel = node.compressionLevel;
     let placed = false;
 
@@ -132,6 +135,7 @@ export function packNodes(
           rendered,
           tokenCount: tokens,
         });
+        packedSymbolIds.add(node.symbol.id);
         tokensUsed += tokens;
         if (level === 3) l3Count++;
         placed = true;
@@ -184,9 +188,8 @@ export function packNodes(
     }
   }
 
-  const packedIds = new Set(packed.map((n) => n.symbol.id));
   const adjacentNodes = [...sorted]
-    .filter((node) => !packedIds.has(node.symbol.id))
+    .filter((node) => !packedSymbolIds.has(node.symbol.id))
     .sort((a, b) => b.score - a.score);
 
   for (const node of adjacentNodes) {
@@ -195,6 +198,7 @@ export function packNodes(
     const tokens = countTokens(rendered);
     if (tokensUsed + tokens <= effectiveBudget) {
       packed.push({ ...node, compressionLevel: 3 as CompressionLevel, rendered, tokenCount: tokens });
+      packedSymbolIds.add(node.symbol.id);
       tokensUsed += tokens;
     }
   }

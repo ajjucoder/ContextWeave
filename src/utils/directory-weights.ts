@@ -32,12 +32,12 @@ const PREFIX_DOWNWEIGHTS: Array<{ prefix: string; weight: number }> = [
 ];
 
 const PREFIX_UPWEIGHTS: Array<{ prefix: string; weight: number }> = [
-  { prefix: "src/main/java", weight: 1.5 },
-  { prefix: "src/app", weight: 1.5 },
-  { prefix: "src/lib", weight: 1.5 },
-  { prefix: "src/core", weight: 1.5 },
-  { prefix: "packages", weight: 1.3 },
-  { prefix: "libs", weight: 1.3 },
+  { prefix: "src/main/java", weight: 1.15 },
+  { prefix: "src/app", weight: 1.15 },
+  { prefix: "src/lib", weight: 1.15 },
+  { prefix: "src/core", weight: 1.15 },
+  { prefix: "packages", weight: 1.15 },
+  { prefix: "libs", weight: 1.15 },
 ];
 
 const configCache = new Map<string, Pick<ProjectConfig, "primaryDirs" | "archiveDirs">>();
@@ -116,7 +116,7 @@ export function getDirectoryWeight(filePath: string, projectRoot?: string): numb
 
   for (const primaryDir of primaryDirs) {
     if (matchesNormalizedPrefix(normalizedPath, normalizeDirectoryPath(primaryDir))) {
-      upweight = Math.max(upweight, 1.5);
+      upweight = Math.max(upweight, 1.15);
     }
   }
 

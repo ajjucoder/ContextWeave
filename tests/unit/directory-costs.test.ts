@@ -39,12 +39,12 @@ describe("getDirectoryWeight", () => {
   });
 
   it("upweights primary source directories", () => {
-    expect(getDirectoryWeight("src/main/java/com/example/UserController.java")).toBe(1.5);
-    expect(getDirectoryWeight("src/app/dashboard/page.tsx")).toBe(1.5);
-    expect(getDirectoryWeight("src/lib/auth.ts")).toBe(1.5);
-    expect(getDirectoryWeight("src/core/indexer.ts")).toBe(1.5);
-    expect(getDirectoryWeight("packages/sdk/src/index.ts")).toBe(1.3);
-    expect(getDirectoryWeight("libs/shared/src/index.ts")).toBe(1.3);
+    expect(getDirectoryWeight("src/main/java/com/example/UserController.java")).toBe(1.15);
+    expect(getDirectoryWeight("src/app/dashboard/page.tsx")).toBe(1.15);
+    expect(getDirectoryWeight("src/lib/auth.ts")).toBe(1.15);
+    expect(getDirectoryWeight("src/core/indexer.ts")).toBe(1.15);
+    expect(getDirectoryWeight("packages/sdk/src/index.ts")).toBe(1.15);
+    expect(getDirectoryWeight("libs/shared/src/index.ts")).toBe(1.15);
   });
 
   it("applies config-driven primary and archive directory overrides", () => {
@@ -59,8 +59,8 @@ describe("getDirectoryWeight", () => {
         })
       );
 
-      expect(getDirectoryWeight("services/api/routes/users.ts", root)).toBe(1.5);
-      expect(getDirectoryWeight("apps/web/src/server/loaders.ts", root)).toBe(1.5);
+      expect(getDirectoryWeight("services/api/routes/users.ts", root)).toBe(1.15);
+      expect(getDirectoryWeight("apps/web/src/server/loaders.ts", root)).toBe(1.15);
       expect(getDirectoryWeight("attic/old-script.ts", root)).toBe(0.1);
       expect(getDirectoryWeight("src/legacy-app/index.ts", root)).toBe(0.1);
     } finally {
