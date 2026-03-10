@@ -18,6 +18,8 @@ import { upsertFileSummary, backfillSummariesIfNeeded } from "./file-summaries.j
 import { computeClusters, backfillClustersIfNeeded } from "./clusters.js";
 import { backfillChunksIfNeeded, buildEmbeddingChunks } from "./chunker.js";
 import { detectPatterns, backfillPatternsIfNeeded } from "./pattern-detector.js";
+import { profileRepo, persistProfile } from "./repo-profiler.js";
+import { buildConventionGraph, persistConventions } from "./convention-graph.js";
 import { loadTsconfigPaths, resolveAliasedImport, type TsconfigPaths } from "../utils/tsconfig-paths.js";
 import { resolveFrameworkTargets } from "../frameworks/registry.js";
 
@@ -55,6 +57,7 @@ export const BUILTIN_IGNORE_PATTERNS = [
   ".tox",
   "vendor",
   ".bundle",
+  ".claude",
 ];
 
 interface WorkerFileParseResult {
@@ -90,7 +93,10 @@ export interface IndexerOptions {
 function shouldIgnore(filePath: string): boolean {
   const normalizedPath = filePath.replace(/\\/g, "/");
   const parts = normalizedPath.split("/").filter(Boolean);
-  return BUILTIN_IGNORE_PATTERNS.some((pattern) => parts.includes(pattern));
+  return (
+    BUILTIN_IGNORE_PATTERNS.some((pattern) => parts.includes(pattern)) ||
+    parts.some((part) => part.startsWith(".qa-temp-"))
+  );
 }
 
 function loadIgnoreFile(filePath: string): string[] {
@@ -208,6 +214,18 @@ export function isIgnoredForIndexing(filePath: string, projectRoot: string, extr
   return !!(extraIgnore && extraIgnore.length > 0 && isIgnoredByGitignore(relativePath, extraIgnore));
 }
 
+function isGitWorktree(dirPath: string): boolean {
+  const gitPath = resolve(dirPath, ".git");
+  try {
+    const stat = statSync(gitPath);
+    if (!stat.isFile()) return false;
+    const content = readFileSync(gitPath, "utf-8");
+    return content.startsWith("gitdir:");
+  } catch {
+    return false;
+  }
+}
+
 function summarizeUnsupportedFiles(unsupportedByExtension: Map<string, number>): string | null {
   if (unsupportedByExtension.size === 0) return null;
 
@@ -269,6 +287,7 @@ async function discoverFiles(
       if (entry.isDirectory()) {
         if (shouldIgnore(fullPath)) continue;
         if (extraIgnore && extraIgnore.length > 0 && isIgnoredByGitignore(relativePath, extraIgnore)) continue;
+        if (isGitWorktree(fullPath)) continue;
         pendingDirs.push(fullPath);
         continue;
       }
@@ -1285,6 +1304,12 @@ export async function indexProject(
 
   computeClusters(db, projectRoot);
   detectPatterns(db);
+
+  const repoProfile = profileRepo(projectRoot);
+  persistProfile(db, projectRoot, repoProfile);
+
+  const conventionGraph = buildConventionGraph(db, projectRoot);
+  persistConventions(db, conventionGraph);
 
   log.info(`indexed ${toProcess.length} files, ${totalSymbols} symbols`);
   return { filesIndexed: filePaths.length, symbolsFound: totalSymbols, errors: allErrors };

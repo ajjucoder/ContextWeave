@@ -8,6 +8,7 @@ import { observationQueries } from "../../db/queries/observations.js";
 import { capsuleLogQueries } from "../../db/queries/capsule-log.js";
 import { getRegisterTool } from "./register-helper.js";
 import { buildProjectProfile, formatProjectProfile } from "../../utils/project-profile.js";
+import { loadProfile, formatRepoProfile } from "../../core/repo-profiler.js";
 import {
   computeFollowUpMetrics,
   FOLLOW_UP_METRICS_SAMPLE_LIMIT,
@@ -39,6 +40,7 @@ export function registerStatusTool(server: McpServer, db: Database.Database, pro
         const rateSample = capsuleLogQueries(db).getRecent(FOLLOW_UP_METRICS_SAMPLE_LIMIT);
         const followUpMetrics = computeFollowUpMetrics(rateSample);
 
+        const allFiles = files.getAll();
         const lines = [
           `ContextWeave Index Status`,
           `Project: ${projectRoot}`,
@@ -50,8 +52,25 @@ export function registerStatusTool(server: McpServer, db: Database.Database, pro
           `First-pass rate: ${formatRatePct(followUpMetrics.firstPassRate)} (${followUpMetrics.sampleSize} capsules)`,
           `Correction rate: ${formatRatePct(followUpMetrics.correctionRate)} (${followUpMetrics.sampleSize} capsules)`,
         ];
-        const profile = buildProjectProfile(projectRoot, files.getAll());
+        const profile = buildProjectProfile(projectRoot, allFiles);
         lines.push("", ...formatProjectProfile(profile));
+
+        const repoProfile = loadProfile(db, projectRoot);
+        if (repoProfile && repoProfile.frameworks.length > 0) {
+          lines.push("", ...formatRepoProfile(repoProfile));
+        }
+
+        const SOURCE_DIR_PREFIXES = ["src/", "lib/", "app/", "packages/"];
+        const nonSourceFiles = allFiles.filter(
+          (f) => !SOURCE_DIR_PREFIXES.some((prefix) => f.path.startsWith(prefix))
+        );
+        if (allFiles.length > 0 && nonSourceFiles.length / allFiles.length > 0.5) {
+          const pct = Math.round((nonSourceFiles.length / allFiles.length) * 100);
+          lines.push(
+            ``,
+            `Warning: ${pct}% of indexed files are from non-source directories. Consider adding exclusions to .cwignore.`
+          );
+        }
 
         if (recentCapsules.length > 0) {
           lines.push(``, `Recent Capsule Generations:`);
@@ -64,7 +83,6 @@ export function registerStatusTool(server: McpServer, db: Database.Database, pro
 
         if (verbose) {
           lines.push(`\nPer-file breakdown:`);
-          const allFiles = files.getAll();
           for (const file of allFiles) {
             const errTag = file.error ? ` [ERROR: ${file.error}]` : "";
             lines.push(`  ${file.path} (${file.symbolCount} symbols, ${file.language})${errTag}`);
