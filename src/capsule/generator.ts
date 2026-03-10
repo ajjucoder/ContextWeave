@@ -93,11 +93,10 @@ const NARROW_MIN_UTILIZATION = 0.45;
 const BROAD_TASK_MIN_UTILIZATION = 0.6;
 const BROAD_TASK_TARGET_UTILIZATION = 0.85;
 const OBSERVATION_BUDGET_FRACTION = 0.2;
-const MAX_BFS_VISITED_DIVISOR = 20;
-const MAX_BFS_VISITED_CAP = 300;
+const MAX_BFS_VISITED_DIVISOR = 12;
+const MAX_BFS_VISITED_CAP = 500;
 const MAX_BFS_HOPS = 8;
 const EDGE_BATCH_CHUNK_SIZE = 400;
-const DEDUP_COMPRESSION_LEVEL = 2;
 
 const idfStmtCache = new WeakMap<Database.Database, ReturnType<Database.Database["prepare"]>>();
 export function computeTermIDF(db: Database.Database, terms: string[]): Map<string, number> {
@@ -147,10 +146,10 @@ function getEdgeStmts(db: Database.Database): CachedEdgeStmts {
   if (cached) return cached;
   const stmts: CachedEdgeStmts = {
     getDirectCallerIds: db.prepare(
-      `SELECT source_symbol_id as symbolId FROM edges WHERE target_symbol_id = ? AND kind IN ('call', 'import') LIMIT 12`
+      `SELECT source_symbol_id as symbolId FROM edges WHERE target_symbol_id = ? AND kind IN ('call', 'import', 'callback') LIMIT 12`
     ),
     getDirectCalleeIds: db.prepare(
-      `SELECT target_symbol_id as symbolId FROM edges WHERE source_symbol_id = ? AND kind IN ('call', 'import') LIMIT 12`
+      `SELECT target_symbol_id as symbolId FROM edges WHERE source_symbol_id = ? AND kind IN ('call', 'import', 'callback') LIMIT 12`
     ),
   };
   edgeStmtCache.set(db, stmts);
@@ -430,7 +429,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   if (suppressTypeDeclarations) {
     candidateFiles = candidateFiles.filter((candidate) => !isTypeDeclarationPath(candidate.path));
   }
-  for (const [index, candidate] of candidateFiles.slice(0, intent === "broad" ? 12 : 16).entries()) {
+  for (const [index, candidate] of candidateFiles.slice(0, intent === "broad" ? 20 : 16).entries()) {
     const boost = Math.max(1, 1.38 - index * 0.05);
     candidateFileBoostById.set(candidate.fileId, boost);
   }
@@ -1075,7 +1074,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     const sameFileAsPivot = pivotFileIds.has(candidate.file.id);
     const normalizedPath = normalizeRetrievalPath(candidate.file.path, 6);
     const sameDirAsPivot = rankingPivotDirs.has(dirname(normalizedPath));
-    const directoryWeight = getDirectoryWeight(normalizedPath);
+    const directoryWeight = getDirectoryWeight(normalizedPath, params.projectRoot);
     const laneWeight = activeLanes.length > 0 ? getLaneWeightForPath(activeLanes, candidate.file.path) : 1;
     const fileSearchBoost = candidateFileBoostById.get(candidate.file.id) ?? 1;
     const actionSignal = hasActionSignal(candidate.symbol.name, candidate.symbol.signature);
@@ -1202,9 +1201,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       return selectedCandidates;
     }
 
-    const maxFiles = isNarrowMultiTerm ? 4 : intent === "broad" ? (broadBudgetBoost ? 10 : 6) : 7;
+    const maxFiles = isNarrowMultiTerm ? 4 : intent === "broad" ? (broadBudgetBoost ? 10 : 10) : 7;
     const maxPerFile = isNarrowMultiTerm ? 4 : intent === "broad" ? (broadBudgetBoost ? 5 : 3) : 4;
-    const maxTotal = isNarrowMultiTerm ? 20 : intent === "broad" ? (broadBudgetBoost ? 40 : 20) : 24;
+    const maxTotal = isNarrowMultiTerm ? 20 : intent === "broad" ? (broadBudgetBoost ? 40 : 35) : 24;
     const lexicalFloor = isNarrowMultiTerm ? 2 : intent === "broad" ? (broadBudgetBoost ? 0.9 : 1.5) : 1.2;
     const ordered = [...selectedCandidates].sort((a, b) => {
       if (a.isPivot !== b.isPivot) return a.isPivot ? -1 : 1;
@@ -1334,6 +1333,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         continue;
       }
 
+      if (visited.has(bestSymbol.symbol.id)) continue;
       augmented.push({
         symbol: bestSymbol.symbol,
         file,
@@ -1559,7 +1559,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   );
   const narrowHardCap = isSingleFocusNarrowQuery ? 48 : 80;
   const hardCap =
-    intent === "narrow" ? narrowHardCap : intent === "broad" ? 72 : 84;
+    intent === "narrow" ? narrowHardCap : intent === "broad" ? 120 : 84;
   const baseCandidateLimit = Math.min(dynamicLimit, hardCap);
 
   const recentSymbolIds: Set<number> = hasExplicitSession && sessionCtx
@@ -1880,27 +1880,25 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     packed.some((node) => isRuntimeCodePath(canonicalFilePath(node))) &&
     packed.some((node) => isTypeDeclarationPath(canonicalFilePath(node)));
 
+  const dedupDroppedNames: string[] = [];
   if (shouldDedupRecentSymbols) {
-    let tokensDelta = 0;
-    for (let i = 0; i < packed.length; i++) {
-      const node = packed[i]!;
+    const kept: ScoredNode[] = [];
+    const dropped: ScoredNode[] = [];
+    for (const node of packed) {
       if ((node.compressionLevel === 0 || node.compressionLevel === 1) && recentSymbolIds.has(node.symbol.id)) {
-        const dedupRendered = `[previously shown] ${node.symbol.signature}`;
-        const dedupTokens = countTokens(dedupRendered);
-        if (dedupTokens >= node.tokenCount) {
-          continue;
-        }
-        tokensDelta += dedupTokens - node.tokenCount;
-        packed[i] = {
-          ...node,
-          compressionLevel: DEDUP_COMPRESSION_LEVEL as CompressionLevel,
-          rendered: dedupRendered,
-          tokenCount: dedupTokens,
-        };
+        dropped.push(node);
+      } else {
+        kept.push(node);
       }
     }
-    tokensUsed += tokensDelta;
-    logger.debug("dedup pass complete", { recentCount: recentSymbolIds.size, tokensDelta });
+    if (kept.length > 0) {
+      for (const node of dropped) {
+        tokensUsed -= node.tokenCount;
+        dedupDroppedNames.push(node.symbol.name);
+      }
+      packed = kept;
+    }
+    logger.debug("dedup pass complete", { recentCount: recentSymbolIds.size, droppedCount: dedupDroppedNames.length });
   }
 
   // Enrich L2 nodes with dependency info where remaining budget allows
@@ -2155,6 +2153,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const visibleObs = selectObservations(observations, metadata);
   recordObservationHits(db, visibleObs.map((o) => o.id));
   let content = formatCapsule(packed, observations, metadata, fileSummaries);
+  if (dedupDroppedNames.length > 0) {
+    content += `\nPreviously covered: ${dedupDroppedNames.join(", ")}\n`;
+  }
   if (symbolNotFound) {
     const note = `Note: No symbol named '${query}' found in the index. Showing related symbols.\n`;
     content = note + content;

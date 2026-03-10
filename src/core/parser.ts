@@ -1003,7 +1003,8 @@ function parseCalls(
           if (propValueCapture) {
             const callLine = propValueCapture.node.startPosition.row + 1;
             if (callLine < symbol.startLine || callLine > symbol.endLine) continue;
-            const name = propValueCapture.node.text;
+            const rawName = propValueCapture.node.text;
+            const name = rawName.includes(".") ? rawName.split(".").pop()! : rawName;
             const key = `${symbol.name}:${name}:callback`;
             if (!seen.has(key)) {
               seen.add(key);
