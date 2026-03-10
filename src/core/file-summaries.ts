@@ -233,16 +233,16 @@ function extractBodyFeatures(symbols: SymbolRow[]): string {
       addWords(match[0]);
     }
     for (const match of source.matchAll(/process\.env\.([A-Z0-9_]+)/g)) {
-      addWords(match[1]);
+      if (match[1]) addWords(match[1]);
     }
     for (const match of source.matchAll(/\b(?:SELECT|INSERT|UPDATE|DELETE)\b[\s\S]{0,120}/gi)) {
       addWords(match[0]);
     }
     for (const match of source.matchAll(/>([^<]{4,})</g)) {
-      addWords(match[1].replace(/&amp;/g, "and"));
+      if (match[1]) addWords(match[1].replace(/&amp;/g, "and"));
     }
     for (const match of source.matchAll(/["'`]([^"'`]{4,})["'`]/g)) {
-      addWords(match[1]);
+      if (match[1]) addWords(match[1]);
     }
   }
 

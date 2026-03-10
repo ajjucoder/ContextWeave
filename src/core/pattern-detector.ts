@@ -24,7 +24,7 @@ const dirPattern = (filePath: string) => {
 const patternId = (signature: PatternSignature) => createHash("sha256").update(JSON.stringify(signature)).digest("hex");
 const patternConfidence = (n: number) => (n >= 5 ? 0.9 : n === 4 ? 0.75 : 0.6);
 
-function patternName(signature: PatternSignature, files: string[]): string {
+function patternName(_signature: PatternSignature, files: string[]): string {
   const fileName = files[0]?.split("/").pop()?.replace(/\.[^.]+$/, "") ?? "file";
   const title = fileName.replace(/[-_]+/g, " ").replace(/\b\w/g, (m) => m.toUpperCase());
   return /page$/i.test(fileName) ? `${title} Pattern` : `${title} Structure Pattern`;

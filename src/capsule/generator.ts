@@ -334,7 +334,6 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const classified = classifyQueryIntent(query);
   const intent = classified.intent;
   // For pipeline routing, symbol-lookup and debug behave like narrow (focused retrieval)
-  const pipelineIntent = intent === "symbol-lookup" || intent === "debug" ? "narrow" : intent;
   const retrievalBudget = Math.max(
     tokenBudget,
     Math.round(tokenBudget * classified.suggestedBudgetMultiplier)
@@ -2147,7 +2146,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     filesIncluded: [...uniqueFiles],
     patterns: getPatternsForFiles(db, [...uniqueFiles]),
     layerCoverages: layerCoverages.length > 0 ? layerCoverages : undefined,
-    diagnostics: diagnose(baseMetadata, pivotScores, intent),
+    diagnostics: diagnose(baseMetadata, pivotScores, intent === "symbol-lookup" || intent === "debug" ? "narrow" : intent),
   };
 
   const visibleObs = selectObservations(observations, metadata);
