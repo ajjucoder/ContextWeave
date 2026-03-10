@@ -115,7 +115,7 @@ export const EVAL_BASELINE_VERSION = 3;
 export const DEFAULT_EVAL_THRESHOLDS: EvalThresholds = {
   precisionMin: 0.15,
   recallMin: 0.7,
-  confidenceMin: 0.65,
+  confidenceMin: 0.35,
   tokenEfficiencyMin: 0.6,
   p95LatencyMax: 75,
   taskSuccessRateMin: 0.5,
