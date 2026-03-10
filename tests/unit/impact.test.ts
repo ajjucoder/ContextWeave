@@ -98,6 +98,50 @@ describe("traceImpact", () => {
     expect(names).toContain("fnC");
   });
 
+  it("depth-2+ follows symbol-level edges: sibling in same file NOT included without edge", () => {
+    // target: fnTarget in utils.ts
+    // fnA in runner.ts imports fnTarget (depth-1 dependent)
+    // fnB in runner.ts does NOT import fnTarget — should NOT appear at depth 2
+    const utilsFileId = makeFile(db, "src/utils.ts");
+    const runnerFileId = makeFile(db, "src/runner.ts");
+
+    const fnTargetId = makeSymbol(db, utilsFileId, "fnTarget");
+    const fnAId = makeSymbol(db, runnerFileId, "fnA");
+    const fnBId = makeSymbol(db, runnerFileId, "fnB");
+
+    // Only fnA depends on fnTarget — fnB has no edge
+    edgeQueries(db).insert({ sourceSymbolId: fnAId, targetSymbolId: fnTargetId, kind: "import", createdAt: NOW });
+
+    const result = traceImpact(db, fnTargetId, 3);
+    const names = result.map((n) => n.name);
+
+    expect(names).toContain("fnA");
+    expect(names).not.toContain("fnB");
+  });
+
+  it("depth-2 traversal: consumer of fnA is included, but sibling in consumer file without edge is not", () => {
+    const utilsFileId = makeFile(db, "src/utils.ts");
+    const runnerFileId = makeFile(db, "src/runner.ts");
+    const appFileId = makeFile(db, "src/app.ts");
+
+    const fnTargetId = makeSymbol(db, utilsFileId, "evaluateRisk");
+    const fnAId = makeSymbol(db, runnerFileId, "runPipeline");
+    const fnBId = makeSymbol(db, runnerFileId, "readArrayTopPrice");
+    const fnCId = makeSymbol(db, appFileId, "startApp");
+
+    // runPipeline imports evaluateRisk (depth-1)
+    edgeQueries(db).insert({ sourceSymbolId: fnAId, targetSymbolId: fnTargetId, kind: "import", createdAt: NOW });
+    // startApp imports runPipeline (depth-2)
+    edgeQueries(db).insert({ sourceSymbolId: fnCId, targetSymbolId: fnAId, kind: "call", createdAt: NOW });
+
+    const result = traceImpact(db, fnTargetId, 3);
+    const names = result.map((n) => n.name);
+
+    expect(names).toContain("runPipeline");
+    expect(names).toContain("startApp");
+    expect(names).not.toContain("readArrayTopPrice");
+  });
+
   it("does not exceed maxDepth", () => {
     const fid = makeFile(db, "src/deep.ts");
     const ids = Array.from({ length: 6 }, (_, i) => makeSymbol(db, fid, `fn${i}`));
