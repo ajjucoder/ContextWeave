@@ -2,11 +2,8 @@ import { z } from "zod/v3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
 import { capsuleLogQueries } from "../../db/queries/capsule-log.js";
-import { statSync } from "node:fs";
 import { getRegisterTool } from "./register-helper.js";
-import { resolve } from "node:path";
 
-const AVG_FILE_TOKENS_FALLBACK = 3000;
 export const FOLLOW_UP_METRICS_SAMPLE_LIMIT = 200;
 
 export interface SessionStats {
@@ -59,7 +56,7 @@ export function formatRatePct(rate: number): string {
 export function computeSessionStats(
   db: Database.Database,
   sessionId: string,
-  projectRoot: string
+  _projectRoot?: string
 ): SessionStats {
   const logs = capsuleLogQueries(db).getBySession(sessionId);
 
@@ -92,19 +89,8 @@ export function computeSessionStats(
   }
   const followUpMetrics = computeFollowUpMetrics(logs);
 
-  const CHARS_PER_TOKEN = 3.3;
-  let totalFileTokens = 0;
-  for (const filePath of allFiles) {
-    try {
-      const fullPath = resolve(projectRoot, filePath);
-      const { size } = statSync(fullPath);
-      totalFileTokens += Math.ceil(size / CHARS_PER_TOKEN);
-    } catch {
-      totalFileTokens += AVG_FILE_TOKENS_FALLBACK;
-    }
-  }
-
-  const estimatedRawTokens = Math.max(totalFileTokens, totalUsed);
+  const TARGETED_TOKENS_PER_FILE = 150;
+  const estimatedRawTokens = Math.max(allFiles.size * TARGETED_TOKENS_PER_FILE, totalUsed);
 
   const savings =
     estimatedRawTokens > 0
@@ -136,28 +122,30 @@ export function computeSessionStats(
 }
 
 function formatStats(stats: SessionStats, sessionId: string): string {
+  const avgTokensPerCapsule =
+    stats.capsulesGenerated > 0
+      ? Math.round(stats.totalTokensUsed / stats.capsulesGenerated)
+      : 0;
+
   const lines = [
     "ContextWeave Session Stats",
     `Session: ${sessionId}`,
     "",
-    `Capsules generated:    ${stats.capsulesGenerated}`,
+    `Tokens used: ${stats.totalTokensUsed.toLocaleString()} | Budget utilization: ${formatRatePct(stats.budgetUtilization)} | Capsules issued: ${stats.capsulesGenerated} | Avg tokens/capsule: ${avgTokensPerCapsule.toLocaleString()}`,
+    "",
     `Total tokens budgeted: ${stats.totalTokensBudgeted.toLocaleString()}`,
-    `Total tokens used:     ${stats.totalTokensUsed.toLocaleString()} (${stats.totalTokensBudgeted > 0 ? Math.round((stats.totalTokensUsed / stats.totalTokensBudgeted) * 100) : 0}% of budget)`,
     `Unique files covered:  ${stats.uniqueFiles}`,
     `Unique symbols served: ${stats.uniqueSymbols}`,
     `First-pass rate:       ${formatRatePct(stats.firstPassRate)}`,
     `Correction rate:       ${formatRatePct(stats.correctionRate)}`,
-    `Budget utilization:    ${formatRatePct(stats.budgetUtilization)}`,
     `Avg follow-up reads:   ${stats.averageFollowUpReads.toFixed(2)}`,
   ];
 
-  if (stats.capsulesGenerated > 0) {
+  if (stats.capsulesGenerated > 0 && stats.estimatedSavingsPercent > 0) {
     lines.push(
       "",
-      "Savings vs equivalent grep+read:",
-      `  grep+read cost (est): ~${stats.estimatedRawTokens.toLocaleString()} tokens`,
-      `  ContextWeave used:    ~${stats.totalTokensUsed.toLocaleString()} tokens`,
-      `  Estimated savings:    ~${(stats.estimatedRawTokens - stats.totalTokensUsed).toLocaleString()} tokens (${stats.estimatedSavingsPercent}% reduction)`
+      `Estimated savings vs targeted grep+read: ~${(stats.estimatedRawTokens - stats.totalTokensUsed).toLocaleString()} tokens`,
+      "(estimated vs targeted grep+read — actual savings vary)"
     );
   }
 
