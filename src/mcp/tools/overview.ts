@@ -16,6 +16,7 @@ import {
   formatRatePct,
 } from "./stats.js";
 import type { EmbeddingRuntime } from "../../core/types.js";
+import { loadConventions, formatConventionSummary } from "../../core/convention-graph.js";
 
 interface OverviewFile {
   id: number;
@@ -205,6 +206,11 @@ export function registerOverviewTool(
         lines.push("", "Top Files by Symbol Count:");
         for (const file of topFiles) {
           lines.push(`- ${file.path} (${file.symbolCount} symbols)`);
+        }
+
+        const conventionGraph = loadConventions(db);
+        if (conventionGraph.conventions.length > 0) {
+          lines.push("", ...formatConventionSummary(conventionGraph));
         }
 
         if (query && query.trim().length > 0) {

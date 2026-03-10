@@ -14,6 +14,7 @@ interface RipgrepOptions {
   glob?: string;
   maxResults?: number;
   useRegex?: boolean;
+  multiline?: boolean;
 }
 
 interface RgMatchEvent {
@@ -50,12 +51,13 @@ export async function runRipgrepSearch(
   rootDir: string,
   options: RipgrepOptions = {}
 ): Promise<RipgrepMatch[]> {
-  const { caseSensitive = false, glob, maxResults = 200, useRegex = false } = options;
+  const { caseSensitive = false, glob, maxResults = 200, useRegex = false, multiline = false } = options;
 
   const args: string[] = ["--json", "--max-count", "1"];
 
   if (!caseSensitive) args.push("--ignore-case");
   if (!useRegex) args.push("--fixed-strings");
+  if (multiline) args.push("--multiline");
   if (glob) args.push("--glob", glob);
   args.push("--max-filesize", "1M");
   args.push("--", pattern, ".");

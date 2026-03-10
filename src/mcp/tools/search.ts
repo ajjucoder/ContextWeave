@@ -37,7 +37,7 @@ function isSafeProjectPath(filePath: string, projectRoot: string): boolean {
   return true;
 }
 
-function parseDelimitedRegex(query: string): { pattern: string; flags: string } | null {
+export function parseDelimitedRegex(query: string): { pattern: string; flags: string } | null {
   if (!query.startsWith("/") || query.length < 2) return null;
   const lastSlash = query.lastIndexOf("/");
   if (lastSlash <= 0) return null;
@@ -49,12 +49,24 @@ function parseDelimitedRegex(query: string): { pattern: string; flags: string } 
   return { pattern, flags };
 }
 
+export function detectBraceExpansion(pattern: string): void {
+  const braceMatch = /\{[^{}]*,[^{}]*\}/.exec(pattern);
+  if (braceMatch) {
+    const inner = braceMatch[0].slice(1, -1);
+    const alternatives = inner.split(",").map(s => s.trim()).join("|");
+    throw new Error(
+      `Brace expansion "${braceMatch[0]}" is not supported in search patterns. ` +
+      `Use regex alternation instead: (${alternatives})`
+    );
+  }
+}
+
 function withCaseFlag(flags: string, caseSensitive: boolean): string {
   const cleaned = flags.replace(/i/g, "");
   return caseSensitive ? cleaned : `${cleaned}i`;
 }
 
-function buildRegex(query: string, useRegex: boolean, caseSensitive: boolean): RegExp | null {
+export function buildRegex(query: string, useRegex: boolean, caseSensitive: boolean): RegExp | null {
   const delimited = parseDelimitedRegex(query);
   if (!useRegex && !delimited) return null;
 
@@ -196,6 +208,8 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
         const autoRegex = parsedRegex !== null;
         const useRegexSearch = use_regex === true || autoRegex;
         const ripgrepQuery = parsedRegex ? parsedRegex.pattern : query;
+        const parsedMultiline = parsedRegex?.flags.includes("m") ?? false;
+        detectBraceExpansion(ripgrepQuery);
         const contextLines = context_lines ?? 1;
         const maxResults = max_results ?? 20;
         const scopePath = path?.trim();
@@ -226,6 +240,7 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
             glob: glob?.trim() || undefined,
             maxResults: maxResults * 3,
             useRegex: useRegexSearch,
+            multiline: parsedMultiline,
           });
 
           for (const match of rgMatches) {

@@ -3,11 +3,10 @@ import type Database from "better-sqlite3";
 interface FileEdgeRow {
   file_a: number;
   file_b: number;
-  import_count: number;
+  edge_count: number;
 }
 
-const MAX_CLUSTER_SIZE = 20;
-const MIN_CROSS_FILE_EDGES = 1;
+const MAX_CLUSTER_SIZE = 30;
 
 function buildUnionFind(size: number): { parent: number[]; rank: number[] } {
   const parent = Array.from({ length: size }, (_, i) => i);
@@ -46,25 +45,35 @@ export function computeClusters(db: Database.Database, projectRoot?: string): vo
 
   const { parent, rank } = buildUnionFind(fileIds.length);
 
-  const crossFileEdges = db.prepare(`
-    SELECT
-      MIN(sf.file_id, tf.file_id) as file_a,
-      MAX(sf.file_id, tf.file_id) as file_b,
-      COUNT(*) as import_count
-    FROM edges e
-    JOIN symbols sf ON sf.id = e.source_symbol_id
-    JOIN symbols tf ON tf.id = e.target_symbol_id
-    WHERE sf.file_id != tf.file_id
-      AND e.kind = 'import'
-    GROUP BY file_a, file_b
-    HAVING import_count >= ${MIN_CROSS_FILE_EDGES}
-  `).all() as FileEdgeRow[];
+  const edgeGroups: Array<{ kinds: string[]; threshold: number }> = [
+    { kinds: ["import"], threshold: 1 },
+    { kinds: ["inheritance", "implements"], threshold: 1 },
+    { kinds: ["call"], threshold: 2 },
+    { kinds: ["type_usage"], threshold: 3 },
+  ];
 
-  for (const edge of crossFileEdges) {
-    const i = indexMap.get(edge.file_a);
-    const j = indexMap.get(edge.file_b);
-    if (i !== undefined && j !== undefined) {
-      union(parent, rank, i, j);
+  for (const { kinds, threshold } of edgeGroups) {
+    const kindList = kinds.map(k => `'${k}'`).join(", ");
+    const rows = db.prepare(`
+      SELECT
+        MIN(sf.file_id, tf.file_id) as file_a,
+        MAX(sf.file_id, tf.file_id) as file_b,
+        COUNT(*) as edge_count
+      FROM edges e
+      JOIN symbols sf ON sf.id = e.source_symbol_id
+      JOIN symbols tf ON tf.id = e.target_symbol_id
+      WHERE sf.file_id != tf.file_id
+        AND e.kind IN (${kindList})
+      GROUP BY file_a, file_b
+      HAVING edge_count >= ${threshold}
+    `).all() as FileEdgeRow[];
+
+    for (const edge of rows) {
+      const i = indexMap.get(edge.file_a);
+      const j = indexMap.get(edge.file_b);
+      if (i !== undefined && j !== undefined) {
+        union(parent, rank, i, j);
+      }
     }
   }
 

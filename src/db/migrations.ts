@@ -400,6 +400,38 @@ const migrations: Migration[] = [
       }
     },
   },
+  {
+    version: 17,
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS repo_profile (
+          project_root TEXT PRIMARY KEY,
+          profile_json TEXT NOT NULL,
+          detected_at  INTEGER NOT NULL
+        );
+      `);
+    },
+  },
+  {
+    version: 18,
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS conventions (
+          id         TEXT PRIMARY KEY,
+          name       TEXT NOT NULL,
+          layer      TEXT NOT NULL,
+          source     TEXT NOT NULL,
+          file_count INTEGER NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS convention_edges (
+          source_convention TEXT NOT NULL,
+          target_convention TEXT NOT NULL,
+          edge_count        INTEGER NOT NULL,
+          PRIMARY KEY (source_convention, target_convention)
+        );
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

@@ -73,12 +73,11 @@ describe("computeClusters", () => {
     const now2 = Date.now();
     const projectRoot = "/home/ci/project";
 
-    // Create 25 files (> MAX_CLUSTER_SIZE=20) spread across 2 dirs — all interconnected
     const fileIds: number[] = [];
-    for (let i = 0; i < 13; i++) {
+    for (let i = 0; i < 18; i++) {
       fileIds.push(files2.insert({ path: `${projectRoot}/src/auth/file${i}.ts`, hash: `h${i}`, lastIndexed: now2, mtime: now2, language: "typescript", symbolCount: 1, error: null }));
     }
-    for (let i = 0; i < 13; i++) {
+    for (let i = 0; i < 18; i++) {
       fileIds.push(files2.insert({ path: `${projectRoot}/src/utils/file${i}.ts`, hash: `u${i}`, lastIndexed: now2, mtime: now2, language: "typescript", symbolCount: 1, error: null }));
     }
 
