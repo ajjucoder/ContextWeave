@@ -89,8 +89,13 @@ export function computeSessionStats(
   }
   const followUpMetrics = computeFollowUpMetrics(logs);
 
-  const TARGETED_TOKENS_PER_FILE = 150;
-  const estimatedRawTokens = Math.max(allFiles.size * TARGETED_TOKENS_PER_FILE, totalUsed);
+  const AVG_SYMBOLS_PER_FILE = 8;
+  const AVG_TOKENS_PER_SYMBOL = 80;
+  const TARGETED_READ_FRACTION = 0.3;
+  const estimatedRawTokens = Math.max(
+    allFiles.size * AVG_SYMBOLS_PER_FILE * AVG_TOKENS_PER_SYMBOL * TARGETED_READ_FRACTION,
+    totalUsed
+  );
 
   const savings =
     estimatedRawTokens > 0

@@ -57,13 +57,13 @@ export function traceImpact(db: Database.Database, symbolId: number, maxDepth: n
 
     const dependents = edges.getByTarget(current.id);
     for (const edge of dependents) {
-      if (!visited.has(edge.sourceSymbolId)) {
-        queue.push({
-          id: edge.sourceSymbolId,
-          depth: current.depth + 1,
-          edgeKind: edge.kind,
-        });
-      }
+      if (visited.has(edge.sourceSymbolId)) continue;
+      if (current.depth >= 1 && (edge.kind === "import" || edge.kind === "reexport")) continue;
+      queue.push({
+        id: edge.sourceSymbolId,
+        depth: current.depth + 1,
+        edgeKind: edge.kind,
+      });
     }
   }
 

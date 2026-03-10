@@ -72,13 +72,13 @@ describe("computeSessionStats", () => {
     expect(stats.averageFollowUpReads).toBeCloseTo(0.5, 5);
   });
 
-  it("calculates estimated savings using targeted grep+read estimate (150 tokens/file)", () => {
+  it("calculates estimated savings using targeted grep+read estimate (8*80*0.3 tokens/file)", () => {
     setupSession("s1");
     insertCapsuleLog("s1", "auth", 4000, 100, ["fn1"], ["src/a.ts", "src/b.ts", "src/c.ts"]);
 
     const stats = computeSessionStats(db, "s1", "/test");
-    // 3 files * 150 = 450, used = 100, so estimatedRawTokens = 450 > 100
-    expect(stats.estimatedRawTokens).toBe(450);
+    // 3 files * 8 * 80 * 0.3 = 576, used = 100, so estimatedRawTokens = 576 > 100
+    expect(stats.estimatedRawTokens).toBe(576);
     expect(stats.estimatedSavingsPercent).toBeGreaterThan(0);
   });
 

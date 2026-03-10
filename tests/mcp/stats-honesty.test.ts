@@ -47,15 +47,16 @@ describe("stats honesty — no misleading >50% savings claims", () => {
     expect(stats.estimatedSavingsPercent).toBeLessThanOrEqual(50);
   });
 
-  it("uses 150 tokens/file targeted estimate, not full file size", () => {
+  it("uses targeted estimate (8 symbols * 80 tokens * 0.3 fraction per file)", () => {
     setupSession("s1");
     insertCapsuleLog("s1", "auth", 4000, 50, ["fn1"], ["src/a.ts"]);
 
     const stats = computeSessionStats(db, "s1");
-    expect(stats.estimatedRawTokens).toBe(150);
+    // 1 file * 8 * 80 * 0.3 = 192 tokens
+    expect(stats.estimatedRawTokens).toBe(192);
   });
 
-  it("estimatedRawTokens equals max(uniqueFiles*150, totalUsed)", () => {
+  it("estimatedRawTokens equals max(uniqueFiles*192, totalUsed)", () => {
     setupSession("s1");
     insertCapsuleLog("s1", "auth", 4000, 5000, ["fn1"], ["src/a.ts", "src/b.ts"]);
 
@@ -88,12 +89,13 @@ describe("stats honesty — no misleading >50% savings claims", () => {
     expect(stats.uniqueFiles).toBe(3);
   });
 
-  it("savings estimate based on 150 tokens/file when used < targeted estimate", () => {
+  it("savings estimate based on targeted estimate when used < targeted estimate", () => {
     setupSession("s1");
     insertCapsuleLog("s1", "q1", 4000, 200, ["fn1"], ["a.ts", "b.ts", "c.ts", "d.ts"]);
 
     const stats = computeSessionStats(db, "s1");
-    expect(stats.estimatedRawTokens).toBe(600);
-    expect(stats.estimatedSavingsPercent).toBe(Math.round(((600 - 200) / 600) * 100));
+    // 4 files * 8 * 80 * 0.3 = 768 tokens
+    expect(stats.estimatedRawTokens).toBe(768);
+    expect(stats.estimatedSavingsPercent).toBe(Math.round(((768 - 200) / 768) * 100));
   });
 });

@@ -91,8 +91,7 @@ export function packNodes(
   let l3Count = 0;
   const maxL3 = Math.max(5, Math.ceil(sorted.length * l3Cap));
 
-  const maxScore = sorted[0]?.score ?? 0;
-  const primaryCandidate = sorted.find((n) => n.score >= maxScore * 0.90);
+  const primaryCandidate = sorted[0] && sorted[0].distance === 0 ? sorted[0] : undefined;
   let primaryPackedId: number | null = null;
   let effectiveBudget = codeBudget;
 

@@ -98,6 +98,50 @@ describe("traceImpact", () => {
     expect(names).toContain("fnC");
   });
 
+  it("import edges at depth >= 1 are NOT followed (prevents file-level explosion)", () => {
+    // A → (import) → B → (import) → C chain
+    // With the fix: C is NOT included — import edges beyond depth 0 are skipped
+    const fidA = makeFile(db, "src/a.ts");
+    const fidB = makeFile(db, "src/b.ts");
+    const fidC = makeFile(db, "src/c.ts");
+
+    const fnA = makeSymbol(db, fidA, "fnA");
+    const fnB = makeSymbol(db, fidB, "fnB");
+    const fnC = makeSymbol(db, fidC, "fnC");
+
+    // fnB imports fnA (depth-1)
+    edgeQueries(db).insert({ sourceSymbolId: fnB, targetSymbolId: fnA, kind: "import", createdAt: NOW });
+    // fnC imports fnB (would be depth-2 via import — should be filtered)
+    edgeQueries(db).insert({ sourceSymbolId: fnC, targetSymbolId: fnB, kind: "import", createdAt: NOW });
+
+    const result = traceImpact(db, fnA, 3);
+    const names = result.map((n) => n.name);
+
+    expect(names).toContain("fnB");
+    expect(names).not.toContain("fnC");
+  });
+
+  it("call edges at depth >= 1 ARE followed (only import/reexport filtered)", () => {
+    // A → (import) → B → (call) → C
+    // B imports A (depth-1), C calls B (depth-2 via call — should be included)
+    const fidA = makeFile(db, "src/core.ts");
+    const fidB = makeFile(db, "src/service.ts");
+    const fidC = makeFile(db, "src/handler.ts");
+
+    const fnA = makeSymbol(db, fidA, "coreUtil");
+    const fnB = makeSymbol(db, fidB, "serviceMethod");
+    const fnC = makeSymbol(db, fidC, "handleRequest");
+
+    edgeQueries(db).insert({ sourceSymbolId: fnB, targetSymbolId: fnA, kind: "import", createdAt: NOW });
+    edgeQueries(db).insert({ sourceSymbolId: fnC, targetSymbolId: fnB, kind: "call", createdAt: NOW });
+
+    const result = traceImpact(db, fnA, 3);
+    const names = result.map((n) => n.name);
+
+    expect(names).toContain("serviceMethod");
+    expect(names).toContain("handleRequest");
+  });
+
   it("depth-2+ follows symbol-level edges: sibling in same file NOT included without edge", () => {
     // target: fnTarget in utils.ts
     // fnA in runner.ts imports fnTarget (depth-1 dependent)
