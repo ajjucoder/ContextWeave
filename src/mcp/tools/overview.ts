@@ -120,16 +120,24 @@ export function registerOverviewTool(
     return summaryStmt;
   };
 
+  const splitCamelCase = (token: string): string[] => {
+    const parts = token.replace(/([a-z])([A-Z])/g, "$1 $2").split(" ");
+    return parts.length > 1 ? [token, ...parts.map((p) => p.toLowerCase())] : [token];
+  };
+
   const buildSummarySnippet = (summaryText: string, queryTerm: string): string | null => {
     const summaryTokens = summaryText
       .toLowerCase()
       .split(/\s+/)
       .filter(Boolean);
-    const queryTokens = queryTerm
+    const rawQueryTokens = queryTerm
       .toLowerCase()
       .replace(/[^a-z0-9\s]/g, " ")
       .split(/\s+/)
       .filter((token) => token.length >= 2);
+    const queryTokens = Array.from(
+      new Set(rawQueryTokens.flatMap((t) => splitCamelCase(t)))
+    );
     if (summaryTokens.length === 0 || queryTokens.length === 0) return null;
 
     const firstMatch = summaryTokens.findIndex((token) => queryTokens.includes(token));
@@ -293,7 +301,7 @@ export function registerOverviewTool(
                 if (snippet) {
                   lines.push(`  · summary match: ${snippet}`);
                 } else {
-                  lines.push("  · no direct symbol name match");
+                  lines.pop();
                 }
                 continue;
               }

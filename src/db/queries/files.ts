@@ -40,6 +40,13 @@ function fileQueriesImpl(db: Database.Database) {
     ORDER BY LENGTH(path) ASC
     LIMIT 1
   `);
+  const getAllByBasenameSuffix = db.prepare(`
+    SELECT *
+    FROM files
+    WHERE basename = ?
+      AND (path = ? OR path LIKE ? ESCAPE '\\')
+    ORDER BY LENGTH(path) ASC
+  `);
   const deleteById = db.prepare("DELETE FROM files WHERE id = ?");
   const deleteByPath = db.prepare("DELETE FROM files WHERE path = ?");
   const countAll = db.prepare("SELECT COUNT(*) as count FROM files");
@@ -146,6 +153,23 @@ function fileQueriesImpl(db: Database.Database) {
       if (!basename) return undefined;
       const escapedSuffix = normalizedSuffix.replace(/[\\%_]/g, "\\$&");
       return mapRow(getByBasenameSuffix.get(basename, normalizedSuffix, `%/${escapedSuffix}`));
+    },
+
+    getAllByPathSuffix(suffix: string): FileRecord[] {
+      const normalizedSuffix = suffix.replace(/\\/g, "/");
+      const exact = getByPath.get(suffix) ?? getByPath.get(normalizedSuffix);
+      if (exact) {
+        const record = mapRow(exact);
+        return record ? [record] : [];
+      }
+
+      const basename = basenameForPath(normalizedSuffix);
+      if (!basename) return [];
+      const escapedSuffix = normalizedSuffix.replace(/[\\%_]/g, "\\$&");
+      return getAllByBasenameSuffix
+        .all(basename, normalizedSuffix, `%/${escapedSuffix}`)
+        .map(mapRow)
+        .filter(Boolean) as FileRecord[];
     },
 
     deleteById(id: number): void {

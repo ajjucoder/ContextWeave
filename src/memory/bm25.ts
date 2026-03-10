@@ -101,6 +101,10 @@ export class BM25Index {
     return row ? parseFloat(row.value) : 0;
   }
 
+  readDocCount(): number {
+    return this.readStat("doc_count");
+  }
+
   private writeStat(key: string, value: number): void {
     this.stmtUpsertStat.run({ key, value: String(value) });
   }

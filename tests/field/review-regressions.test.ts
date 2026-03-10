@@ -81,7 +81,10 @@ describe("Sitecraft field regression", () => {
       "Intentional observations:",
       "POST /api/inquiries persists the inquiry",
     ]);
-    expectTextExcludes(text, ["Passive observations:", '[auto] Query: "inquiry flow"']);
+    expectTextIncludes(text, ["Passive observations:"]);
+    const intentionalIdx = text.indexOf("Intentional observations:");
+    const passiveIdx = text.indexOf("Passive observations:");
+    expect(intentionalIdx).toBeLessThan(passiveIdx);
   });
 });
 

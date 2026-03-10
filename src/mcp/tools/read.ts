@@ -129,14 +129,26 @@ export function registerReadTool(server: McpServer, db: Database.Database, proje
         }
 
         let resolvedSymbol: ResolvedSymbol | null = null;
+        let disambiguationNote: string | null = null;
         if (symbol) {
           const parsed = parseSymbolTarget(symbol);
           if (parsed) {
-            const file = fileQueries(db).getByPathSuffix(parsed.fileSuffix);
-            if (file) {
+            const filesApi = fileQueries(db);
+            const allMatches = filesApi.getAllByPathSuffix(parsed.fileSuffix);
+            if (allMatches.length > 0) {
+              const srcFirst = [...allMatches].sort((a, b) => {
+                const aIsSrc = a.path.startsWith("src/") ? 0 : 1;
+                const bIsSrc = b.path.startsWith("src/") ? 0 : 1;
+                return aIsSrc - bIsSrc || a.path.length - b.path.length;
+              });
+              const file = srcFirst[0]!;
               const sym = symbolQueries(db).getByFileAndName(file.id, parsed.symbolName);
               if (sym) {
                 resolvedSymbol = { symbol: sym, filePath: resolve(resolvedRoot, file.path) };
+                if (allMatches.length > 1) {
+                  const others = srcFirst.slice(1).map((f) => f.path).join(", ");
+                  disambiguationNote = `Note: multiple files match "${parsed.fileSuffix}". Using ${file.path}. Others: ${others}`;
+                }
               }
             }
           }
@@ -233,6 +245,9 @@ export function registerReadTool(server: McpServer, db: Database.Database, proje
         const lines = [`Read ${displayPath}:${start}-${end} (${excerpt.length} line${excerpt.length === 1 ? "" : "s"})`];
         if (resolvedSymbol) {
           lines.push(`Symbol: ${resolvedSymbol.symbol.kind} ${resolvedSymbol.symbol.name} (${resolvedSymbol.symbol.startLine}-${resolvedSymbol.symbol.endLine})`);
+        }
+        if (disambiguationNote) {
+          lines.push(disambiguationNote);
         }
         if (truncatedByMaxLines) {
           lines.push(`Truncated to max_lines=${maxLines}`);

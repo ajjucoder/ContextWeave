@@ -19,16 +19,21 @@ export function registerRecallTool(server: McpServer, db: Database.Database): vo
     async ({ query, scope, include_stale, limit }: { query: string; scope?: string; include_stale?: boolean; limit?: number }) => {
       try {
         const search = new MemorySearch(db);
+        search.ensureBm25Consistent();
         const results = search.search(query, {
           scope,
           includeStale: include_stale,
-          includePassive: scope === "passive",
+          includePassive: true,
           limit: limit ?? 10,
         });
 
         if (results.length === 0) {
+          const hasAny = search.hasObservations();
+          const emptyMsg = hasAny
+            ? `No observations found for "${query}"`
+            : "No observations stored yet. Use cw_remember to store cross-session notes.";
           return {
-            content: [{ type: "text" as const, text: `No observations found for "${query}"` }],
+            content: [{ type: "text" as const, text: emptyMsg }],
           };
         }
 

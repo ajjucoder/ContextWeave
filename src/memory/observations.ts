@@ -189,6 +189,25 @@ export class ObservationStore {
     return results;
   }
 
+  rebuildBm25IfEmpty(): void {
+    const docCount = this.bm25.readDocCount();
+    if (docCount > 0) return;
+
+    const rows = this.queries.getActive();
+    if (rows.length === 0) return;
+
+    for (const obs of rows) {
+      let indexText = obs.note + " " + obs.scope;
+      if (obs.symbolId != null) {
+        const symbol = this.symbols.getById(obs.symbolId);
+        if (symbol) {
+          indexText += " " + symbol.name;
+        }
+      }
+      this.bm25.indexObservation(obs.id, indexText);
+    }
+  }
+
   searchWithScores(
     query: string,
     limit = 20

@@ -44,9 +44,20 @@ function formatObservation(obs: ObservationRecord): string {
 
 export class MemorySearch {
   private readonly store: ObservationStore;
+  private readonly db: Database.Database;
 
   constructor(db: Database.Database) {
     this.store = new ObservationStore(db);
+    this.db = db;
+  }
+
+  hasObservations(): boolean {
+    const row = this.db.prepare("SELECT COUNT(*) as count FROM observations WHERE archived = 0").get() as { count: number };
+    return row.count > 0;
+  }
+
+  ensureBm25Consistent(): void {
+    this.store.rebuildBm25IfEmpty();
   }
 
   search(query: string, options: SearchOptions = {}): ScoredObservation[] {

@@ -58,7 +58,7 @@ describe("cw_recall output grouping", () => {
     const text = result.content[0]?.text ?? "";
 
     expect(text).toContain("Intentional observations:");
-    expect(text).not.toContain("Passive observations:");
+    expect(text).toContain("Passive observations:");
     expect(text).toContain("Auth middleware validates JWT in route handlers");
   });
 
