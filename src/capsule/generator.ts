@@ -50,6 +50,8 @@ import { getFileClusterId, getClusterFileIds } from "../core/clusters.js";
 import { buildUncertainty, computeCoverageConfidence } from "./confidence.js";
 import { extractPathTerms, filePathMatchesQueryTerms, normalizeRetrievalPath } from "../utils/path-retrieval.js";
 import { contentFallbackSearch } from "./content-fallback.js";
+import { checkChainCoverage, type LayerCoverage } from "./chain-coverage.js";
+import { getRetrievalLanes, getExpectedLayers, getLaneWeightForPath } from "../core/repo-profiler.js";
 import {
   getCommonDisplayRoot,
   getLexicalScore,
@@ -338,6 +340,10 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     tokenBudget,
     Math.round(tokenBudget * classified.suggestedBudgetMultiplier)
   );
+
+  const activeLanes = (intent === "broad" || intent === "task") && params.projectRoot
+    ? getRetrievalLanes(db, params.projectRoot)
+    : [];
 
   // Phase 1: Pivot Resolution
   const pathCandidateCache = new Map<string, FileRecord>();
@@ -1064,6 +1070,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     const normalizedPath = normalizeRetrievalPath(candidate.file.path, 6);
     const sameDirAsPivot = rankingPivotDirs.has(dirname(normalizedPath));
     const directoryWeight = getDirectoryWeight(normalizedPath);
+    const laneWeight = activeLanes.length > 0 ? getLaneWeightForPath(activeLanes, candidate.file.path) : 1;
     const fileSearchBoost = candidateFileBoostById.get(candidate.file.id) ?? 1;
     const actionSignal = hasActionSignal(candidate.symbol.name, candidate.symbol.signature);
     const uiPathPenalty =
@@ -1077,6 +1084,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     const localityBoost =
       (sameFileAsPivot ? 1.35 : sameDirAsPivot ? 1.2 : 1) *
       directoryWeight *
+      laneWeight *
       uiPathPenalty *
       testFilePenalty *
       fileSearchBoost;
@@ -1335,10 +1343,44 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     return augmented;
   }
 
+  function tokenizeSymbolName(name: string): string[] {
+    return name
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+      .toLowerCase()
+      .replace(/[_\-./]/g, " ")
+      .split(/\s+/)
+      .filter(Boolean);
+  }
+
+  function computeQueryOverlap(symbolName: string): number {
+    const nameTokens = new Set(tokenizeSymbolName(symbolName));
+    const queryTermSet = new Set(pivotQueryTerms.map((t) => t.toLowerCase()));
+    let overlap = 0;
+    for (const token of nameTokens) {
+      if (queryTermSet.has(token)) overlap++;
+    }
+    return overlap;
+  }
+
+  function hasDirectEdgeToPivot(symbolId: number): boolean {
+    const callers = getDirectCallerIds.all(symbolId) as Array<{ symbolId: number }>;
+    for (const row of callers) {
+      if (pivotSymbolIds.has(row.symbolId)) return true;
+    }
+    const callees = getDirectCalleeIds.all(symbolId) as Array<{ symbolId: number }>;
+    for (const row of callees) {
+      if (pivotSymbolIds.has(row.symbolId)) return true;
+    }
+    return false;
+  }
+
   function backfillWithinSelectedFiles(selectedCandidates: RankedCandidate[]): RankedCandidate[] {
     if (intent !== "broad" || tokenBudget < 9000 || selectedCandidates.length >= 10) {
       return selectedCandidates;
     }
+
+    const applyTestFilePenalty = mode === "review" || mode === "feature";
 
     const selectedIds = new Set<number>(selectedCandidates.map((candidate) => candidate.symbol.id));
     const selectedFileIds = new Set<number>(selectedCandidates.map((candidate) => candidate.file.id));
@@ -1346,12 +1388,35 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       return selectedCandidates;
     }
 
-    const extras = ranked.filter(
+    const scoreBackfillCandidate = (
+      symbol: LightSymbolRecord,
+      lexicalScore: number,
+      filePath: string
+    ): number => {
+      const queryOverlap = computeQueryOverlap(symbol.name);
+      let score = queryOverlap * 6 + lexicalScore * 1.5 + symbol.centrality * 2 + 0.25;
+      if (applyTestFilePenalty && isTestFile(filePath)) {
+        score *= 0.3;
+      }
+      return score;
+    };
+
+    const rankedExtras = ranked.filter(
       (candidate) =>
         !selectedIds.has(candidate.symbol.id) &&
         selectedFileIds.has(candidate.file.id) &&
         candidate.distance <= 2
     );
+
+    const extras: RankedCandidate[] = [];
+    for (const candidate of rankedExtras) {
+      const queryOverlap = computeQueryOverlap(candidate.symbol.name);
+      if (queryOverlap === 0 && !hasDirectEdgeToPivot(candidate.symbol.id)) continue;
+      const filePath = candidate.file.path;
+      const score = scoreBackfillCandidate(candidate.symbol, candidate.lexicalScore, filePath);
+      extras.push({ ...candidate, score });
+    }
+
     const extraIds = new Set<number>(extras.map((candidate) => candidate.symbol.id));
 
     if (selectedCandidates.length + extras.length < 10) {
@@ -1364,6 +1429,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
           if (selectedIds.has(symbol.id) || extraIds.has(symbol.id)) {
             continue;
           }
+          const queryOverlap = computeQueryOverlap(symbol.name);
+          if (queryOverlap === 0 && !hasDirectEdgeToPivot(symbol.id)) continue;
           const lexicalScore = scorePivotRelevance(
             {
               name: symbol.name,
@@ -1373,10 +1440,11 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
             },
             pivotQueryTerms
           );
+          const score = scoreBackfillCandidate(symbol, lexicalScore, fallbackFilePath);
           extras.push({
             symbol,
             file,
-            score: lexicalScore * 1.5 + symbol.centrality * 4 + 0.25,
+            score,
             distance: 2,
             isPivot: false,
             lexicalScore,
@@ -1504,6 +1572,20 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     )
   );
   let scoredNodes = buildScoredNodes(selected);
+
+  let layerCoverages: LayerCoverage[] = [];
+  if ((intent === "broad" || intent === "task") && params.projectRoot) {
+    const lanes = getRetrievalLanes(db, params.projectRoot);
+    const expectedLayers = getExpectedLayers(db, params.projectRoot);
+    if (lanes.length > 0 && expectedLayers.length > 0) {
+      const coverageResult = checkChainCoverage(db, params.projectRoot, scoredNodes, expectedLayers, lanes);
+      layerCoverages = coverageResult.coverages;
+      if (coverageResult.fillNodes.length > 0) {
+        scoredNodes = [...scoredNodes, ...coverageResult.fillNodes];
+      }
+    }
+  }
+
   const buildClusterBySymbolId = (nodes: ScoredNode[]): Map<number, number> => {
     const map = new Map<number, number>();
     for (const node of nodes) {
@@ -1988,6 +2070,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     ...baseMetadata,
     filesIncluded: [...uniqueFiles],
     patterns: getPatternsForFiles(db, [...uniqueFiles]),
+    layerCoverages: layerCoverages.length > 0 ? layerCoverages : undefined,
     diagnostics: diagnose(baseMetadata, pivotScores, intent),
   };
 
