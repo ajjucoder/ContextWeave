@@ -109,9 +109,99 @@ function findPath(
   return path;
 }
 
+interface TracedPath {
+  steps: FlowStep[];
+  firstHop: number | null;
+}
+
 function traceOutgoing(
   db: Database.Database,
   sourceId: number,
+  maxHops: number
+): FlowStep[][] {
+  const symbols = symbolQueries(db);
+  const edges = edgeQueries(db);
+  const files = fileQueries(db);
+
+  const MAX_PATHS = 10;
+  const allPaths: TracedPath[] = [];
+  const visited = new Set<number>();
+
+  function dfs(currentId: number, path: FlowStep[], depth: number, firstHopId: number | null): void {
+    if (allPaths.length >= MAX_PATHS * 3) return;
+    if (depth > maxHops) {
+      if (path.length > 1) allPaths.push({ steps: [...path], firstHop: firstHopId });
+      return;
+    }
+
+    const outgoing = edges.getBySource(currentId);
+    if (outgoing.length === 0 && path.length > 1) {
+      allPaths.push({ steps: [...path], firstHop: firstHopId });
+      return;
+    }
+
+    for (const edge of outgoing) {
+      if (allPaths.length >= MAX_PATHS * 3) return;
+      if (visited.has(edge.targetSymbolId)) continue;
+      visited.add(edge.targetSymbolId);
+
+      const symbol = symbols.getById(edge.targetSymbolId);
+      const file = symbol ? files.getById(symbol.fileId) : undefined;
+
+      if (symbol) {
+        const weight = EDGE_WEIGHTS[edge.kind] ?? 0.5;
+        path.push({
+          name: formatSymbolDisplayName(db, symbol),
+          kind: symbol.kind,
+          file: file?.path ?? "unknown",
+          line: symbol.startLine,
+          edgeKind: edge.kind,
+          edgeWeight: weight,
+        });
+        const hop = firstHopId ?? edge.targetSymbolId;
+        dfs(edge.targetSymbolId, path, depth + 1, hop);
+        path.pop();
+      }
+
+      visited.delete(edge.targetSymbolId);
+    }
+  }
+
+  dfs(sourceId, [], 0, null);
+
+  const grouped = new Map<number | null, TracedPath[]>();
+  for (const p of allPaths) {
+    const bucket = grouped.get(p.firstHop) ?? [];
+    bucket.push(p);
+    grouped.set(p.firstHop, bucket);
+  }
+
+  const result: FlowStep[][] = [];
+  const buckets = [...grouped.values()];
+  let round = 0;
+  const perBranchLimit = 2;
+  while (result.length < MAX_PATHS) {
+    let added = false;
+    for (const bucket of buckets) {
+      const start = round * perBranchLimit;
+      const slice = bucket.slice(start, start + perBranchLimit);
+      for (const entry of slice) {
+        if (result.length >= MAX_PATHS) break;
+        result.push(entry.steps);
+        added = true;
+      }
+      if (result.length >= MAX_PATHS) break;
+    }
+    if (!added) break;
+    round++;
+  }
+
+  return result;
+}
+
+function traceIncoming(
+  db: Database.Database,
+  targetId: number,
   maxHops: number
 ): FlowStep[][] {
   const symbols = symbolQueries(db);
@@ -129,18 +219,18 @@ function traceOutgoing(
       return;
     }
 
-    const outgoing = edges.getBySource(currentId);
-    if (outgoing.length === 0 && path.length > 1) {
+    const incoming = edges.getByTarget(currentId);
+    if (incoming.length === 0 && path.length > 1) {
       paths.push([...path]);
       return;
     }
 
-    for (const edge of outgoing) {
+    for (const edge of incoming) {
       if (paths.length >= MAX_PATHS) return;
-      if (visited.has(edge.targetSymbolId)) continue;
-      visited.add(edge.targetSymbolId);
+      if (visited.has(edge.sourceSymbolId)) continue;
+      visited.add(edge.sourceSymbolId);
 
-      const symbol = symbols.getById(edge.targetSymbolId);
+      const symbol = symbols.getById(edge.sourceSymbolId);
       const file = symbol ? files.getById(symbol.fileId) : undefined;
 
       if (symbol) {
@@ -153,15 +243,15 @@ function traceOutgoing(
           edgeKind: edge.kind,
           edgeWeight: weight,
         });
-        dfs(edge.targetSymbolId, path, depth + 1);
+        dfs(edge.sourceSymbolId, path, depth + 1);
         path.pop();
       }
 
-      visited.delete(edge.targetSymbolId);
+      visited.delete(edge.sourceSymbolId);
     }
   }
 
-  dfs(sourceId, [], 0);
+  dfs(targetId, [], 0);
   return paths;
 }
 
@@ -200,7 +290,8 @@ export function buildFlowResult(
   db: Database.Database,
   source: string,
   target: string | undefined,
-  maxHops: number
+  maxHops: number,
+  direction: "outgoing" | "incoming" | "both" = "outgoing"
 ): FlowResult {
   const symbols = symbolQueries(db);
   const files = fileQueries(db);
@@ -247,6 +338,65 @@ export function buildFlowResult(
     return { text: lines.join("\n"), isLimited: false };
   }
 
+  if (direction === "incoming") {
+    const paths = traceIncoming(db, sourceId, maxHops);
+    if (paths.length === 0) {
+      const sym = symbols.getById(sourceId);
+      const file = sym ? files.getById(sym.fileId) : undefined;
+      const location = file && sym ? `${file.path}:${sym.startLine}` : "unknown";
+      const text = [
+        `No incoming flows found for "${source}" (flows_limited: true).`,
+        `Symbol location: ${location}`,
+        `Reason: no symbols call or reference this symbol within the indexed codebase.`,
+        `Recommendation: use cw_read to inspect "${source}" directly.`,
+      ].join("\n");
+      return { text, isLimited: true };
+    }
+    const lines = [`Incoming flows to "${source}" (max ${maxHops} hops):\n`];
+    for (let p = 0; p < paths.length; p++) {
+      const path = paths[p]!;
+      lines.push(`\nPath ${p + 1}:`);
+      for (const step of path) {
+        lines.push(`  [${step.edgeKind}] ← ${step.kind} ${step.name} (${step.file}:${step.line})`);
+      }
+    }
+    return { text: lines.join("\n"), isLimited: false };
+  }
+
+  if (direction === "both") {
+    const outPaths = traceOutgoing(db, sourceId, maxHops);
+    const inPaths = traceIncoming(db, sourceId, maxHops);
+    const lines: string[] = [];
+
+    if (outPaths.length > 0) {
+      lines.push(`Outgoing flows from "${source}" (max ${maxHops} hops):\n`);
+      for (let p = 0; p < outPaths.length; p++) {
+        const path = outPaths[p]!;
+        lines.push(`\nPath ${p + 1}:`);
+        for (const step of path) {
+          lines.push(`  [${step.edgeKind}] → ${step.kind} ${step.name} (${step.file}:${step.line})`);
+        }
+      }
+    } else {
+      lines.push(`No outgoing flows from "${source}".`);
+    }
+
+    if (inPaths.length > 0) {
+      lines.push(`\nIncoming flows to "${source}" (max ${maxHops} hops):\n`);
+      for (let p = 0; p < inPaths.length; p++) {
+        const path = inPaths[p]!;
+        lines.push(`\nPath ${p + 1}:`);
+        for (const step of path) {
+          lines.push(`  [${step.edgeKind}] ← ${step.kind} ${step.name} (${step.file}:${step.line})`);
+        }
+      }
+    } else {
+      lines.push(`No incoming flows to "${source}".`);
+    }
+
+    return { text: lines.join("\n"), isLimited: false };
+  }
+
   const paths = traceOutgoing(db, sourceId, maxHops);
   if (paths.length === 0) {
     const sym = symbols.getById(sourceId);
@@ -279,16 +429,30 @@ export function registerFlowTool(server: McpServer, db: Database.Database): void
     source: z.string().describe("Source symbol name"),
     target: z.string().optional().describe("Target symbol name (omit to trace all outgoing flows)"),
     max_hops: z.number().min(1).max(20).optional().describe("Maximum path length (default: 5)"),
+    direction: z
+      .enum(["outgoing", "incoming", "both"])
+      .optional()
+      .describe("Flow direction: outgoing (default), incoming (find callers), or both"),
   };
 
   registerTool(
     "cw_flow",
     "Trace call flow between symbols or from a symbol outward. Shows how data/control flows through the codebase.",
     inputSchema,
-    async ({ source, target, max_hops }: { source: string; target?: string; max_hops?: number }) => {
+    async ({
+      source,
+      target,
+      max_hops,
+      direction,
+    }: {
+      source: string;
+      target?: string;
+      max_hops?: number;
+      direction?: "outgoing" | "incoming" | "both";
+    }) => {
       try {
         const maxHops = max_hops ?? 5;
-        const result = buildFlowResult(db, source, target, maxHops);
+        const result = buildFlowResult(db, source, target, maxHops, direction ?? "outgoing");
         return { content: [{ type: "text" as const, text: result.text }] };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
