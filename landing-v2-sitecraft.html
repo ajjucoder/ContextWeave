@@ -1,0 +1,1265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ContextWeave — The Context Engine That Makes AI Agents Actually Understand Your Code</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=IBM+Plex+Sans:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+
+:root {
+  --bg: #06060a;
+  --surface: #0c0c14;
+  --surface-2: #12121e;
+  --border: rgba(255,255,255,.06);
+  --border-hover: rgba(255,255,255,.12);
+  --text: #e8e8ed;
+  --text-secondary: #8b8b96;
+  --text-muted: #55555f;
+  --accent: #00e87b;
+  --accent-dim: #00c468;
+  --accent-glow: rgba(0,232,123,.12);
+  --accent-glow-strong: rgba(0,232,123,.25);
+  --gradient-1: #00e87b;
+  --gradient-2: #00b4d8;
+  --gradient-3: #7b61ff;
+}
+
+html { scroll-behavior: smooth }
+
+body {
+  font-family: 'IBM Plex Sans', -apple-system, sans-serif;
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-size: 16px;
+  line-height: 1.6;
+  overflow-x: hidden;
+}
+
+h1,h2,h3,h4,.display { font-family: 'Syne', sans-serif }
+.mono { font-family: 'JetBrains Mono', monospace }
+a { color: inherit; text-decoration: none }
+
+.container { max-width: 1200px; margin: 0 auto; padding: 0 24px }
+@media(min-width:768px) { .container { padding: 0 40px } }
+@media(min-width:1200px) { .container { padding: 0 48px } }
+
+/* GRID BACKGROUND */
+.grid-bg {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background-image:
+    linear-gradient(rgba(255,255,255,.02) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,.02) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 30%, transparent 100%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, black 30%, transparent 100%);
+}
+
+/* GRAIN OVERLAY */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  opacity: .03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
+/* AURORA */
+.aurora {
+  position: absolute;
+  top: -40%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 140%;
+  height: 800px;
+  pointer-events: none;
+  z-index: 0;
+  opacity: .5;
+  background:
+    radial-gradient(ellipse 50% 40% at 30% 40%, rgba(0,232,123,.12), transparent),
+    radial-gradient(ellipse 40% 50% at 70% 30%, rgba(0,180,216,.08), transparent),
+    radial-gradient(ellipse 35% 35% at 50% 50%, rgba(123,97,255,.06), transparent);
+  filter: blur(80px);
+  animation: aurora-drift 12s ease-in-out infinite alternate;
+}
+@keyframes aurora-drift {
+  0% { transform: translateX(-50%) translateY(0) scale(1) }
+  100% { transform: translateX(-48%) translateY(-20px) scale(1.05) }
+}
+
+/* ANIMATIONS */
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(28px) }
+  to { opacity: 1; transform: translateY(0) }
+}
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 20px var(--accent-glow), 0 0 60px rgba(0,232,123,.05) }
+  50% { box-shadow: 0 0 30px var(--accent-glow-strong), 0 0 80px rgba(0,232,123,.08) }
+}
+@keyframes blink {
+  0%, 50% { opacity: 1 }
+  51%, 100% { opacity: 0 }
+}
+@keyframes shimmer {
+  0% { background-position: -200% 0 }
+  100% { background-position: 200% 0 }
+}
+
+.fade-up { opacity: 0; transform: translateY(28px) }
+.fade-up.visible { animation: fade-up .7s cubic-bezier(.16,1,.3,1) forwards }
+.fade-up.d1.visible { animation-delay: .1s }
+.fade-up.d2.visible { animation-delay: .2s }
+.fade-up.d3.visible { animation-delay: .3s }
+.fade-up.d4.visible { animation-delay: .4s }
+.fade-up.d5.visible { animation-delay: .5s }
+.fade-up.d6.visible { animation-delay: .6s }
+
+@media(prefers-reduced-motion: reduce) {
+  .fade-up { opacity: 1; transform: none }
+  .fade-up.visible { animation: none }
+  .aurora { animation: none }
+  * { animation-duration: 0.01ms !important }
+}
+
+/* NAV */
+.nav {
+  position: fixed;
+  top: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  width: calc(100% - 32px);
+  max-width: 900px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: rgba(6,6,10,.75);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: all .3s ease;
+}
+.nav.scrolled {
+  background: rgba(6,6,10,.92);
+  border-color: var(--border-hover);
+  box-shadow: 0 8px 32px rgba(0,0,0,.4);
+}
+.nav-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 52px;
+  padding: 0 20px;
+}
+.nav-logo {
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: -.02em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.nav-logo-dot {
+  width: 8px;
+  height: 8px;
+  background: var(--accent);
+  border-radius: 50%;
+  box-shadow: 0 0 8px var(--accent-glow-strong);
+}
+.nav-links { display: none; gap: 32px; align-items: center }
+@media(min-width:768px) { .nav-links { display: flex } }
+.nav-links a {
+  font-size: .8rem;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: color .2s;
+  cursor: pointer;
+}
+.nav-links a:hover { color: var(--text) }
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: .8rem;
+  font-weight: 600;
+  padding: 10px 22px;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+  transition: all .2s ease;
+  white-space: nowrap;
+}
+.btn-accent {
+  background: var(--accent);
+  color: #000;
+  box-shadow: 0 0 20px var(--accent-glow);
+}
+.btn-accent:hover {
+  background: #00ff88;
+  box-shadow: 0 0 30px var(--accent-glow-strong), 0 4px 16px rgba(0,232,123,.2);
+  transform: translateY(-1px);
+}
+.btn-ghost {
+  background: rgba(255,255,255,.04);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+.btn-ghost:hover {
+  background: rgba(255,255,255,.08);
+  border-color: var(--border-hover);
+}
+.nav-cta { display: none }
+@media(min-width:768px) { .nav-cta { display: inline-flex } }
+.mobile-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: transparent;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 1.1rem;
+}
+@media(min-width:768px) { .mobile-toggle { display: none } }
+.mobile-menu {
+  display: none;
+  position: fixed;
+  top: 80px;
+  left: 16px;
+  right: 16px;
+  background: rgba(12,12,20,.96);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  z-index: 99;
+}
+.mobile-menu.open { display: flex; flex-direction: column; gap: 4px }
+.mobile-menu a {
+  font-size: .9rem;
+  font-weight: 500;
+  padding: 14px 16px;
+  border-radius: 10px;
+  color: var(--text-secondary);
+  transition: all .15s;
+  cursor: pointer;
+}
+.mobile-menu a:hover { background: rgba(255,255,255,.04); color: var(--text) }
+
+/* BADGE */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .7rem;
+  font-weight: 500;
+  letter-spacing: .04em;
+  color: var(--accent);
+  background: var(--accent-glow);
+  border: 1px solid rgba(0,232,123,.15);
+  border-radius: 100px;
+  padding: 6px 16px;
+}
+.badge-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--accent);
+  border-radius: 50%;
+  animation: blink 1.4s infinite;
+}
+
+/* HERO */
+.hero {
+  position: relative;
+  padding: 160px 0 100px;
+  overflow: hidden;
+}
+@media(min-width:768px) { .hero { padding: 180px 0 120px } }
+.hero-content { position: relative; z-index: 1; max-width: 800px }
+.hero h1 {
+  font-size: clamp(2.6rem, 7vw, 5rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -.04em;
+  margin: 24px 0;
+}
+.hero h1 .gradient-text {
+  background: linear-gradient(135deg, var(--gradient-1), var(--gradient-2), var(--gradient-3));
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmer 6s ease infinite;
+}
+.hero-sub {
+  font-size: clamp(1rem, 1.8vw, 1.2rem);
+  line-height: 1.7;
+  color: var(--text-secondary);
+  max-width: 560px;
+  margin-bottom: 40px;
+  font-weight: 300;
+}
+.hero-buttons { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 56px }
+
+/* PROOF BAR */
+.proof-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 40px;
+  padding-top: 16px;
+}
+.proof-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.proof-num {
+  font-family: 'Syne', sans-serif;
+  font-size: 1.8rem;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1;
+}
+.proof-label {
+  font-size: .75rem;
+  color: var(--text-muted);
+  font-weight: 500;
+  max-width: 90px;
+  line-height: 1.35;
+}
+
+/* TERMINAL */
+.terminal-wrapper {
+  position: relative;
+  margin-top: 72px;
+  max-width: 780px;
+}
+.terminal {
+  position: relative;
+  border: 1px solid var(--border-hover);
+  border-radius: 14px;
+  overflow: hidden;
+  background: var(--surface);
+  animation: glow-pulse 4s ease-in-out infinite;
+}
+.terminal-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+  background: rgba(255,255,255,.02);
+}
+.terminal-dots { display: flex; gap: 6px }
+.terminal-dots span {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: rgba(255,255,255,.08);
+  border: 1px solid rgba(255,255,255,.06);
+}
+.terminal-dots span:first-child { background: rgba(255,80,80,.6) }
+.terminal-dots span:nth-child(2) { background: rgba(255,200,40,.6) }
+.terminal-dots span:nth-child(3) { background: rgba(0,232,123,.6) }
+.terminal-title {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .7rem;
+  color: var(--text-muted);
+  margin-left: 8px;
+}
+.terminal-body {
+  padding: 24px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .78rem;
+  line-height: 1.9;
+  overflow-x: auto;
+  min-height: 280px;
+}
+.t-prompt { color: var(--accent) }
+.t-cmd { color: var(--text) }
+.t-str { color: #f0c674 }
+.t-dim { color: var(--text-muted) }
+.t-hl { color: var(--accent) }
+.t-white { color: #fff }
+.t-file { color: var(--text-secondary) }
+
+/* SECTION */
+.section { padding: 100px 0; position: relative }
+@media(min-width:1024px) { .section { padding: 140px 0 } }
+.section-center { text-align: center }
+.section-center .section-sub { margin-left: auto; margin-right: auto }
+.section-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .7rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: .12em;
+  color: var(--accent);
+  margin-bottom: 16px;
+}
+.section-title {
+  font-family: 'Syne', sans-serif;
+  font-size: clamp(1.8rem, 4.5vw, 3rem);
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -.03em;
+  margin-bottom: 18px;
+}
+.section-title .dim { color: var(--text-muted) }
+.section-sub {
+  font-size: 1.05rem;
+  line-height: 1.7;
+  color: var(--text-secondary);
+  max-width: 540px;
+  margin-bottom: 64px;
+  font-weight: 300;
+}
+
+/* DIVIDER */
+.divider {
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--border-hover) 20%, var(--border-hover) 80%, transparent);
+  border: none;
+  margin: 0;
+}
+
+/* HOW IT WORKS - STEPS */
+.steps-grid {
+  display: grid;
+  gap: 24px;
+}
+@media(min-width:768px) { .steps-grid { grid-template-columns: repeat(3, 1fr) } }
+.step-card {
+  padding: 36px 28px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  transition: all .3s ease;
+  position: relative;
+  overflow: hidden;
+  cursor: default;
+}
+.step-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, var(--accent-glow-strong), transparent);
+  opacity: 0;
+  transition: opacity .3s;
+}
+.step-card:hover {
+  border-color: var(--border-hover);
+  background: var(--surface-2);
+  transform: translateY(-2px);
+}
+.step-card:hover::before { opacity: 1 }
+.step-num {
+  font-family: 'Syne', sans-serif;
+  font-size: .75rem;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 20px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.step-num::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.step-title {
+  font-family: 'Syne', sans-serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 10px;
+  letter-spacing: -.01em;
+}
+.step-desc {
+  color: var(--text-secondary);
+  font-size: .9rem;
+  line-height: 1.65;
+  font-weight: 300;
+}
+
+/* INTEGRATIONS */
+.integrations-section {
+  padding: 100px 0;
+  position: relative;
+  overflow: hidden;
+}
+@media(min-width:1024px) { .integrations-section { padding: 140px 0 } }
+.integrations-section::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, var(--surface) 0%, var(--bg) 100%);
+  z-index: 0;
+}
+.integrations-section > * { position: relative; z-index: 1 }
+.integrations-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+}
+@media(min-width:768px) { .integrations-grid { grid-template-columns: repeat(4, 1fr) } }
+.integration-card {
+  padding: 32px 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(255,255,255,.015);
+  text-align: center;
+  transition: all .3s ease;
+  cursor: default;
+}
+.integration-card:hover {
+  border-color: var(--border-hover);
+  background: rgba(255,255,255,.03);
+  transform: translateY(-2px);
+}
+.integration-icon {
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 16px;
+  border-radius: 12px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: 'Syne', sans-serif;
+  font-weight: 700;
+  font-size: 1.1rem;
+  color: var(--text);
+}
+.integration-card h3 {
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: .95rem;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.integration-card p {
+  font-size: .78rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* BENTO FEATURES */
+.bento-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: 1fr;
+}
+@media(min-width:768px) {
+  .bento-grid {
+    grid-template-columns: repeat(3, 1fr);
+    grid-template-rows: auto auto;
+  }
+  .bento-card.wide { grid-column: span 2 }
+}
+.bento-card {
+  padding: 36px 28px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  transition: all .3s ease;
+  position: relative;
+  overflow: hidden;
+  cursor: default;
+}
+.bento-card:hover {
+  border-color: var(--border-hover);
+  transform: translateY(-2px);
+}
+.bento-card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(circle at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(0,232,123,.04), transparent 60%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .3s;
+}
+.bento-card:hover::after { opacity: 1 }
+.bento-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 20px;
+  background: var(--accent-glow);
+  border: 1px solid rgba(0,232,123,.12);
+}
+.bento-icon svg {
+  width: 20px;
+  height: 20px;
+  stroke: var(--accent);
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.bento-card h3 {
+  font-family: 'Syne', sans-serif;
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+  letter-spacing: -.01em;
+}
+.bento-card p {
+  color: var(--text-secondary);
+  font-size: .88rem;
+  line-height: 1.65;
+  font-weight: 300;
+}
+
+/* COMPARE */
+.compare-wrapper {
+  display: grid;
+  gap: 0;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+@media(min-width:768px) { .compare-wrapper { grid-template-columns: 1fr 1fr } }
+.compare-col { padding: 40px 32px }
+.compare-col h3 {
+  font-family: 'Syne', sans-serif;
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin-bottom: 24px;
+  letter-spacing: -.01em;
+}
+.compare-col.old {
+  background: var(--surface);
+}
+.compare-col.new {
+  background: linear-gradient(135deg, rgba(0,232,123,.06), rgba(0,180,216,.03));
+  border-left: 1px solid var(--border);
+}
+@media(max-width:767px) {
+  .compare-col.new { border-left: none; border-top: 1px solid var(--border) }
+}
+.compare-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: .88rem;
+  line-height: 1.55;
+}
+.compare-item:last-child { border-bottom: none }
+.compare-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+  font-size: .7rem;
+}
+.compare-icon.bad {
+  background: rgba(255,80,80,.12);
+  color: #ff5050;
+}
+.compare-icon.good {
+  background: var(--accent-glow);
+  color: var(--accent);
+}
+.compare-col.old .compare-item { color: var(--text-secondary) }
+
+/* STATS */
+.stats-bar {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+  background: var(--surface);
+}
+@media(min-width:768px) { .stats-bar { grid-template-columns: repeat(4, 1fr) } }
+.stat-item {
+  padding: 40px 24px;
+  text-align: center;
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+@media(min-width:768px) { .stat-item { border-bottom: none } }
+.stat-item:last-child { border-right: none }
+@media(max-width:767px) {
+  .stat-item:nth-child(2n) { border-right: none }
+  .stat-item:nth-child(n+3) { border-bottom: none }
+}
+.stat-num {
+  font-family: 'Syne', sans-serif;
+  font-size: clamp(2rem, 4vw, 2.8rem);
+  font-weight: 800;
+  line-height: 1;
+  margin-bottom: 8px;
+  background: linear-gradient(135deg, var(--text), var(--accent));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.stat-label {
+  font-size: .75rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* PRICING */
+.pricing-card {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 48px 40px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: var(--surface);
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+.pricing-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--gradient-1), var(--gradient-2), var(--gradient-3));
+}
+.pricing-card h3 {
+  font-family: 'Syne', sans-serif;
+  font-size: 1.4rem;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+.pricing-coming {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: .7rem;
+  text-transform: uppercase;
+  letter-spacing: .1em;
+  color: var(--accent);
+  margin-bottom: 20px;
+}
+.pricing-card > p {
+  color: var(--text-secondary);
+  line-height: 1.7;
+  margin-bottom: 32px;
+  font-size: .95rem;
+  font-weight: 300;
+}
+
+/* CTA */
+.cta-section {
+  padding: 120px 0;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+.cta-section::before {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 120%;
+  height: 500px;
+  pointer-events: none;
+  background: radial-gradient(ellipse 50% 60% at 50% 100%, var(--accent-glow), transparent);
+  opacity: .3;
+}
+.cta-title {
+  font-family: 'Syne', sans-serif;
+  font-size: clamp(2rem, 5vw, 3.4rem);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -.03em;
+  margin-bottom: 20px;
+  max-width: 650px;
+  margin-left: auto;
+  margin-right: auto;
+  position: relative;
+  z-index: 1;
+}
+.cta-sub {
+  color: var(--text-secondary);
+  font-size: 1.05rem;
+  margin-bottom: 40px;
+  position: relative;
+  z-index: 1;
+  font-weight: 300;
+}
+.cta-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-width: 460px;
+  margin: 0 auto;
+  position: relative;
+  z-index: 1;
+}
+@media(min-width:640px) { .cta-form { flex-direction: row; gap: 8px } }
+.cta-input {
+  flex: 1;
+  padding: 14px 18px;
+  border: 1px solid var(--border-hover);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--text);
+  font-family: 'IBM Plex Sans', sans-serif;
+  font-size: .9rem;
+  outline: none;
+  transition: all .2s;
+}
+.cta-input::placeholder { color: var(--text-muted) }
+.cta-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+.cta-small {
+  font-size: .75rem;
+  color: var(--text-muted);
+  margin-top: 16px;
+  position: relative;
+  z-index: 1;
+}
+
+/* FOOTER */
+footer {
+  border-top: 1px solid var(--border);
+  padding: 24px 0;
+}
+.footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+.footer-copy {
+  font-size: .78rem;
+  color: var(--text-muted);
+}
+.footer-links { display: flex; gap: 24px }
+.footer-links a {
+  font-size: .78rem;
+  color: var(--text-muted);
+  transition: color .2s;
+  cursor: pointer;
+}
+.footer-links a:hover { color: var(--text) }
+
+/* TRUST */
+.trust-section {
+  padding: 60px 0;
+  text-align: center;
+}
+.trust-label {
+  font-size: .75rem;
+  color: var(--text-muted);
+  margin-bottom: 32px;
+  font-weight: 500;
+}
+.trust-logos {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 48px;
+  align-items: center;
+  opacity: .35;
+}
+.trust-logos span {
+  font-family: 'Syne', sans-serif;
+  font-size: .9rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+}
+</style>
+</head>
+<body>
+
+<div class="grid-bg"></div>
+
+<!-- NAV -->
+<nav class="nav" id="nav">
+<div class="nav-inner">
+  <a href="#" class="nav-logo"><span class="nav-logo-dot"></span>ContextWeave</a>
+  <div class="nav-links">
+    <a href="#how-it-works">How It Works</a>
+    <a href="#features">Features</a>
+    <a href="#compare">Why Us</a>
+    <a href="#pricing">Pricing</a>
+  </div>
+  <a href="#cta" class="btn btn-accent nav-cta" style="padding:8px 18px;font-size:.75rem">Get Early Access</a>
+  <button class="mobile-toggle" onclick="document.getElementById('mob').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+</div>
+</nav>
+<div id="mob" class="mobile-menu">
+  <a href="#how-it-works" onclick="document.getElementById('mob').classList.remove('open')">How It Works</a>
+  <a href="#features" onclick="document.getElementById('mob').classList.remove('open')">Features</a>
+  <a href="#compare" onclick="document.getElementById('mob').classList.remove('open')">Why Us</a>
+  <a href="#pricing" onclick="document.getElementById('mob').classList.remove('open')">Pricing</a>
+  <a href="#cta" class="btn btn-accent" style="text-align:center;margin-top:8px;width:100%;justify-content:center" onclick="document.getElementById('mob').classList.remove('open')">Get Early Access</a>
+</div>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="aurora"></div>
+  <div class="container">
+    <div class="hero-content">
+      <div class="badge fade-up"><span class="badge-dot"></span>MCP-Native Context Engine</div>
+      <h1 class="fade-up d1">Stop Feeding Your AI Agent <span class="gradient-text">Blind Guesses</span></h1>
+      <p class="hero-sub fade-up d2">ContextWeave maps your entire codebase into an AST dependency graph and delivers exactly the right code to your agent &mdash; ranked, compressed, and token-budgeted. No cloud. No latency. No wasted context.</p>
+      <div class="hero-buttons fade-up d3">
+        <a href="#cta" class="btn btn-accent">Start Building Smarter &rarr;</a>
+        <a href="#how-it-works" class="btn btn-ghost">See the Pipeline</a>
+      </div>
+
+      <div class="proof-bar fade-up d4">
+        <div class="proof-item">
+          <div class="proof-num">12</div>
+          <div class="proof-label">Languages supported</div>
+        </div>
+        <div class="proof-item">
+          <div class="proof-num">&lt;5s</div>
+          <div class="proof-label">Capsule generation</div>
+        </div>
+        <div class="proof-item">
+          <div class="proof-num">10M+</div>
+          <div class="proof-label">Lines stress-tested</div>
+        </div>
+        <div class="proof-item">
+          <div class="proof-num">0</div>
+          <div class="proof-label">Bytes sent to cloud</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="terminal-wrapper fade-up d5">
+      <div class="terminal">
+        <div class="terminal-bar">
+          <div class="terminal-dots"><span></span><span></span><span></span></div>
+          <span class="terminal-title">contextweave &mdash; capsule query</span>
+        </div>
+        <div class="terminal-body">
+<div><span class="t-prompt">$</span> <span class="t-cmd">cw_capsule</span>({ query: <span class="t-str">"UserService auth flow"</span>, budget: <span class="t-hl">4000</span> })</div>
+<br>
+<div class="t-dim">// Resolving pivot &rarr; BFS expansion &rarr; BM25 + PageRank scoring</div>
+<br>
+<div class="t-dim">&mdash;&mdash;&mdash; Context Capsule &mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;</div>
+<div>Pivot: <span class="t-white">UserService.authenticate()</span></div>
+<br>
+<div><span class="t-hl">*</span> <span class="t-file">src/auth/UserService.ts:42</span></div>
+<div>&nbsp;&nbsp;<span class="t-white">authenticate</span>(credentials: AuthCredentials)</div>
+<div>&nbsp;&nbsp;<span class="t-dim">&rarr;</span> validatePassword() <span class="t-dim">&rarr;</span> generateToken()</div>
+<br>
+<div><span class="t-hl">*</span> <span class="t-file">src/auth/TokenManager.ts:18</span></div>
+<div>&nbsp;&nbsp;<span class="t-white">generateToken</span>(user: User): JWT</div>
+<div>&nbsp;&nbsp;<span class="t-dim">&rarr;</span> signPayload() <span class="t-dim">&rarr;</span> setExpiry()</div>
+<br>
+<div><span class="t-hl">*</span> <span class="t-file">src/middleware/authGuard.ts:7</span></div>
+<div>&nbsp;&nbsp;<span class="t-white">verifyRequest</span>(req: Request)</div>
+<div>&nbsp;&nbsp;<span class="t-dim">&rarr;</span> extractToken() <span class="t-dim">&rarr;</span> validateClaims()</div>
+<br>
+<div class="t-dim">Symbols: 12 | Files: 3 | Tokens: <span class="t-hl">1,847</span>/4,000</div>
+<div class="t-dim">&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;&mdash;</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- TRUSTED BY -->
+<section class="trust-section">
+  <div class="container">
+    <div class="trust-label fade-up">Built for teams shipping with AI agents</div>
+    <div class="trust-logos fade-up d1">
+      <span>Claude Code</span>
+      <span>Cursor</span>
+      <span>Windsurf</span>
+      <span>Codex</span>
+      <span>Any MCP Client</span>
+    </div>
+  </div>
+</section>
+
+<hr class="divider">
+
+<!-- HOW IT WORKS -->
+<section id="how-it-works" class="section">
+<div class="container">
+  <div class="section-label fade-up">How It Works</div>
+  <h2 class="section-title fade-up d1">From codebase to perfect context. <span class="dim">Three steps.</span></h2>
+  <p class="section-sub fade-up d2">Your agent asks a question. ContextWeave delivers the exact code it needs &mdash; nothing more, nothing less.</p>
+  <div class="steps-grid">
+    <div class="step-card fade-up d1">
+      <div class="step-num">01</div>
+      <h3 class="step-title">Parse & Map</h3>
+      <p class="step-desc">Tree-sitter parses every file into an AST dependency graph. Functions, classes, imports, call chains &mdash; all mapped across 12 languages in seconds.</p>
+    </div>
+    <div class="step-card fade-up d2">
+      <div class="step-num">02</div>
+      <h3 class="step-title">Rank & Score</h3>
+      <p class="step-desc">Natural language query hits the 7-phase pipeline. BM25 for relevance. PageRank for structural importance. Three-layer fuzzy matching catches what exact search misses.</p>
+    </div>
+    <div class="step-card fade-up d3">
+      <div class="step-num">03</div>
+      <h3 class="step-title">Pack & Deliver</h3>
+      <p class="step-desc">Results compressed into a token-budgeted capsule. Your agent gets exactly the code it needs, with full dependency context, within your token limit.</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<hr class="divider">
+
+<!-- INTEGRATIONS -->
+<section class="integrations-section">
+<div class="container">
+  <div class="section-label fade-up">Integrations</div>
+  <h2 class="section-title fade-up d1">Plugs into your stack <span class="dim">in 60 seconds</span></h2>
+  <p class="section-sub fade-up d2">ContextWeave speaks MCP. If your agent does too, you're already compatible.</p>
+  <div class="integrations-grid">
+    <div class="integration-card fade-up d1">
+      <div class="integration-icon">C</div>
+      <h3>Claude Code</h3>
+      <p>Native MCP. Auto-indexes on connect.</p>
+    </div>
+    <div class="integration-card fade-up d2">
+      <div class="integration-icon">Cu</div>
+      <h3>Cursor</h3>
+      <p>Drop-in server. Full AST in your IDE.</p>
+    </div>
+    <div class="integration-card fade-up d3">
+      <div class="integration-icon">W</div>
+      <h3>Windsurf</h3>
+      <p>Seamless MCP protocol support.</p>
+    </div>
+    <div class="integration-card fade-up d4">
+      <div class="integration-icon">+</div>
+      <h3>Any MCP Client</h3>
+      <p>Standard protocol. Universal support.</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<hr class="divider">
+
+<!-- FEATURES BENTO -->
+<section id="features" class="section">
+<div class="container">
+  <div class="section-label fade-up">Capabilities</div>
+  <h2 class="section-title fade-up d1">Everything your agent needs to understand code. <span class="dim">Not just find it.</span></h2>
+  <p class="section-sub fade-up d2">Most tools give your agent text matches. ContextWeave gives it comprehension.</p>
+  <div class="bento-grid">
+    <div class="bento-card wide fade-up d1">
+      <div class="bento-icon">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2v4m0 12v4M2 12h4m12 0h4m-3.5-6.5L16 8m-8 8l-2.5 2.5M20.5 17.5L18 16M6 8L3.5 5.5"/></svg>
+      </div>
+      <h3>AST Dependency Graph</h3>
+      <p>Tree-sitter powered structural analysis across your entire codebase. Understands function calls, class hierarchies, imports, and symbol relationships &mdash; not just text patterns. This is what makes ContextWeave fundamentally different from grep-based context.</p>
+    </div>
+    <div class="bento-card fade-up d2">
+      <div class="bento-icon">
+        <svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18"/></svg>
+      </div>
+      <h3>Token-Budgeted Capsules</h3>
+      <p>Request 2K or 20K tokens. The pipeline delivers exactly what fits, ranked by structural relevance and importance.</p>
+    </div>
+    <div class="bento-card fade-up d3">
+      <div class="bento-icon">
+        <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10"/><path d="M12 6v6l4 2"/></svg>
+      </div>
+      <h3>Cross-Session Memory</h3>
+      <p>Architectural decisions, conventions, and past insights persist across sessions. Context that compounds over time.</p>
+    </div>
+    <div class="bento-card fade-up d4">
+      <div class="bento-icon">
+        <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      </div>
+      <h3>100% Local & Private</h3>
+      <p>SQLite + tree-sitter on your machine. No cloud, no telemetry, no API keys. Your code never leaves.</p>
+    </div>
+    <div class="bento-card fade-up d5">
+      <div class="bento-icon">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+      </div>
+      <h3>Intelligent Search</h3>
+      <p>BM25 + PageRank with three-layer fuzzy fallback: Porter stemming, trigram matching, Levenshtein correction. Finds what grep can't.</p>
+    </div>
+    <div class="bento-card wide fade-up d6">
+      <div class="bento-icon">
+        <svg viewBox="0 0 24 24"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      </div>
+      <h3>Engineered for Monorepo Scale</h3>
+      <p>PageRank across 1M symbols in 556ms. Context capsules for 10M-line codebases in under 20 seconds. CSR compact adjacency, cached prepared statements, streaming iterators, and chunked transactions. We didn't just build for scale &mdash; we stress-tested it.</p>
+    </div>
+  </div>
+</div>
+</section>
+
+<hr class="divider">
+
+<!-- STATS BAR -->
+<section class="section" style="padding:80px 0">
+<div class="container">
+  <div class="stats-bar">
+    <div class="stat-item fade-up d1">
+      <div class="stat-num">12</div>
+      <div class="stat-label">Languages</div>
+    </div>
+    <div class="stat-item fade-up d2">
+      <div class="stat-num">556ms</div>
+      <div class="stat-label">PageRank @ 1M symbols</div>
+    </div>
+    <div class="stat-item fade-up d3">
+      <div class="stat-num">&lt;5s</div>
+      <div class="stat-label">Capsule generation</div>
+    </div>
+    <div class="stat-item fade-up d4">
+      <div class="stat-num">10M+</div>
+      <div class="stat-label">Lines stress-tested</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<hr class="divider">
+
+<!-- COMPARE -->
+<section id="compare" class="section">
+<div class="container">
+  <div class="section-label fade-up">The Difference</div>
+  <h2 class="section-title fade-up d1">Your agent is flying blind. <span class="dim">We fix that.</span></h2>
+  <p class="section-sub fade-up d2">Most AI coding tools use grep to find context. They return text matches, not understanding. Here's what changes.</p>
+  <div class="compare-wrapper fade-up d3">
+    <div class="compare-col old">
+      <h3>Without ContextWeave</h3>
+      <div class="compare-item"><span class="compare-icon bad">&times;</span>Grep returns text, misses call chains and dependencies</div>
+      <div class="compare-item"><span class="compare-icon bad">&times;</span>Context window stuffed with irrelevant code</div>
+      <div class="compare-item"><span class="compare-icon bad">&times;</span>Agent forgets everything between sessions</div>
+      <div class="compare-item"><span class="compare-icon bad">&times;</span>Requires cloud API &mdash; your code leaves your machine</div>
+      <div class="compare-item"><span class="compare-icon bad">&times;</span>Chokes on large monorepos and complex architectures</div>
+    </div>
+    <div class="compare-col new">
+      <h3>With ContextWeave</h3>
+      <div class="compare-item"><span class="compare-icon good">&#10003;</span>AST graph traces every call, import, and relationship</div>
+      <div class="compare-item"><span class="compare-icon good">&#10003;</span>Token-budgeted capsules &mdash; only relevant, ranked code</div>
+      <div class="compare-item"><span class="compare-icon good">&#10003;</span>Cross-session memory compounds architectural insight</div>
+      <div class="compare-item"><span class="compare-icon good">&#10003;</span>100% local &mdash; SQLite + tree-sitter, zero network calls</div>
+      <div class="compare-item"><span class="compare-icon good">&#10003;</span>Stress-tested on 10M+ line codebases, 1M+ symbols</div>
+    </div>
+  </div>
+</div>
+</section>
+
+<hr class="divider">
+
+<!-- PRICING -->
+<section id="pricing" class="section section-center">
+<div class="container">
+  <div class="section-label fade-up">Pricing</div>
+  <h2 class="section-title fade-up d1" style="text-align:center">Early access is open. <span class="dim">Lock in founder pricing.</span></h2>
+  <div class="pricing-card fade-up d2">
+    <h3>Founder Access</h3>
+    <div class="pricing-coming">Limited spots available</div>
+    <p>ContextWeave is in active development. Join now to shape the product, get priority support, and lock in pricing that won't exist at GA.</p>
+    <a href="#cta" class="btn btn-accent">Claim Your Spot &rarr;</a>
+  </div>
+</div>
+</section>
+
+<hr class="divider">
+
+<!-- CTA -->
+<section id="cta" class="cta-section">
+<div class="container">
+  <h2 class="cta-title fade-up">Your Agent Deserves to <span class="gradient-text">Understand</span> Your Code</h2>
+  <p class="cta-sub fade-up d1">Join the waitlist. Be first to ship with real code comprehension.</p>
+  <form class="cta-form fade-up d2" onsubmit="event.preventDefault();this.querySelector('button').textContent='You\'re In';this.querySelector('button').style.pointerEvents='none'">
+    <input type="email" class="cta-input" placeholder="you@company.com" required aria-label="Email address">
+    <button type="submit" class="btn btn-accent">Join Waitlist</button>
+  </form>
+  <p class="cta-small fade-up d3">No spam. Launch updates and early access only.</p>
+</div>
+</section>
+
+<footer>
+<div class="container footer-inner">
+  <span class="footer-copy">&copy; 2026 ContextWeave</span>
+  <div class="footer-links">
+    <a href="https://github.com/ajjucoder/ContextWeave">GitHub</a>
+    <a href="#">Docs</a>
+  </div>
+</div>
+</footer>
+
+<script>
+const obs = new IntersectionObserver((entries) => {
+  entries.forEach(e => {
+    if (e.isIntersecting) {
+      e.target.classList.add('visible');
+      obs.unobserve(e.target);
+    }
+  });
+}, { threshold: 0.08, rootMargin: '-20px' });
+document.querySelectorAll('.fade-up').forEach(el => obs.observe(el));
+
+const nav = document.getElementById('nav');
+let ticking = false;
+window.addEventListener('scroll', () => {
+  if (!ticking) {
+    window.requestAnimationFrame(() => {
+      nav.classList.toggle('scrolled', window.scrollY > 40);
+      ticking = false;
+    });
+    ticking = true;
+  }
+}, { passive: true });
+
+document.querySelectorAll('.bento-card').forEach(card => {
+  card.addEventListener('mousemove', (e) => {
+    const rect = card.getBoundingClientRect();
+    const x = ((e.clientX - rect.left) / rect.width) * 100;
+    const y = ((e.clientY - rect.top) / rect.height) * 100;
+    card.style.setProperty('--mouse-x', x + '%');
+    card.style.setProperty('--mouse-y', y + '%');
+  });
+});
+</script>
+</body>
+</html>

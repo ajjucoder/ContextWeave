@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ContextWeave — Context Engine for Coding Agents</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400;1,600&family=Source+Serif+4:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#fff;--fg:#000;--muted:#f5f5f5;--muted-fg:#525252;--border:#e5e5e5}
+html{scroll-behavior:smooth}
+body{font-family:'Source Serif 4',Georgia,serif;color:var(--fg);background:var(--bg);-webkit-font-smoothing:antialiased;font-size:16px}
+h1,h2,h3,h4,.display{font-family:'Playfair Display',Georgia,serif}
+.mono{font-family:'JetBrains Mono',monospace}
+a{color:inherit;text-decoration:none}
+.container{max-width:1080px;margin:0 auto;padding:0 24px}
+@media(min-width:768px){.container{padding:0 32px}}
+@media(min-width:1024px){.container{padding:0 48px}}
+
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;opacity:.018;background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+
+@keyframes fadeUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+.fade-up{opacity:0;transform:translateY(20px)}
+.fade-up.visible{animation:fadeUp .5s cubic-bezier(.16,1,.3,1) forwards}
+
+.nav{position:fixed;top:0;left:0;right:0;z-index:100;border-bottom:1px solid var(--border);background:rgba(255,255,255,.95);backdrop-filter:blur(8px)}
+.nav-inner{display:flex;align-items:center;justify-content:space-between;height:56px}
+.nav-logo{font-family:'Playfair Display',serif;font-weight:600;font-size:1.1rem;letter-spacing:-.01em}
+.nav-links{display:none;gap:28px;align-items:center}
+@media(min-width:768px){.nav-links{display:flex}}
+.nav-links a{font-family:'JetBrains Mono',monospace;font-size:.7rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted-fg);transition:color .1s}
+.nav-links a:hover{color:var(--fg)}
+.btn{display:inline-flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;font-size:.75rem;text-transform:uppercase;letter-spacing:.08em;font-weight:500;padding:11px 24px;border:1.5px solid var(--fg);cursor:pointer;transition:background .1s,color .1s}
+.btn-primary{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.btn-primary:hover{background:var(--bg);color:var(--fg)}
+.btn-outline{background:transparent;color:var(--fg)}
+.btn-outline:hover{background:var(--fg);color:var(--bg)}
+.nav-cta{display:none}
+@media(min-width:768px){.nav-cta{display:inline-flex}}
+.mobile-toggle{display:flex;align-items:center;justify-content:center;width:44px;height:44px;border:1px solid var(--border);background:transparent;cursor:pointer;font-size:1.1rem}
+@media(min-width:768px){.mobile-toggle{display:none}}
+.mobile-menu{display:none;position:fixed;top:56px;left:0;right:0;background:var(--bg);border-bottom:1.5px solid var(--fg);padding:24px;z-index:99}
+.mobile-menu.open{display:flex;flex-direction:column;gap:16px}
+.mobile-menu a{font-family:'JetBrains Mono',monospace;font-size:.8rem;text-transform:uppercase;letter-spacing:.08em;padding:12px 0;border-bottom:1px solid var(--border)}
+
+.thick-rule{height:2px;background:var(--fg);border:none;margin:0}
+.thin-rule{height:1px;background:var(--border);border:none;margin:0}
+
+/* HERO */
+.hero{padding:120px 0 80px;position:relative;overflow:hidden}
+.hero::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:.012;background-image:repeating-linear-gradient(0deg,transparent,transparent 1px,#000 1px,#000 2px);background-size:100% 4px}
+.hero-label{font-family:'JetBrains Mono',monospace;font-size:.65rem;text-transform:uppercase;letter-spacing:.15em;color:var(--muted-fg);margin-bottom:20px}
+.hero h1{font-size:clamp(2.4rem,6vw,5.5rem);font-weight:600;line-height:1;letter-spacing:-.035em;margin-bottom:24px}
+.hero h1 .muted{color:#999}
+.hero-sub{font-size:clamp(.95rem,1.5vw,1.1rem);line-height:1.75;color:var(--muted-fg);max-width:580px;margin-bottom:36px}
+.hero-buttons{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:28px}
+.hero-props{display:flex;flex-wrap:wrap;gap:24px;margin-bottom:48px}
+.hero-prop{display:flex;align-items:center;gap:10px;padding:10px 0}
+.hero-prop-num{font-family:'Playfair Display',serif;font-size:1.5rem;font-weight:600;line-height:1}
+.hero-prop-text{font-family:'JetBrains Mono',monospace;font-size:.65rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted-fg);max-width:80px;line-height:1.4}
+.hero-prop-divider{width:1px;height:32px;background:var(--border);margin:0 8px}
+
+/* TERMINAL MOCKUP */
+.terminal{max-width:760px;border:1.5px solid var(--fg);margin-top:8px}
+.terminal-bar{display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--fg);padding:10px 16px;font-family:'JetBrains Mono',monospace;font-size:.65rem;text-transform:uppercase;letter-spacing:.08em;color:var(--muted-fg)}
+.terminal-dots{display:flex;gap:5px}
+.terminal-dots span{width:8px;height:8px;border:1px solid var(--muted-fg)}
+.terminal-body{background:var(--fg);color:var(--border);padding:20px 24px;font-family:'JetBrains Mono',monospace;font-size:.75rem;line-height:1.8;overflow-x:auto}
+.terminal-body .w{color:#fff}
+.terminal-body .g{color:#666}
+.terminal-body .a{color:#aaa}
+
+.hero-deco{display:flex;align-items:center;gap:0;margin-top:40px}
+.hero-deco-line{height:2px;background:var(--fg);flex:1}
+.hero-deco-box{width:10px;height:10px;border:1.5px solid var(--fg)}
+
+/* SECTIONS */
+.section{padding:80px 0}
+@media(min-width:1024px){.section{padding:100px 0}}
+.section-label{font-family:'JetBrains Mono',monospace;font-size:.65rem;text-transform:uppercase;letter-spacing:.15em;color:var(--muted-fg);margin-bottom:12px}
+.section-title{font-size:clamp(1.6rem,4vw,2.5rem);font-weight:600;line-height:1.1;letter-spacing:-.025em;margin-bottom:16px}
+.section-title .muted{color:#999}
+.section-subtitle{font-size:1rem;line-height:1.7;color:var(--muted-fg);max-width:520px;margin-bottom:56px}
+
+/* STEPS */
+.steps-grid{display:grid;gap:40px}
+@media(min-width:768px){.steps-grid{grid-template-columns:repeat(3,1fr);gap:32px}}
+.step-num{font-family:'Playfair Display',serif;font-size:3rem;font-weight:400;color:var(--border);line-height:1;margin-bottom:12px}
+.step-title{font-family:'Playfair Display',serif;font-size:1.2rem;font-weight:600;margin-bottom:10px}
+.step-desc{color:var(--muted-fg);line-height:1.7;font-size:.9rem}
+
+/* INVERTED SECTION */
+.section-inv{background:var(--fg);color:var(--bg);padding:80px 0;position:relative;overflow:hidden}
+@media(min-width:1024px){.section-inv{padding:100px 0}}
+.section-inv::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:.025;background-image:repeating-linear-gradient(90deg,transparent,transparent 1px,#fff 1px,#fff 2px);background-size:4px 100%}
+.section-inv .section-subtitle{color:rgba(255,255,255,.45)}
+.connect-grid{display:grid;gap:0;border:1px solid rgba(255,255,255,.15)}
+@media(min-width:768px){.connect-grid{grid-template-columns:repeat(2,1fr)}}
+@media(min-width:1024px){.connect-grid{grid-template-columns:repeat(4,1fr)}}
+.connect-card{padding:28px 24px;border:1px solid rgba(255,255,255,.08);transition:background .1s}
+.connect-card:hover{background:rgba(255,255,255,.06)}
+.connect-card h3{font-family:'Playfair Display',serif;font-size:1.05rem;font-weight:600;margin-bottom:6px}
+.connect-card p{color:rgba(255,255,255,.4);font-size:.85rem;line-height:1.6}
+
+/* FEATURES */
+.features-grid{display:grid;gap:0;border:1.5px solid var(--fg)}
+@media(min-width:768px){.features-grid{grid-template-columns:repeat(2,1fr)}}
+@media(min-width:1024px){.features-grid{grid-template-columns:repeat(3,1fr)}}
+.feature-card{padding:32px 24px;border:1px solid var(--border);transition:background .1s,color .1s}
+.feature-card:hover{background:var(--fg);color:var(--bg)}
+.feature-card h3{font-family:'Playfair Display',serif;font-size:1.05rem;font-weight:600;margin-bottom:6px}
+.feature-card p{color:var(--muted-fg);font-size:.85rem;line-height:1.6}
+.feature-card:hover p{color:rgba(255,255,255,.55)}
+.feature-icon{font-family:'JetBrains Mono',monospace;font-size:.65rem;text-transform:uppercase;letter-spacing:.1em;color:var(--muted-fg);margin-bottom:14px}
+.feature-card:hover .feature-icon{color:rgba(255,255,255,.4)}
+
+/* COMPARE */
+.compare{display:grid;gap:0;border:1.5px solid var(--fg)}
+@media(min-width:768px){.compare{grid-template-columns:1fr 1fr}}
+.compare-col{padding:32px}
+.compare-col h3{font-family:'Playfair Display',serif;font-size:1.2rem;font-weight:600;margin-bottom:20px}
+.compare-col.dark{background:var(--fg);color:var(--bg)}
+.compare-item{display:flex;align-items:flex-start;gap:10px;padding:10px 0;border-bottom:1px solid var(--border);font-size:.875rem;line-height:1.5}
+.compare-col.dark .compare-item{border-color:rgba(255,255,255,.12)}
+.compare-x{font-family:'JetBrains Mono',monospace;font-size:.8rem;color:#999;flex-shrink:0;width:18px}
+.compare-check{font-family:'JetBrains Mono',monospace;font-size:.8rem;flex-shrink:0;width:18px}
+
+/* STATS */
+.stats-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:0}
+@media(min-width:768px){.stats-grid{grid-template-columns:repeat(4,1fr)}}
+.stat{padding:36px 20px;border:1px solid rgba(255,255,255,.08);text-align:center}
+.stat-num{font-family:'Playfair Display',serif;font-size:clamp(2rem,4vw,3.2rem);font-weight:600;line-height:1;margin-bottom:6px}
+.stat-label{font-family:'JetBrains Mono',monospace;font-size:.6rem;text-transform:uppercase;letter-spacing:.12em;color:rgba(255,255,255,.35)}
+
+/* PRICING */
+.pricing-card{max-width:520px;margin:0 auto;border:1.5px solid var(--fg);padding:40px;text-align:center}
+.pricing-card h3{font-family:'Playfair Display',serif;font-size:1.3rem;font-weight:600;margin-bottom:6px}
+.pricing-card .coming{font-family:'JetBrains Mono',monospace;font-size:.65rem;text-transform:uppercase;letter-spacing:.12em;color:var(--muted-fg);margin-bottom:20px}
+.pricing-card p{color:var(--muted-fg);line-height:1.7;margin-bottom:28px;font-size:.9rem}
+
+/* CTA */
+.cta-section{padding:100px 0;text-align:center;position:relative;overflow:hidden}
+.cta-section::before{content:'';position:absolute;inset:0;pointer-events:none;opacity:.025;background:radial-gradient(circle at 50% 30%,var(--fg),transparent 70%)}
+.cta-title{font-size:clamp(1.8rem,4vw,3rem);font-weight:600;line-height:1.1;letter-spacing:-.025em;margin-bottom:36px;max-width:600px;margin-left:auto;margin-right:auto}
+.cta-form{display:flex;flex-direction:column;gap:12px;max-width:440px;margin:0 auto 12px}
+@media(min-width:640px){.cta-form{flex-direction:row;gap:0}}
+.cta-input{flex:1;padding:12px 0;border:none;border-bottom:1.5px solid var(--fg);background:transparent;font-family:'Source Serif 4',serif;font-size:.95rem;outline:none}
+.cta-input::placeholder{color:var(--muted-fg);font-style:italic}
+.cta-input:focus{border-bottom-width:3px}
+.cta-small{font-family:'JetBrains Mono',monospace;font-size:.65rem;color:var(--muted-fg);text-transform:uppercase;letter-spacing:.08em;margin-top:12px}
+
+footer{border-top:1px solid var(--fg);padding:20px 0}
+.footer-inner{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:16px}
+.footer-copy{font-family:'JetBrains Mono',monospace;font-size:.7rem;color:var(--muted-fg)}
+.footer-links{display:flex;gap:20px}
+.footer-links a{font-family:'JetBrains Mono',monospace;font-size:.7rem;color:var(--muted-fg);text-transform:uppercase;letter-spacing:.08em;transition:color .1s}
+.footer-links a:hover{color:var(--fg)}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+<div class="container nav-inner">
+<a href="#" class="nav-logo">ContextWeave</a>
+<div class="nav-links">
+<a href="#how-it-works">How It Works</a>
+<a href="#features">Features</a>
+<a href="#why">Why ContextWeave</a>
+<a href="#pricing">Pricing</a>
+</div>
+<a href="#cta" class="btn btn-primary nav-cta" style="padding:8px 20px;font-size:.65rem">Get Early Access</a>
+<button class="mobile-toggle" onclick="document.getElementById('mob').classList.toggle('open')" aria-label="Menu">&#9776;</button>
+</div>
+</nav>
+<div id="mob" class="mobile-menu">
+<a href="#how-it-works" onclick="document.getElementById('mob').classList.remove('open')">How It Works</a>
+<a href="#features" onclick="document.getElementById('mob').classList.remove('open')">Features</a>
+<a href="#why" onclick="document.getElementById('mob').classList.remove('open')">Why ContextWeave</a>
+<a href="#pricing" onclick="document.getElementById('mob').classList.remove('open')">Pricing</a>
+<a href="#cta" class="btn btn-primary" style="text-align:center;margin-top:8px" onclick="document.getElementById('mob').classList.remove('open')">Get Early Access</a>
+</div>
+
+<!-- HERO -->
+<section class="hero">
+<div class="container">
+<div class="hero-label mono">MCP-Native Context Engine</div>
+<h1 class="fade-up">Your Agent Deserves<br><span class="muted">Better Context</span></h1>
+<p class="hero-sub fade-up">ContextWeave builds an AST dependency graph of your entire codebase and delivers token-budgeted context capsules. Local-first. No cloud. Lightning fast.</p>
+<div class="hero-buttons fade-up">
+<a href="#cta" class="btn btn-primary">Get Early Access &rarr;</a>
+<a href="#how-it-works" class="btn btn-outline">See How It Works</a>
+</div>
+
+<div class="hero-props fade-up">
+<div class="hero-prop">
+<div class="hero-prop-num">12</div>
+<div class="hero-prop-text">Languages Supported</div>
+</div>
+<div class="hero-prop-divider"></div>
+<div class="hero-prop">
+<div class="hero-prop-num">&lt; 5s</div>
+<div class="hero-prop-text">Capsule Generation</div>
+</div>
+<div class="hero-prop-divider"></div>
+<div class="hero-prop">
+<div class="hero-prop-num">100%</div>
+<div class="hero-prop-text">Local &amp; Private</div>
+</div>
+</div>
+
+<div class="terminal fade-up">
+<div class="terminal-bar">
+<div class="terminal-dots"><span></span><span></span><span></span></div>
+<span style="margin-left:8px">ContextWeave MCP</span>
+</div>
+<div class="terminal-body">
+<div><span class="g">$</span> <span class="w">cw_capsule</span>({ query: <span class="a">"UserService auth flow"</span>, budget: 4000 })</div>
+<br>
+<div class="g">--- Context Capsule ---------------------</div>
+<div>Pivot: <span class="w">UserService.authenticate()</span></div>
+<br>
+<div><span class="a">*</span> <span class="g">src/auth/UserService.ts:42</span></div>
+<div>&nbsp;&nbsp;<span class="w">authenticate</span>(credentials: AuthCredentials)</div>
+<div>&nbsp;&nbsp;<span class="g">-></span> validatePassword() <span class="g">-></span> generateToken()</div>
+<br>
+<div><span class="a">*</span> <span class="g">src/auth/TokenManager.ts:18</span></div>
+<div>&nbsp;&nbsp;<span class="w">generateToken</span>(user: User): JWT</div>
+<div>&nbsp;&nbsp;<span class="g">-></span> signPayload() <span class="g">-></span> setExpiry()</div>
+<br>
+<div><span class="a">*</span> <span class="g">src/middleware/authGuard.ts:7</span></div>
+<div>&nbsp;&nbsp;<span class="w">verifyRequest</span>(req: Request)</div>
+<div>&nbsp;&nbsp;<span class="g">-></span> extractToken() <span class="g">-></span> validateClaims()</div>
+<br>
+<div class="g">Symbols: 12 | Files: 3 | Tokens: <span class="w">1,847</span>/4,000</div>
+<div class="g">-----------------------------------------</div>
+</div>
+</div>
+
+<div class="hero-deco fade-up">
+<div class="hero-deco-line"></div>
+<div class="hero-deco-box"></div>
+</div>
+</div>
+</section>
+
+<hr class="thick-rule">
+
+<!-- HOW IT WORKS -->
+<section id="how-it-works" class="section">
+<div class="container">
+<div class="section-label mono">Process</div>
+<h2 class="section-title fade-up">From codebase to perfect context.<br><span class="muted">In milliseconds.</span></h2>
+<p class="section-subtitle fade-up">Three steps from raw code to token-budgeted context for any coding agent.</p>
+<div class="steps-grid">
+<div class="fade-up">
+<div class="step-num">01</div>
+<h3 class="step-title">Index</h3>
+<p class="step-desc">Tree-sitter parses your code into an AST dependency graph. Every symbol, every call, every import &mdash; mapped across 12 languages.</p>
+</div>
+<div class="fade-up">
+<div class="step-num">02</div>
+<h3 class="step-title">Query</h3>
+<p class="step-desc">Ask with natural language. The 7-phase pipeline resolves symbols, scores via BM25 + PageRank, and compresses to your token budget.</p>
+</div>
+<div class="fade-up">
+<div class="step-num">03</div>
+<h3 class="step-title">Deliver</h3>
+<p class="step-desc">Your agent receives exactly the code it needs. No noise, no waste, no missing dependencies.</p>
+</div>
+</div>
+</div>
+</section>
+
+<hr class="thick-rule">
+
+<!-- CONNECT -->
+<section class="section-inv">
+<div class="container">
+<div class="section-label mono" style="color:rgba(255,255,255,.35)">Integrations</div>
+<h2 class="section-title fade-up">Plug Into Any Coding Agent</h2>
+<p class="section-subtitle fade-up">ContextWeave runs as an MCP server. Connect it to Claude Code, Cursor, Windsurf, or any MCP-compatible agent in minutes.</p>
+<div class="connect-grid">
+<div class="connect-card fade-up"><h3>Claude Code</h3><p>Native MCP integration. Auto-indexes on first connect.</p></div>
+<div class="connect-card fade-up"><h3>Cursor</h3><p>Drop-in MCP server. Full AST context in your IDE.</p></div>
+<div class="connect-card fade-up"><h3>Windsurf</h3><p>MCP protocol support. Seamless context delivery.</p></div>
+<div class="connect-card fade-up"><h3>Any MCP Client</h3><p>Standard protocol. Works with any compatible agent.</p></div>
+</div>
+</div>
+</section>
+
+<hr class="thick-rule">
+
+<!-- FEATURES -->
+<section id="features" class="section">
+<div class="container">
+<div class="section-label mono">Capabilities</div>
+<h2 class="section-title fade-up">Everything your agent needs.<br><span class="muted">Nothing it doesn't.</span></h2>
+<p class="section-subtitle fade-up">Every feature exists to give your agent better context, faster.</p>
+<div class="features-grid">
+<div class="feature-card fade-up"><div class="feature-icon">Graph</div><h3>AST Dependency Graph</h3><p>Tree-sitter powered. Understands structure, not just text. Maps every symbol relationship across your codebase.</p></div>
+<div class="feature-card fade-up"><div class="feature-icon">Capsule</div><h3>Token-Budgeted Capsules</h3><p>Request 2,000 or 20,000 tokens. The 7-phase pipeline delivers exactly what fits, ranked by relevance.</p></div>
+<div class="feature-card fade-up"><div class="feature-icon">Memory</div><h3>Cross-Session Memory</h3><p>Remember architectural decisions, past queries, and conventions. Context that persists and improves.</p></div>
+<div class="feature-card fade-up"><div class="feature-icon">Private</div><h3>100% Local &amp; Private</h3><p>Your code never leaves your machine. No cloud, no telemetry, no API keys. Just SQLite and tree-sitter.</p></div>
+<div class="feature-card fade-up"><div class="feature-icon">Search</div><h3>BM25 + PageRank Search</h3><p>Three-layer fuzzy search: Porter stemming, trigram matching, Levenshtein correction. Finds what grep can't.</p></div>
+<div class="feature-card fade-up"><div class="feature-icon">Speed</div><h3>Sub-Second Performance</h3><p>PageRank on 1M symbols in 556ms. Capsules for 10M-line codebases in under 20 seconds.</p></div>
+</div>
+</div>
+</section>
+
+<hr class="thick-rule">
+
+<!-- WHY -->
+<section id="why" class="section">
+<div class="container">
+<div class="section-label mono">Comparison</div>
+<h2 class="section-title fade-up">Why ContextWeave</h2>
+<p class="section-subtitle fade-up">Most AI agents use grep to find context. They don't know what they don't know.</p>
+<div class="compare fade-up">
+<div class="compare-col">
+<h3>Without ContextWeave</h3>
+<div class="compare-item"><span class="compare-x">&times;</span>Grep finds text, misses relationships</div>
+<div class="compare-item"><span class="compare-x">&times;</span>Tokens wasted on irrelevant context</div>
+<div class="compare-item"><span class="compare-x">&times;</span>Agent forgets between sessions</div>
+<div class="compare-item"><span class="compare-x">&times;</span>Cloud dependency, privacy risk</div>
+<div class="compare-item"><span class="compare-x">&times;</span>Breaks on large monorepos</div>
+</div>
+<div class="compare-col dark">
+<h3>With ContextWeave</h3>
+<div class="compare-item"><span class="compare-check">&#10003;</span>AST graph understands code structure</div>
+<div class="compare-item"><span class="compare-check">&#10003;</span>Token-budgeted, ranked by relevance</div>
+<div class="compare-item"><span class="compare-check">&#10003;</span>Cross-session memory persists insights</div>
+<div class="compare-item"><span class="compare-check">&#10003;</span>100% local, code never leaves</div>
+<div class="compare-item"><span class="compare-check">&#10003;</span>Tested on 10M+ line codebases</div>
+</div>
+</div>
+</div>
+</section>
+
+<hr class="thick-rule">
+
+<!-- STATS -->
+<section class="section-inv" style="padding:64px 0">
+<div class="container">
+<div class="stats-grid">
+<div class="stat fade-up"><div class="stat-num">12</div><div class="stat-label">Languages</div></div>
+<div class="stat fade-up"><div class="stat-num">556ms</div><div class="stat-label">PageRank @ 1M Symbols</div></div>
+<div class="stat fade-up"><div class="stat-num">&lt; 5s</div><div class="stat-label">Capsule Generation</div></div>
+<div class="stat fade-up"><div class="stat-num">10M+</div><div class="stat-label">Lines Tested</div></div>
+</div>
+</div>
+</section>
+
+<hr class="thick-rule">
+
+<!-- PRICING -->
+<section id="pricing" class="section">
+<div class="container" style="text-align:center">
+<div class="section-label mono">Pricing</div>
+<h2 class="section-title fade-up" style="text-align:center">Pricing<br><span class="muted">Coming soon.</span></h2>
+<div class="pricing-card fade-up">
+<h3>Early Access</h3>
+<div class="coming">Founder pricing at launch</div>
+<p>ContextWeave is in active development. Join the early access list to get notified at launch and lock in founder pricing.</p>
+<a href="#cta" class="btn btn-primary">Get Early Access &rarr;</a>
+</div>
+</div>
+</section>
+
+<hr class="thick-rule">
+
+<!-- CTA -->
+<section id="cta" class="cta-section">
+<div class="container">
+<h2 class="cta-title display fade-up">Give Your Agent The Context It Deserves</h2>
+<form class="cta-form fade-up" onsubmit="event.preventDefault();alert('Thanks! We\'ll be in touch.')">
+<input type="email" class="cta-input" placeholder="you@company.com" required>
+<button type="submit" class="btn btn-primary" style="white-space:nowrap">Join Waitlist</button>
+</form>
+<p class="cta-small fade-up">No spam. Just launch updates and early access.</p>
+</div>
+</section>
+
+<footer>
+<div class="container footer-inner">
+<span class="footer-copy">&copy; 2026 ContextWeave</span>
+<div class="footer-links">
+<a href="https://github.com/ajjucoder/ContextWeave">GitHub</a>
+<a href="#">Documentation</a>
+</div>
+</div>
+</footer>
+
+<script>
+const obs=new IntersectionObserver((entries)=>{
+entries.forEach(e=>{if(e.isIntersecting){e.target.classList.add('visible');obs.unobserve(e.target)}})
+},{threshold:0.1,rootMargin:'-40px'})
+document.querySelectorAll('.fade-up').forEach(el=>obs.observe(el))
+</script>
+</body>
+</html>
