@@ -81,3 +81,14 @@ export const callExpressions = `
 (macro_invocation
   macro: (identifier) @callee) @call
 `;
+
+export const decoratorQueries = `
+(attribute_item
+  (attribute
+    (identifier) @decorator_name)) @decorator
+
+(attribute_item
+  (attribute
+    (scoped_identifier
+      name: (identifier) @decorator_name))) @decorator
+`;

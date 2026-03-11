@@ -18,7 +18,17 @@ interface ScoredObservation {
   score: number;
 }
 
+export interface AutoPopulateInput {
+  query: string;
+  confidence: number;
+  filesIncluded: string[];
+  symbolsIncluded: string[];
+}
+
 const PASSIVE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** Minimum confidence for a capsule result to auto-seed an observation. */
+const AUTO_POPULATE_CONFIDENCE_THRESHOLD = 0.70;
 
 const SCOPE_WEIGHTS: Record<string, number> = {
   architecture: 3.0,
@@ -45,6 +55,18 @@ function formatObservation(obs: ObservationRecord): string {
   return parts.join(" ");
 }
 
+/**
+ * Return true when query has >3 words with no camelCase or snake_case — i.e.
+ * a natural-language broad query that benefits from synonym expansion + OR logic.
+ */
+function isBroadNaturalQuery(query: string): boolean {
+  const words = query.trim().split(/\s+/);
+  if (words.length <= 3) return false;
+  const hasCamelCase = /[a-z][A-Z]/.test(query);
+  const hasSnakeCase = /[a-z]_[a-z]/.test(query);
+  return !hasCamelCase && !hasSnakeCase;
+}
+
 export class MemorySearch {
   private readonly store: ObservationStore;
   private readonly db: Database.Database;
@@ -63,12 +85,46 @@ export class MemorySearch {
     this.store.rebuildBm25IfEmpty();
   }
 
-  private isBroadQuery(query: string): boolean {
-    const words = query.trim().split(/\s+/);
-    if (words.length <= 3) return false;
-    const hasCamelCase = /[a-z][A-Z]/.test(query);
-    const hasSnakeCase = /[a-z]_[a-z]/.test(query);
-    return !hasCamelCase && !hasSnakeCase;
+  /**
+   * Auto-populate a passive observation from a high-confidence capsule result.
+   * Only fires when capsuleConfidence >= AUTO_POPULATE_CONFIDENCE_THRESHOLD.
+   * Skips if an identical note already exists (dedup by note text).
+   */
+  autoPopulateFromCapsule(input: AutoPopulateInput): void {
+    if (input.confidence < AUTO_POPULATE_CONFIDENCE_THRESHOLD) return;
+
+    const fileList = input.filesIncluded.slice(0, 5).join(", ");
+    if (!fileList) return;
+
+    const note = `capsule for "${input.query}" included: ${fileList}`;
+
+    const existing = this.db
+      .prepare("SELECT id FROM observations WHERE note = ? AND archived = 0 LIMIT 1")
+      .get(note);
+    if (existing) return;
+
+    // Observations require a valid session_id FK. Use the most recent session,
+    // or skip if none exists (e.g. during early init).
+    const sessionRow = this.db
+      .prepare("SELECT id FROM sessions ORDER BY started_at DESC LIMIT 1")
+      .get() as { id: string } | undefined;
+    if (!sessionRow) return;
+
+    const now = Date.now();
+    observationQueries(this.db).insert({
+      sessionId: sessionRow.id,
+      agentId: "capsule-auto",
+      symbolId: null,
+      fileId: null,
+      scope: "passive",
+      note,
+      confidence: Math.min(input.confidence, 0.6),
+      createdAt: now,
+      updatedAt: now,
+      stale: false,
+      staleReason: null,
+      archived: false,
+    });
   }
 
   private buildExpandedQuery(query: string): string {
@@ -114,33 +170,71 @@ export class MemorySearch {
     return scored.slice(0, limit);
   }
 
+  /**
+   * For broad natural-language queries: run multiple synonym-expanded sub-queries
+   * and merge with OR logic (union of all result sets, deduplicated).
+   */
+  private broadOrSearch(query: string, limit: number): Array<{ observation: ObservationRecord; bm25Score: number }> {
+    const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+
+    // Run the full expanded query first
+    const expandedTerms = expandQueryWithSynonyms(terms);
+    const expandedQuery = expandedTerms.join(" ");
+
+    const results = this.store.searchWithScores(expandedQuery, limit * 3);
+
+    // Also run each original term individually to maximise OR coverage
+    const seen = new Map<number, { observation: ObservationRecord; bm25Score: number }>();
+    for (const r of results) {
+      seen.set(r.observation.id, r);
+    }
+
+    for (const term of terms) {
+      if (term.length < 4) continue;
+      const termResults = this.store.searchWithScores(term, limit);
+      for (const r of termResults) {
+        if (!seen.has(r.observation.id)) {
+          seen.set(r.observation.id, r);
+        }
+      }
+    }
+
+    return [...seen.values()];
+  }
+
   search(query: string, options: SearchOptions = {}): ScoredObservation[] {
     const { scope, includeStale = false, includePassive = true, limit = 20 } = options;
 
-    const expandedQuery = this.buildExpandedQuery(query);
-    const isBroad = this.isBroadQuery(query);
-    const searchQuery = isBroad ? expandedQuery : query;
+    const isBroad = isBroadNaturalQuery(query);
 
-    const rawResults = this.store.searchWithScores(searchQuery, limit * 3);
+    let rawResults: Array<{ observation: ObservationRecord; bm25Score: number }>;
 
-    const supplemental =
-      isBroad && expandedQuery !== query.toLowerCase()
-        ? this.store.searchWithScores(query, limit * 2)
-        : [];
+    if (isBroad) {
+      rawResults = this.broadOrSearch(query, limit);
+    } else {
+      const expandedQuery = this.buildExpandedQuery(query);
+      rawResults = this.store.searchWithScores(expandedQuery, limit * 3);
 
-    const merged = new Map<number, { observation: ObservationRecord; bm25Score: number }>();
-    for (const item of rawResults) {
-      merged.set(item.observation.id, item);
-    }
-    for (const item of supplemental) {
-      if (!merged.has(item.observation.id)) {
+      const supplemental =
+        expandedQuery !== query.toLowerCase()
+          ? this.store.searchWithScores(query, limit * 2)
+          : [];
+
+      const merged = new Map<number, { observation: ObservationRecord; bm25Score: number }>();
+      for (const item of rawResults) {
         merged.set(item.observation.id, item);
       }
+      for (const item of supplemental) {
+        if (!merged.has(item.observation.id)) {
+          merged.set(item.observation.id, item);
+        }
+      }
+      rawResults = [...merged.values()];
     }
 
     const scored: ScoredObservation[] = [];
 
-    for (const { observation: obs, bm25Score } of merged.values()) {
+    for (const { observation: obs, bm25Score } of rawResults) {
       if (!includeStale && obs.stale) continue;
       if (isExpiredPassive(obs)) continue;
       if (scope !== undefined && obs.scope !== scope) continue;

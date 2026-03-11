@@ -76,3 +76,17 @@ export const callExpressions = `
   function: (attribute
     attribute: (identifier) @callee)) @call
 `;
+
+export const decoratorQueries = `
+(decorator
+  (identifier) @decorator_name) @decorator
+
+(decorator
+  (call
+    function: (identifier) @decorator_name)) @decorator
+
+(decorator
+  (call
+    function: (attribute
+      attribute: (identifier) @decorator_name))) @decorator
+`;

@@ -14,6 +14,7 @@ import {
   FOLLOW_UP_METRICS_SAMPLE_LIMIT,
   formatRatePct,
 } from "./stats.js";
+import { createLspBridge, formatLspStatus } from "../../core/lsp-bridge.js";
 
 export function registerStatusTool(server: McpServer, db: Database.Database, projectRoot: string): void {
   const registerTool = getRegisterTool(server);
@@ -41,6 +42,7 @@ export function registerStatusTool(server: McpServer, db: Database.Database, pro
         const followUpMetrics = computeFollowUpMetrics(rateSample);
 
         const allFiles = files.getAll();
+        const lspBridge = createLspBridge(projectRoot);
         const lines = [
           `ContextWeave Index Status`,
           `Project: ${projectRoot}`,
@@ -51,6 +53,8 @@ export function registerStatusTool(server: McpServer, db: Database.Database, pro
           `Observations: ${observationCount} (${staleCount} stale)`,
           `First-pass rate: ${formatRatePct(followUpMetrics.firstPassRate)} (${followUpMetrics.sampleSize} capsules)`,
           `Correction rate: ${formatRatePct(followUpMetrics.correctionRate)} (${followUpMetrics.sampleSize} capsules)`,
+          ``,
+          ...formatLspStatus(lspBridge),
         ];
         const profile = buildProjectProfile(projectRoot, allFiles);
         lines.push("", ...formatProjectProfile(profile));

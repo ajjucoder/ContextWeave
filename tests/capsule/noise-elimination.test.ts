@@ -101,3 +101,38 @@ describe("noise elimination in backfillWithinSelectedFiles", () => {
     expect(result.metadata.quality.noiseRatio).toBeLessThan(0.5);
   });
 });
+
+describe("pre-pack symbol relevance gate (filterCandidatesBySymbolRelevance)", () => {
+  it("narrow query keeps direct pivot dependencies even without query overlap", () => {
+    const result = generateCapsule(db, {
+      query: "generateCapsule",
+      tokenBudget: 4000,
+      mode: "feature",
+    });
+    expect(result.metadata.symbolCount).toBeGreaterThan(1);
+    expect(result.content).toContain("generateCapsule");
+  });
+
+  it("does not apply relevance gate for broad queries", () => {
+    const broad = generateCapsule(db, {
+      query: "capsule generation pipeline symbols indexer candidates",
+      tokenBudget: 8000,
+      mode: "feature",
+    });
+    const narrow = generateCapsule(db, {
+      query: "capsule generation pipeline symbols indexer candidates",
+      tokenBudget: 8000,
+      mode: "feature",
+    });
+    expect(broad.metadata.symbolCount).toBeGreaterThanOrEqual(narrow.metadata.symbolCount);
+  });
+
+  it("noise ratio does not increase after pre-pack gate is applied", () => {
+    const result = generateCapsule(db, {
+      query: "generateCapsule pivot scoring ranked candidates",
+      tokenBudget: 6000,
+      mode: "feature",
+    });
+    expect(result.metadata.quality.noiseRatio).toBeLessThan(0.7);
+  });
+});

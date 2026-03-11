@@ -25,8 +25,10 @@ CREATE TABLE IF NOT EXISTS symbols (
   full_source TEXT    NOT NULL,
   is_exported INTEGER NOT NULL DEFAULT 0,
   doc_comment TEXT,
-  centrality  REAL    NOT NULL DEFAULT 0.0,
-  last_seen   INTEGER NOT NULL
+  centrality        REAL    NOT NULL DEFAULT 0.0,
+  last_seen         INTEGER NOT NULL,
+  parent_symbol_id  INTEGER REFERENCES symbols(id),
+  qualified_name    TEXT
 );
 
 CREATE TABLE IF NOT EXISTS edges (
@@ -226,6 +228,8 @@ CREATE INDEX IF NOT EXISTS idx_observations_session ON observations(session_id);
 CREATE INDEX IF NOT EXISTS idx_observations_scope ON observations(scope, archived);
 CREATE INDEX IF NOT EXISTS idx_chunks_file ON chunks(file_id, chunk_index);
 CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(content_hash);
+CREATE INDEX IF NOT EXISTS idx_symbols_qualified_name ON symbols(qualified_name);
+CREATE INDEX IF NOT EXISTS idx_symbols_parent_symbol_id ON symbols(parent_symbol_id);
 `;
 
 const FTS_SYNC = `

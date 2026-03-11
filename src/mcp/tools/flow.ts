@@ -170,8 +170,16 @@ function traceOutgoing(
 
   dfs(sourceId, [], 0, null);
 
+  // Filter out paths that consist solely of import/reexport edges — these represent
+  // module structure rather than execution flow.
+  const PASSIVE_EDGE_KINDS = new Set(["import", "reexport"]);
+  const meaningfulPaths = allPaths.filter((p) =>
+    p.steps.some((step) => !PASSIVE_EDGE_KINDS.has(step.edgeKind))
+  );
+  const pathsToGroup = meaningfulPaths.length > 0 ? meaningfulPaths : allPaths;
+
   const grouped = new Map<number | null, TracedPath[]>();
-  for (const p of allPaths) {
+  for (const p of pathsToGroup) {
     const bucket = grouped.get(p.firstHop) ?? [];
     bucket.push(p);
     grouped.set(p.firstHop, bucket);
@@ -255,8 +263,14 @@ function traceIncoming(
 
   dfs(targetId, [], 0, null);
 
+  const PASSIVE_EDGE_KINDS = new Set(["import", "reexport"]);
+  const meaningfulPaths = allPaths.filter((p) =>
+    p.steps.some((step) => !PASSIVE_EDGE_KINDS.has(step.edgeKind))
+  );
+  const pathsToGroup = meaningfulPaths.length > 0 ? meaningfulPaths : allPaths;
+
   const grouped = new Map<number | null, TracedPath[]>();
-  for (const p of allPaths) {
+  for (const p of pathsToGroup) {
     const bucket = grouped.get(p.firstHop) ?? [];
     bucket.push(p);
     grouped.set(p.firstHop, bucket);
@@ -295,6 +309,30 @@ function resolveSymbolCandidates(
   limit = 12
 ): number[] {
   const symbols = symbolQueries(db);
+
+  if (name.includes(".")) {
+    const byQualified = symbols.getByQualifiedName(name);
+    if (byQualified.length > 0) {
+      return byQualified
+        .sort((a, b) => b.centrality - a.centrality)
+        .slice(0, limit)
+        .map((s) => s.id);
+    }
+    const simpleName = name.split(".").pop()!;
+    const exactMatches = resolveExactSymbolMatches(db, simpleName);
+    if (exactMatches.length > 0) {
+      return exactMatches.slice(0, limit).map((symbol) => symbol.id);
+    }
+    const allNames = symbols.getAllNames();
+    const matches = fuzzyMatch(simpleName, allNames, 0.6);
+    if (matches.length === 0) return [];
+    return symbols
+      .getByName(matches[0]!.name)
+      .sort((a, b) => b.centrality - a.centrality || a.fileId - b.fileId || a.startLine - b.startLine)
+      .slice(0, limit)
+      .map((symbol) => symbol.id);
+  }
+
   const exactMatches = resolveExactSymbolMatches(db, name);
   if (exactMatches.length > 0) {
     return exactMatches.slice(0, limit).map((symbol) => symbol.id);

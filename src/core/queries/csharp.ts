@@ -103,3 +103,14 @@ export const enumDeclarations = `
 (enum_declaration
   name: (identifier) @name) @definition
 `;
+
+export const decoratorQueries = `
+(attribute_list
+  (attribute
+    name: (identifier) @decorator_name)) @decorator
+
+(attribute_list
+  (attribute
+    name: (qualified_name
+      name: (identifier) @decorator_name))) @decorator
+`;

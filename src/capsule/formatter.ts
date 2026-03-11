@@ -181,8 +181,13 @@ export function formatCapsule(
     }
   }
 
+  const shownSymbolNames = new Set(
+    visibleNodes.filter((n) => n.compressionLevel === 0).map((n) => n.symbol?.name ?? "")
+  );
+  const topScore = visibleNodes.reduce((max, n) => Math.max(max, n.score ?? 0), 0);
   const followUpCandidates = visibleNodes
     .filter((n) => n.compressionLevel >= 1 && n.compressionLevel <= 2)
+    .filter((n) => !shownSymbolNames.has(n.symbol?.name ?? ""))
     .map((n) => {
       const nameLower = (n.symbol?.name ?? "").toLowerCase();
       const nameTerms = splitIdentifier(n.symbol?.name ?? "");
@@ -192,7 +197,8 @@ export function formatCapsule(
       const hasQueryOverlap =
         uncoveredHits > 0 ||
         queryTerms.some((qt) => nameLower.includes(qt) || nameTerms.includes(qt));
-      return { node: n, uncoveredHits, hasQueryOverlap };
+      const meetsScoreThreshold = topScore === 0 || (n.score ?? 0) >= topScore * 0.6;
+      return { node: n, uncoveredHits, hasQueryOverlap, meetsScoreThreshold };
     })
     .filter((item) => item.hasQueryOverlap)
     .sort((a, b) => {
@@ -380,8 +386,13 @@ export function buildStructuredOutput(
     }
   }
 
+  const structuredShownNames = new Set(
+    packedNodes.filter((n) => n.compressionLevel === 0).map((n) => n.symbol?.name ?? "")
+  );
+  const structuredTopScore = packedNodes.reduce((max, n) => Math.max(max, n.score ?? 0), 0);
   const suggestedReads: StructuredCapsuleSuggestedRead[] = packedNodes
     .filter((n) => n.compressionLevel >= 1 && n.symbol?.name && n.file?.path)
+    .filter((n) => !structuredShownNames.has(n.symbol?.name ?? ""))
     .map((n) => {
       const nameLower = (n.symbol?.name ?? "").toLowerCase();
       const nameTerms = splitIdentifier(n.symbol?.name ?? "");
@@ -391,7 +402,8 @@ export function buildStructuredOutput(
       const hasQueryOverlap =
         uncoveredHits > 0 ||
         structuredQueryTerms.some((qt) => nameLower.includes(qt) || nameTerms.includes(qt));
-      return { node: n, uncoveredHits, hasQueryOverlap };
+      const meetsScoreThreshold = structuredTopScore === 0 || (n.score ?? 0) >= structuredTopScore * 0.6;
+      return { node: n, uncoveredHits, hasQueryOverlap, meetsScoreThreshold };
     })
     .filter((item) => item.hasQueryOverlap)
     .sort((a, b) => {

@@ -14,8 +14,8 @@ export function symbolQueries(db: Database.Database): SymbolQueriesResult {
 
 function symbolQueriesImpl(db: Database.Database) {
   const insert = db.prepare(`
-    INSERT INTO symbols (file_id, name, kind, start_line, end_line, signature, body_hash, full_source, is_exported, doc_comment, centrality, last_seen)
-    VALUES (@fileId, @name, @kind, @startLine, @endLine, @signature, @bodyHash, @fullSource, @isExported, @docComment, @centrality, @lastSeen)
+    INSERT INTO symbols (file_id, name, kind, start_line, end_line, signature, body_hash, full_source, is_exported, doc_comment, centrality, last_seen, parent_symbol_id, qualified_name)
+    VALUES (@fileId, @name, @kind, @startLine, @endLine, @signature, @bodyHash, @fullSource, @isExported, @docComment, @centrality, @lastSeen, @parentSymbolId, @qualifiedName)
   `);
 
   const updateCentrality = db.prepare("UPDATE symbols SET centrality = @centrality WHERE id = @id");
@@ -60,6 +60,11 @@ function symbolQueriesImpl(db: Database.Database) {
     ORDER BY (end_line - start_line) ASC
     LIMIT 1
   `);
+  const getByQualifiedNameStmt = db.prepare("SELECT * FROM symbols WHERE qualified_name = ?");
+  const getByParentStmt = db.prepare("SELECT * FROM symbols WHERE parent_symbol_id = ?");
+  const updateQualification = db.prepare(
+    "UPDATE symbols SET parent_symbol_id = @parentSymbolId, qualified_name = @qualifiedName WHERE id = @id"
+  );
 
   function mapRow(row: unknown): SymbolRecord | undefined {
     if (!row) return undefined;
@@ -78,6 +83,8 @@ function symbolQueriesImpl(db: Database.Database) {
       docComment: r["doc_comment"] as string | null,
       centrality: r["centrality"] as number,
       lastSeen: r["last_seen"] as number,
+      parentSymbolId: (r["parent_symbol_id"] as number | null) ?? null,
+      qualifiedName: (r["qualified_name"] as string | null) ?? null,
     };
   }
 
@@ -97,6 +104,8 @@ function symbolQueriesImpl(db: Database.Database) {
       docComment: r["doc_comment"] as string | null,
       centrality: r["centrality"] as number,
       lastSeen: r["last_seen"] as number,
+      parentSymbolId: (r["parent_symbol_id"] as number | null) ?? null,
+      qualifiedName: (r["qualified_name"] as string | null) ?? null,
     };
   }
 
@@ -115,8 +124,14 @@ function symbolQueriesImpl(db: Database.Database) {
         docComment: symbol.docComment,
         centrality: symbol.centrality,
         lastSeen: symbol.lastSeen,
+        parentSymbolId: symbol.parentSymbolId ?? null,
+        qualifiedName: symbol.qualifiedName ?? null,
       });
       return Number(result.lastInsertRowid);
+    },
+
+    updateQualification(id: number, parentSymbolId: number | null, qualifiedName: string | null): void {
+      updateQualification.run({ id, parentSymbolId, qualifiedName });
     },
 
     updateCentrality(id: number, centrality: number): void {
@@ -204,6 +219,14 @@ function symbolQueriesImpl(db: Database.Database) {
 
     getEnclosingSymbol(fileId: number, line: number): SymbolRecord | null {
       return mapRow(getEnclosingSymbolStmt.get(fileId, line, line)) ?? null;
+    },
+
+    getByQualifiedName(qualifiedName: string): SymbolRecord[] {
+      return getByQualifiedNameStmt.all(qualifiedName).map(mapRow).filter(Boolean) as SymbolRecord[];
+    },
+
+    getByParent(parentSymbolId: number): SymbolRecord[] {
+      return getByParentStmt.all(parentSymbolId).map(mapRow).filter(Boolean) as SymbolRecord[];
     },
   };
 }

@@ -12,12 +12,12 @@ export interface SessionStats {
   totalTokensUsed: number;
   uniqueFiles: number;
   uniqueSymbols: number;
-  estimatedRawTokens: number;
-  estimatedSavingsPercent: number;
   firstPassRate: number;
   correctionRate: number;
   budgetUtilization: number;
   averageFollowUpReads: number;
+  estimatedRawTokens: number;
+  estimatedSavingsPercent: number;
 }
 
 export interface FollowUpMetrics {
@@ -67,12 +67,12 @@ export function computeSessionStats(
       totalTokensUsed: 0,
       uniqueFiles: 0,
       uniqueSymbols: 0,
-      estimatedRawTokens: 0,
-      estimatedSavingsPercent: 0,
       firstPassRate: 0,
       correctionRate: 0,
       budgetUtilization: 0,
       averageFollowUpReads: 0,
+      estimatedRawTokens: 0,
+      estimatedSavingsPercent: 0,
     };
   }
 
@@ -89,6 +89,15 @@ export function computeSessionStats(
   }
   const followUpMetrics = computeFollowUpMetrics(logs);
 
+  let budgetUtilizationSum = 0;
+  for (const log of logs) {
+    budgetUtilizationSum += log.tokenBudget > 0 ? log.tokensUsed / log.tokenBudget : 0;
+  }
+  const budgetUtilization = budgetUtilizationSum / logs.length;
+
+  const followUpCount = logs.reduce((sum, log) => sum + (log.followedUp ? 1 : 0), 0);
+  const averageFollowUpReads = followUpCount / logs.length;
+
   const AVG_SYMBOLS_PER_FILE = 8;
   const AVG_TOKENS_PER_SYMBOL = 80;
   const TARGETED_READ_FRACTION = 0.3;
@@ -102,15 +111,6 @@ export function computeSessionStats(
       ? Math.round(((estimatedRawTokens - totalUsed) / estimatedRawTokens) * 100)
       : 0;
 
-  let budgetUtilizationSum = 0;
-  for (const log of logs) {
-    budgetUtilizationSum += log.tokenBudget > 0 ? log.tokensUsed / log.tokenBudget : 0;
-  }
-  const budgetUtilization = budgetUtilizationSum / logs.length;
-
-  const followUpCount = logs.reduce((sum, log) => sum + (log.followedUp ? 1 : 0), 0);
-  const averageFollowUpReads = followUpCount / logs.length;
-
   return {
     capsulesGenerated: logs.length,
     totalTokensBudgeted: totalBudgeted,
@@ -118,7 +118,7 @@ export function computeSessionStats(
     uniqueFiles: allFiles.size,
     uniqueSymbols: allSymbols.size,
     estimatedRawTokens,
-    estimatedSavingsPercent: Math.max(0, savings),
+    estimatedSavingsPercent: Math.max(0, savings) as number,
     firstPassRate: followUpMetrics.firstPassRate,
     correctionRate: followUpMetrics.correctionRate,
     budgetUtilization,

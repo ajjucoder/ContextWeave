@@ -56,6 +56,8 @@ export interface SymbolRecord {
   docComment: string | null;
   centrality: number;
   lastSeen: number;
+  parentSymbolId: number | null;
+  qualifiedName: string | null;
 }
 
 export interface LightSymbolRecord {
@@ -71,6 +73,8 @@ export interface LightSymbolRecord {
   docComment: string | null;
   centrality: number;
   lastSeen: number;
+  parentSymbolId: number | null;
+  qualifiedName: string | null;
 }
 
 export interface EdgeRecord {
@@ -194,6 +198,12 @@ export interface CapsuleLogRecord {
   noiseRatio: number | null;
 }
 
+export interface ParsedDecorator {
+  name: string;
+  fullText: string;
+  args?: string[];
+}
+
 export interface ParsedSymbol {
   name: string;
   kind: SymbolKind;
@@ -204,6 +214,8 @@ export interface ParsedSymbol {
   bodyHash: string;
   isExported: boolean;
   docComment: string | null;
+  parentName?: string;
+  decorators?: ParsedDecorator[];
 }
 
 export interface ParsedImport {
@@ -223,13 +235,36 @@ export interface ParsedCall {
   calleeName: string;
   line: number;
   edgeKind?: "call" | "dynamic_dispatch" | "jsx_render" | "type_usage" | "inheritance" | "implements" | "framework_entry" | "callback" | "server-action" | "route-handler";
+  receiverName?: string;
+}
+
+export interface VariableTypeBinding {
+  variableName: string;
+  typeName: string;
+  scope: string;
 }
 
 export interface ParsedFrameworkCall {
   callerSymbol: string;
   targetName: string;
   line: number;
-  framework: "next_fetch" | "express_route" | "convex_mutation" | "convex_query" | "convex_action";
+  framework:
+    | "next_fetch"
+    | "express_route"
+    | "convex_mutation"
+    | "convex_query"
+    | "convex_action"
+    | "fastapi_route"
+    | "django_url"
+    | "flask_route"
+    | "spring_mapping"
+    | "aspnet_route"
+    | "rails_route"
+    | "gin_route"
+    | "axum_route"
+    | "laravel_route"
+    | "celery_task"
+    | "sidekiq_task";
   httpMethod?: string;
   routePath?: string;
   convexModule?: string;
@@ -241,6 +276,7 @@ export interface ParseResult {
   imports: ParsedImport[];
   calls: ParsedCall[];
   frameworkCalls: ParsedFrameworkCall[];
+  variableBindings: VariableTypeBinding[];
   errors: string[];
 }
 

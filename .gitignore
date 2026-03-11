@@ -9,5 +9,7 @@ dist/
 coverage/
 .worktrees/
 .qa-temp/
+.qa-temp-probes/
+.qa-temp-manual/
 .mcp.json
 .claude/

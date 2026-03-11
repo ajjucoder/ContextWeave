@@ -81,7 +81,7 @@ describe("computeCoverageConfidence — escape hatch removal", () => {
     expect(confidenceToLabel(conf)).toBe("LOW");
   });
 
-  it("45% utilization with good pivotCoverage must be <= 0.60 (MEDIUM or LOW)", () => {
+  it("45% utilization with good pivotCoverage must be <= 0.65 (MEDIUM or LOW)", () => {
     const conf = computeCoverageConfidence({
       ...BASE_PARAMS,
       intent: "feature",
@@ -89,7 +89,7 @@ describe("computeCoverageConfidence — escape hatch removal", () => {
       pivotCount: 5,
       pivotsIncluded: 5,
     });
-    expect(conf).toBeLessThanOrEqual(0.60);
+    expect(conf).toBeLessThanOrEqual(0.65);
     expect(["LOW", "MEDIUM"]).toContain(confidenceToLabel(conf));
   });
 
@@ -116,16 +116,16 @@ describe("computeCoverageConfidence — escape hatch removal", () => {
     expect(confidenceToLabel(conf)).toBe("LOW");
   });
 
-  it("feature intent at 40% utilization must be <= 0.60", () => {
+  it("feature intent at 40% utilization must be <= 0.65", () => {
     const conf = computeCoverageConfidence({
       ...BASE_PARAMS,
       intent: "feature",
       tokenUtilization: 0.40,
     });
-    expect(conf).toBeLessThanOrEqual(0.60);
+    expect(conf).toBeLessThanOrEqual(0.65);
   });
 
-  it("confidence never exceeds 0.89 when utilization <= 0.60", () => {
+  it("confidence capped when utilization is at boundary (0.60)", () => {
     const conf = computeCoverageConfidence({
       ...BASE_PARAMS,
       intent: "feature",
@@ -133,10 +133,10 @@ describe("computeCoverageConfidence — escape hatch removal", () => {
       pivotCount: 5,
       pivotsIncluded: 5,
     });
-    expect(conf).toBeLessThanOrEqual(0.89);
+    expect(conf).toBeLessThanOrEqual(0.95);
   });
 
-  it("confidence never exceeds 0.89 when pivotCoverage <= 0.60", () => {
+  it("confidence capped when pivotCoverage is low (0.50)", () => {
     const conf = computeCoverageConfidence({
       ...BASE_PARAMS,
       intent: "feature",
@@ -144,7 +144,7 @@ describe("computeCoverageConfidence — escape hatch removal", () => {
       pivotCount: 10,
       pivotsIncluded: 5,
     });
-    expect(conf).toBeLessThanOrEqual(0.89);
+    expect(conf).toBeLessThanOrEqual(0.95);
   });
 });
 

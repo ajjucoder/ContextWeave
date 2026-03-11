@@ -8,6 +8,7 @@ import { splitIdentifier } from "../utils/camel-split.js";
 import { extractFrameworkCalls } from "../frameworks/registry.js";
 import type {
   ParsedSymbol,
+  ParsedDecorator,
   ParsedImport,
   ParsedCall,
   ParseResult,
@@ -582,19 +583,262 @@ function nodeToSymbol(
   };
 }
 
+function extractGoReceiverType(signature: string): string | null {
+  const match = signature.match(/^func\s*\(\s*(?:[A-Za-z_]\w*)?\s*\*?\s*([A-Za-z_]\w*)\s*\)/);
+  return match?.[1] ?? null;
+}
+
+function extractRustImplType(node: Parser.SyntaxNode): string | null {
+  let current: Parser.SyntaxNode | null = node.parent;
+  while (current) {
+    if (current.type === "impl_item") {
+      const typeNode = current.childForFieldName("type");
+      return typeNode?.text ?? null;
+    }
+    if (
+      current.type === "source_file" ||
+      current.type === "program" ||
+      current.type === "translation_unit"
+    ) {
+      break;
+    }
+    current = current.parent;
+  }
+  return null;
+}
+
+function findContainingClass(
+  symbol: ParsedSymbol,
+  allSymbols: ParsedSymbol[]
+): string | null {
+  let bestParent: ParsedSymbol | null = null;
+  for (const candidate of allSymbols) {
+    if (
+      (candidate.kind === "class" || candidate.kind === "interface" || candidate.kind === "enum") &&
+      candidate.startLine <= symbol.startLine &&
+      candidate.endLine >= symbol.endLine &&
+      candidate.name !== symbol.name
+    ) {
+      if (!bestParent || (candidate.endLine - candidate.startLine) < (bestParent.endLine - bestParent.startLine)) {
+        bestParent = candidate;
+      }
+    }
+  }
+  return bestParent?.name ?? null;
+}
+
+export function assignParentNames(
+  symbols: ParsedSymbol[],
+  language: string,
+  nodeMap?: Map<string, Parser.SyntaxNode>
+): ParsedSymbol[] {
+  if (language === "go") {
+    for (const symbol of symbols) {
+      if (symbol.kind !== "method" && symbol.kind !== "function") continue;
+      const receiverType = extractGoReceiverType(symbol.signature);
+      if (receiverType) {
+        symbol.parentName = receiverType;
+      }
+    }
+    return symbols;
+  }
+
+  if (language === "rust") {
+    if (nodeMap) {
+      for (const symbol of symbols) {
+        if (symbol.kind !== "method" && symbol.kind !== "function") continue;
+        const key = `${symbol.name}:${symbol.startLine}`;
+        const node = nodeMap.get(key);
+        if (node) {
+          const implType = extractRustImplType(node);
+          if (implType) symbol.parentName = implType;
+        }
+      }
+    } else {
+      for (const symbol of symbols) {
+        if (symbol.kind !== "method") continue;
+        const parent = findContainingClass(symbol, symbols);
+        if (parent) symbol.parentName = parent;
+      }
+    }
+    return symbols;
+  }
+
+  for (const symbol of symbols) {
+    if (symbol.kind !== "method" && symbol.kind !== "function" && symbol.kind !== "arrow" && symbol.kind !== "variable") continue;
+    if (symbol.kind === "method" || symbol.kind === "function" || symbol.kind === "arrow" || symbol.kind === "variable") {
+      const parent = findContainingClass(symbol, symbols);
+      if (parent) symbol.parentName = parent;
+    }
+  }
+
+  return symbols;
+}
+
+interface RawDecorator {
+  name: string;
+  fullText: string;
+  startLine: number;
+  endLine: number;
+}
+
+function extractDecoratorArgs(fullText: string): string[] | undefined {
+  const parenStart = fullText.indexOf("(");
+  if (parenStart < 0) return undefined;
+  const inner = fullText.slice(parenStart + 1, fullText.lastIndexOf(")")).trim();
+  if (!inner) return undefined;
+  return inner.split(",").map((s) => s.trim()).filter(Boolean);
+}
+
+function parseDecorators(
+  tree: Parser.Tree,
+  language: string,
+  symbols: ParsedSymbol[]
+): void {
+  const queries = getQueries(language);
+  if (!queries?.decoratorQueries) return;
+
+  const langModule = languageModules[language];
+  if (!langModule) return;
+  const lang = langModule();
+
+  const rawDecorators: RawDecorator[] = [];
+
+  try {
+    const query = new Parser.Query(lang, queries.decoratorQueries);
+    const matches = query.matches(tree.rootNode);
+
+    for (const match of matches) {
+      const decoratorCapture = match.captures.find((c) => c.name === "decorator");
+      const nameCapture = match.captures.find((c) => c.name === "decorator_name");
+      if (!decoratorCapture || !nameCapture) continue;
+
+      rawDecorators.push({
+        name: nameCapture.node.text,
+        fullText: decoratorCapture.node.text,
+        startLine: decoratorCapture.node.startPosition.row + 1,
+        endLine: decoratorCapture.node.endPosition.row + 1,
+      });
+    }
+  } catch (err) {
+    log.debug("query execution failed in parseDecorators", { language, error: err instanceof Error ? err.message : String(err) });
+    return;
+  }
+
+  if (rawDecorators.length === 0) return;
+
+  // Sort symbols by start line ascending so we can find the nearest target.
+  const sortedSymbols = [...symbols].sort((a, b) => a.startLine - b.startLine);
+
+  // For each raw decorator, assign it to the nearest symbol that starts at or
+  // after the decorator's start line, within a 10-line lookahead window.
+  //
+  // Using startLine >= raw.endLine - 1 handles both patterns:
+  //   • TS/Python: decorator ends on line N, symbol starts on N+1 (strict next)
+  //   • Java/C#: symbol startLine == first-annotation line, so decorator
+  //     endLine may equal symbolStartLine (or be 1 line before the "public" keyword)
+  // Group consecutive decorators into chains. Two decorators are in the same chain
+  // if they appear on adjacent lines (decB.startLine <= decA.endLine + 1).
+  // Each chain will be assigned to a single target symbol.
+  const sortedRaw = [...rawDecorators].sort((a, b) => a.startLine - b.startLine);
+  const chains: RawDecorator[][] = [];
+
+  for (const raw of sortedRaw) {
+    const last = chains[chains.length - 1];
+    const lastInChain = last?.[last.length - 1];
+    if (lastInChain && raw.startLine <= lastInChain.endLine + 1) {
+      last.push(raw);
+    } else {
+      chains.push([raw]);
+    }
+  }
+
+  const decoratorsBySymbolStart = new Map<number, ParsedDecorator[]>();
+
+  for (const chain of chains) {
+    const chainEnd = chain[chain.length - 1]!.endLine;
+    const chainStart = chain[0]!.startLine;
+
+    // Pass 1 — direct follow: find the nearest symbol that starts immediately after
+    // the last decorator in the chain (gap of 1). Handles TS/Python/Rust where multiple
+    // stacked decorators precede the method on consecutive lines.
+    let bestSymbol: ParsedSymbol | null = null;
+    let bestGap = Infinity;
+
+    for (const sym of sortedSymbols) {
+      if (sym.startLine > chainEnd && sym.startLine <= chainEnd + 1) {
+        const gap = sym.startLine - chainEnd;
+        if (gap < bestGap) {
+          bestGap = gap;
+          bestSymbol = sym;
+        }
+      }
+    }
+
+    // Pass 2 — containment fallback: find the smallest-span symbol whose range contains
+    // the entire chain. Handles Java/C# where subsequent class annotations are contained
+    // within the class node (which starts at the first annotation line) and the class
+    // declaration keyword follows all annotations (gap > 1).
+    if (!bestSymbol) {
+      let bestSpan = Infinity;
+      for (const sym of sortedSymbols) {
+        if (chainStart >= sym.startLine && chainEnd <= sym.endLine) {
+          const span = sym.endLine - sym.startLine;
+          if (span < bestSpan) {
+            bestSpan = span;
+            bestSymbol = sym;
+          }
+        }
+      }
+    }
+
+    // Pass 3 — extended lookahead: any symbol within 10 lines after the chain ends.
+    if (!bestSymbol) {
+      let nearestGap = Infinity;
+      for (const sym of sortedSymbols) {
+        if (sym.startLine > chainEnd && sym.startLine <= chainEnd + 10) {
+          const gap = sym.startLine - chainEnd;
+          if (gap < nearestGap) {
+            nearestGap = gap;
+            bestSymbol = sym;
+          }
+        }
+      }
+    }
+
+    if (!bestSymbol) continue;
+
+    const key = bestSymbol.startLine;
+    const list = decoratorsBySymbolStart.get(key) ?? [];
+    for (const raw of chain) {
+      const args = extractDecoratorArgs(raw.fullText);
+      list.push({ name: raw.name, fullText: raw.fullText, ...(args ? { args } : {}) });
+    }
+    decoratorsBySymbolStart.set(key, list);
+  }
+
+  for (const symbol of symbols) {
+    const list = decoratorsBySymbolStart.get(symbol.startLine);
+    if (list && list.length > 0) {
+      symbol.decorators = list;
+    }
+  }
+}
+
 function parseSymbols(
   tree: Parser.Tree,
   language: string,
   content: string
-): ParsedSymbol[] {
+): { symbols: ParsedSymbol[]; nodeMap: Map<string, Parser.SyntaxNode> } {
   const queries = getQueries(language);
-  if (!queries) return [];
+  if (!queries) return { symbols: [], nodeMap: new Map() };
 
   const langModule = languageModules[language];
-  if (!langModule) return [];
+  if (!langModule) return { symbols: [], nodeMap: new Map() };
   const lang = langModule();
 
   const symbols: ParsedSymbol[] = [];
+  const nodeMap = new Map<string, Parser.SyntaxNode>();
   const seen = new Set<number>();
   const pythonAllExports = language === "python" ? parsePythonAllExports(tree) : null;
   const jsLikeExports = isJsLikeLanguage(language)
@@ -651,14 +895,16 @@ function parseSymbols(
           }
         }
 
-        symbols.push(nodeToSymbol(
+        const sym = nodeToSymbol(
           defCapture.node,
           nameCapture.node,
           effectiveKind,
           content,
           language,
           exportedOverride
-        ));
+        );
+        symbols.push(sym);
+        nodeMap.set(`${sym.name}:${sym.startLine}`, defCapture.node);
       }
     } catch (err) {
       log.debug("query execution failed in parseSymbols", { kind, error: err instanceof Error ? err.message : String(err) });
@@ -685,7 +931,7 @@ function parseSymbols(
     symbols.push(...parseJsLikeMemberAssignmentSymbols(tree, content, jsLikeExports));
   }
 
-  return symbols;
+  return { symbols, nodeMap };
 }
 
 function parseImports(
@@ -954,10 +1200,33 @@ function parseCalls(
         const callLine = calleeCapture.node.startPosition.row + 1;
         if (callLine < symbol.startLine || callLine > symbol.endLine) continue;
 
+        // Extract receiver name for member-expression calls (obj.method() → obj).
+        // The callee node is the property_identifier; its parent is the member_expression.
+        let receiverName: string | undefined;
+        const memberNode = calleeCapture.node.parent;
+        if (memberNode?.type === "member_expression" || memberNode?.type === "field_expression") {
+          const objectNode = memberNode.childForFieldName("object");
+          if (objectNode) {
+            const text = objectNode.text;
+            if (text.length <= 40) {
+              receiverName = text.includes(".") ? text.split(".").pop()! : text;
+            }
+          }
+        } else if (memberNode?.type === "selector_expression") {
+          const operandNode = memberNode.childForFieldName("operand");
+          if (operandNode) {
+            const text = operandNode.text;
+            if (text.length <= 40) {
+              receiverName = text.includes(".") ? text.split(".").pop()! : text;
+            }
+          }
+        }
+
         calls.push({
           callerSymbol: symbol.name,
           calleeName: calleeCapture.node.text,
           line: callLine,
+          ...(receiverName ? { receiverName } : {}),
         });
       }
     }
@@ -1311,6 +1580,67 @@ function isBenignTsxParseWarning(root: Parser.SyntaxNode, language: string, cont
   });
 }
 
+function parseVariableBindings(
+  tree: Parser.Tree,
+  language: string,
+  symbols: ParsedSymbol[]
+): import("./types.js").VariableTypeBinding[] {
+  const bindings: import("./types.js").VariableTypeBinding[] = [];
+
+  if (!["typescript", "tsx", "javascript", "jsx"].includes(language)) return bindings;
+
+  const langModule = languageModules[language];
+  if (!langModule) return bindings;
+  const lang = langModule();
+
+  // Extract: const x = new Foo() → x → Foo
+  // Extract: const x: Foo = ... → x → Foo (type annotation)
+  const newExprQuery = `
+(lexical_declaration
+  (variable_declarator
+    name: (identifier) @var
+    value: (new_expression
+      constructor: (identifier) @type))) @binding
+
+(variable_declaration
+  (variable_declarator
+    name: (identifier) @var
+    value: (new_expression
+      constructor: (identifier) @type))) @binding
+
+(lexical_declaration
+  (variable_declarator
+    name: (identifier) @var
+    type: (type_annotation
+      (type_identifier) @type))) @binding
+`;
+
+  try {
+    const query = new Parser.Query(lang, newExprQuery);
+    const matches = query.matches(tree.rootNode);
+    for (const match of matches) {
+      const varCapture = match.captures.find((c) => c.name === "var");
+      const typeCapture = match.captures.find((c) => c.name === "type");
+      if (!varCapture || !typeCapture) continue;
+
+      const line = varCapture.node.startPosition.row + 1;
+      const containingSymbol = symbols.find(
+        (s) => s.startLine <= line && s.endLine >= line
+      );
+      const scope = containingSymbol?.name ?? "module";
+      bindings.push({
+        variableName: varCapture.node.text,
+        typeName: typeCapture.node.text,
+        scope,
+      });
+    }
+  } catch {
+    // query errors are non-fatal
+  }
+
+  return bindings;
+}
+
 export function parseFile(
   filePath: string,
   content: string,
@@ -1325,6 +1655,7 @@ export function parseFile(
         imports: [],
         calls: [],
         frameworkCalls: [],
+        variableBindings: [],
         errors,
       };
     }
@@ -1346,10 +1677,13 @@ export function parseFile(
       errors.push(`Syntax errors detected in ${filePath}`);
     }
 
+    const { symbols: parsedSymbols, nodeMap } = parseSymbols(tree, language, content);
     const symbols = [
-      ...parseSymbols(tree, language, content),
+      ...parsedSymbols,
       ...(language === "python" ? parsePythonMainBlock(content) : []),
     ];
+    assignParentNames(symbols, language, nodeMap);
+    parseDecorators(tree, language, symbols);
     const imports = parseImports(tree, language, content);
     const calls = parseCalls(tree, language, symbols, content);
     const frameworkCalls = extractFrameworkCalls(language, symbols);
@@ -1371,7 +1705,9 @@ export function parseFile(
       }
     }
 
-    return { symbols, imports, calls, frameworkCalls, errors };
+    const variableBindings = parseVariableBindings(tree, language, symbols);
+
+    return { symbols, imports, calls, frameworkCalls, variableBindings, errors };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     return {
@@ -1379,6 +1715,7 @@ export function parseFile(
       imports: [],
       calls: [],
       frameworkCalls: [],
+      variableBindings: [],
       errors: [`Failed to parse ${filePath}: ${message}`],
     };
   }

@@ -78,3 +78,11 @@ export const enumDeclarations = `
 (enum_declaration
   name: (identifier) @name) @definition
 `;
+
+export const decoratorQueries = `
+(marker_annotation
+  name: (identifier) @decorator_name) @decorator
+
+(annotation
+  name: (identifier) @decorator_name) @decorator
+`;

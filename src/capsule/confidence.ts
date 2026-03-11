@@ -19,6 +19,8 @@ export interface ConfidenceParams {
     avgSymbolsPerFile: number;
     maxSymbolsPerFile: number;
   };
+  packedSymbolNames?: string[];
+  queryTerms?: string[];
 }
 
 export type ConfidenceLabel = "LOW" | "MEDIUM" | "HIGH";
@@ -131,10 +133,15 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
   if (tokenUtilization < 0.30) {
     confidence = Math.min(confidence, 0.40);
   } else if (tokenUtilization < 0.50) {
-    confidence = Math.min(confidence, 0.60);
+    confidence = Math.min(confidence, 0.65);
+  } else if (tokenUtilization < 0.60) {
+    confidence = Math.min(confidence, 0.75);
   }
-  if (tokenUtilization <= 0.60 || pivotCoverage <= 0.60) {
-    confidence = Math.min(confidence, 0.89);
+
+  if (pivotCoverage < 0.30 && relevantCoverage < 0.4) {
+    confidence = Math.min(confidence, 0.45);
+  } else if (pivotCoverage < 0.20) {
+    confidence = Math.min(confidence, 0.50);
   }
 
   if (intent === "broad" && pivotsIncluded < 3) {

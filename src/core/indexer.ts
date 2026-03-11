@@ -94,7 +94,7 @@ export interface IndexerOptions {
   embeddings?: EmbeddingRuntime | null;
 }
 
-function shouldIgnore(filePath: string): boolean {
+export function shouldIgnore(filePath: string): boolean {
   const normalizedPath = filePath.replace(/\\/g, "/");
   const parts = normalizedPath.split("/").filter(Boolean);
   return (
@@ -765,6 +765,45 @@ function resolveEdges(
     return narrowed.length > 0 ? narrowed : targetCandidates;
   };
 
+  const resolveCallWithQualification = (
+    _calleeName: string,
+    callerId: number,
+    candidates: TargetCandidate[]
+  ): TargetCandidate[] => {
+    if (candidates.length <= 1) return candidates;
+
+    const importedClassIds = new Set<number>();
+    for (const [, ids] of importedTargetsByName) {
+      for (const id of ids) importedClassIds.add(id);
+    }
+
+    const callerRecord = fileSymbolsById.get(callerId);
+    const callerParentName = callerRecord?.qualifiedName?.split(".")[0];
+
+    const preferredByQualified: TargetCandidate[] = [];
+    for (const candidate of candidates) {
+      const sym = symbols.getById(candidate.id);
+      if (!sym) continue;
+      if (sym.parentSymbolId !== null) {
+        if (importedClassIds.has(sym.parentSymbolId)) {
+          preferredByQualified.push(candidate);
+          continue;
+        }
+        if (callerParentName && sym.qualifiedName?.startsWith(`${callerParentName}.`)) {
+          preferredByQualified.push(candidate);
+        }
+      }
+    }
+
+    return preferredByQualified.length > 0 ? preferredByQualified : candidates;
+  };
+
+  // Build variable-to-type map from variable bindings for receiver-based resolution.
+  const variableTypeMap = new Map<string, string>();
+  for (const binding of (parseResult.variableBindings ?? [])) {
+    variableTypeMap.set(binding.variableName, binding.typeName);
+  }
+
   for (const imp of parseResult.imports) {
     if (imp.isReExport) continue;
     const pairs = importNamePairs(imp);
@@ -834,11 +873,32 @@ function resolveEdges(
     const callerId = resolveCallerId(call.callerSymbol, call.line);
     if (!callerId) continue;
 
-    const targetCandidates = narrowToSameOwnerLocalTargets(
+    const rawCandidates = narrowToSameOwnerLocalTargets(
       callerId,
       call.calleeName,
       pickTargets(call.calleeName)
     );
+
+    let targetCandidates: TargetCandidate[];
+    if (call.receiverName && rawCandidates.length > 1) {
+      const receiverType = variableTypeMap.get(call.receiverName);
+      if (receiverType) {
+        const receiverClassSymbols = symbols.getByName(receiverType);
+        const receiverClassIds = new Set(receiverClassSymbols.map((s) => s.id));
+        const preferred = rawCandidates.filter((c) => {
+          const sym = symbols.getById(c.id);
+          return sym?.parentSymbolId !== null && receiverClassIds.has(sym!.parentSymbolId!);
+        });
+        targetCandidates = preferred.length > 0
+          ? preferred
+          : resolveCallWithQualification(call.calleeName, callerId, rawCandidates);
+      } else {
+        targetCandidates = resolveCallWithQualification(call.calleeName, callerId, rawCandidates);
+      }
+    } else {
+      targetCandidates = resolveCallWithQualification(call.calleeName, callerId, rawCandidates);
+    }
+
     const kind = call.edgeKind ?? "call";
     for (const target of targetCandidates) {
       if (callerId === target.id && kind !== "server-action") continue;
@@ -1030,11 +1090,13 @@ function writeParseResult(
   }
 
   const symbolMap = new Map<string, number>();
+  const insertedIds = new Map<string, number>();
   const symbolsToInsert = diff
     ? [...diff.added, ...diff.modified.map((m) => m.new), ...diff.renamed.map((r) => r.new)]
     : parseResult.symbols;
 
   for (const sym of symbolsToInsert) {
+    const qualifiedName = sym.parentName ? `${sym.parentName}.${sym.name}` : sym.name;
     const id = symbolsDb.insert({
       fileId,
       name: sym.name,
@@ -1048,9 +1110,37 @@ function writeParseResult(
       docComment: sym.docComment,
       centrality: 0,
       lastSeen: now,
+      parentSymbolId: null,
+      qualifiedName,
     });
+    insertedIds.set(`${sym.name}:${sym.startLine}`, id);
     if (!symbolMap.has(sym.name)) {
       symbolMap.set(sym.name, id);
+    }
+  }
+
+  // Second pass: set parent_symbol_id for methods using parentName from parser.
+  const parentIdByName = new Map<string, number>();
+  for (const sym of symbolsToInsert) {
+    if (!sym.parentName) {
+      const id = insertedIds.get(`${sym.name}:${sym.startLine}`);
+      if (id !== undefined && !parentIdByName.has(sym.name)) {
+        parentIdByName.set(sym.name, id);
+      }
+    }
+  }
+  // Also include unchanged symbols as potential parents.
+  if (diff) {
+    for (const sym of diff.unchanged) {
+      if (!parentIdByName.has(sym.name)) parentIdByName.set(sym.name, sym.id);
+    }
+  }
+  for (const sym of symbolsToInsert) {
+    if (!sym.parentName) continue;
+    const symId = insertedIds.get(`${sym.name}:${sym.startLine}`);
+    const parentId = parentIdByName.get(sym.parentName) ?? symbolMap.get(sym.parentName);
+    if (symId !== undefined && parentId !== undefined) {
+      symbolsDb.updateQualification(symId, parentId, `${sym.parentName}.${sym.name}`);
     }
   }
 

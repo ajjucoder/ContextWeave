@@ -7,6 +7,117 @@ import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("event-edge-synthesis");
 
+const GO_CHANNEL_SEND_RE = /([A-Za-z_][\w]*)\s*<-\s*/g;
+const GO_CHANNEL_RECV_RE = /<-\s*([A-Za-z_][\w]*)/g;
+
+const RUST_TOKIO_SEND_RE = /([A-Za-z_][\w]*)\s*\.\s*send\s*\(/g;
+const RUST_TOKIO_RECV_RE = /([A-Za-z_][\w]*)\s*\.\s*recv(?:_async)?\s*\(/g;
+const RUST_TOKIO_CHANNEL_RE = /let\s+\(([A-Za-z_][\w]*)\s*,\s*([A-Za-z_][\w]*)\)\s*=\s*(?:tokio::sync::\w+::|mpsc::|oneshot::|broadcast::)?channel/g;
+
+const DJANGO_SIGNAL_SEND_RE = /([A-Za-z_][\w]*)\s*\.\s*send\s*\(\s*sender\s*=/g;
+const DJANGO_SIGNAL_CONNECT_RE = /([A-Za-z_][\w]*)\s*\.\s*connect\s*\(\s*([A-Za-z_][\w]*)/g;
+const DJANGO_SIGNAL_DECORATE_RE = /@receiver\s*\(\s*([A-Za-z_][\w]*)/g;
+
+const CSHARP_EVENT_INVOKE_RE = /([A-Za-z_][\w]*)\s*\?\.\s*Invoke\s*\(|([A-Za-z_][\w]*)\s*\(\s*(?:this|sender)\s*,/g;
+const CSHARP_EVENT_SUBSCRIBE_RE = /([A-Za-z_][\w]*)\s*\+=\s*([A-Za-z_][\w.]*)\s*;/g;
+
+function extractGoChannelSenders(source: string): string[] {
+  const channels: string[] = [];
+  const re = new RegExp(GO_CHANNEL_SEND_RE.source, GO_CHANNEL_SEND_RE.flags);
+  for (const match of source.matchAll(re)) {
+    const name = match[1];
+    if (name && !["if", "for", "select", "switch", "return"].includes(name)) {
+      channels.push(normalizeChannel(name));
+    }
+  }
+  return channels;
+}
+
+function extractGoChannelReceivers(source: string): string[] {
+  const channels: string[] = [];
+  const re = new RegExp(GO_CHANNEL_RECV_RE.source, GO_CHANNEL_RECV_RE.flags);
+  for (const match of source.matchAll(re)) {
+    const name = match[1];
+    if (name) channels.push(normalizeChannel(name));
+  }
+  return channels;
+}
+
+function extractRustTokioSenders(source: string): string[] {
+  const senders: string[] = [];
+  const chanRe = new RegExp(RUST_TOKIO_CHANNEL_RE.source, RUST_TOKIO_CHANNEL_RE.flags);
+  const chanNames = new Set<string>();
+  for (const match of source.matchAll(chanRe)) {
+    if (match[1]) chanNames.add(match[1]);
+  }
+
+  const sendRe = new RegExp(RUST_TOKIO_SEND_RE.source, RUST_TOKIO_SEND_RE.flags);
+  for (const match of source.matchAll(sendRe)) {
+    const name = match[1];
+    if (name) senders.push(normalizeChannel(name));
+  }
+  return senders;
+}
+
+function extractRustTokioReceivers(source: string): string[] {
+  const receivers: string[] = [];
+  const recvRe = new RegExp(RUST_TOKIO_RECV_RE.source, RUST_TOKIO_RECV_RE.flags);
+  for (const match of source.matchAll(recvRe)) {
+    const name = match[1];
+    if (name) receivers.push(normalizeChannel(name));
+  }
+  return receivers;
+}
+
+function extractDjangoSignalSenders(source: string): string[] {
+  const signals: string[] = [];
+  const re = new RegExp(DJANGO_SIGNAL_SEND_RE.source, DJANGO_SIGNAL_SEND_RE.flags);
+  for (const match of source.matchAll(re)) {
+    const name = match[1];
+    if (name) signals.push(normalizeChannel(name));
+  }
+  return signals;
+}
+
+function extractDjangoSignalReceivers(source: string): string[] {
+  const receivers: string[] = [];
+
+  const connectRe = new RegExp(DJANGO_SIGNAL_CONNECT_RE.source, DJANGO_SIGNAL_CONNECT_RE.flags);
+  for (const match of source.matchAll(connectRe)) {
+    const signalName = match[1];
+    if (signalName) receivers.push(normalizeChannel(signalName));
+  }
+
+  const decorateRe = new RegExp(DJANGO_SIGNAL_DECORATE_RE.source, DJANGO_SIGNAL_DECORATE_RE.flags);
+  for (const match of source.matchAll(decorateRe)) {
+    const signalName = match[1];
+    if (signalName) receivers.push(normalizeChannel(signalName));
+  }
+
+  return receivers;
+}
+
+function extractCSharpEventInvokers(source: string): string[] {
+  const events: string[] = [];
+  const re = new RegExp(CSHARP_EVENT_INVOKE_RE.source, CSHARP_EVENT_INVOKE_RE.flags);
+  for (const match of source.matchAll(re)) {
+    const name = match[1] ?? match[2];
+    if (name) events.push(normalizeChannel(name));
+  }
+  return events;
+}
+
+function extractCSharpEventSubscribers(source: string): Array<{ event: string; handler: string }> {
+  const subs: Array<{ event: string; handler: string }> = [];
+  const re = new RegExp(CSHARP_EVENT_SUBSCRIBE_RE.source, CSHARP_EVENT_SUBSCRIBE_RE.flags);
+  for (const match of source.matchAll(re)) {
+    const event = match[1];
+    const handler = match[2];
+    if (event && handler) subs.push({ event: normalizeChannel(event), handler: normalizeChannel(handler) });
+  }
+  return subs;
+}
+
 const EMITTER_PATTERNS: RegExp[] = [
   /\bemit(?:_all)?\s*\(\s*(['"`])([^'"`]+)\1/g,
   /\$emit\s*\(\s*(['"`])([^'"`]+)\1/g,
@@ -199,6 +310,14 @@ export function synthesizeEventEdges(db: Database.Database): number {
   const serverActionIds = new Set<number>();
   const wsCallersByMethod = new Map<string, number[]>();
   const wsHandlersByMethod = new Map<string, number[]>();
+  const goChanSendersByName = new Map<string, number[]>();
+  const goChanReceiversByName = new Map<string, number[]>();
+  const rustTokioSendersByName = new Map<string, number[]>();
+  const rustTokioReceiversByName = new Map<string, number[]>();
+  const djangoSignalSendersByName = new Map<string, number[]>();
+  const djangoSignalReceiversByName = new Map<string, number[]>();
+  const csharpEventInvokersByName = new Map<string, number[]>();
+  const csharpEventSubscribersByEvent = new Map<string, number[]>();
 
   for (const sym of allSymbols) {
     const source = sym.fullSource;
@@ -258,6 +377,58 @@ export function synthesizeEventEdges(db: Database.Database): number {
       const bucket = wsHandlersByMethod.get(method) ?? [];
       bucket.push(sym.id);
       wsHandlersByMethod.set(method, bucket);
+    }
+
+    if (filePath.endsWith(".go")) {
+      for (const chan of extractGoChannelSenders(source)) {
+        const bucket = goChanSendersByName.get(chan) ?? [];
+        bucket.push(sym.id);
+        goChanSendersByName.set(chan, bucket);
+      }
+      for (const chan of extractGoChannelReceivers(source)) {
+        const bucket = goChanReceiversByName.get(chan) ?? [];
+        bucket.push(sym.id);
+        goChanReceiversByName.set(chan, bucket);
+      }
+    }
+
+    if (filePath.endsWith(".rs")) {
+      for (const sender of extractRustTokioSenders(source)) {
+        const bucket = rustTokioSendersByName.get(sender) ?? [];
+        bucket.push(sym.id);
+        rustTokioSendersByName.set(sender, bucket);
+      }
+      for (const recv of extractRustTokioReceivers(source)) {
+        const bucket = rustTokioReceiversByName.get(recv) ?? [];
+        bucket.push(sym.id);
+        rustTokioReceiversByName.set(recv, bucket);
+      }
+    }
+
+    if (filePath.endsWith(".py")) {
+      for (const signal of extractDjangoSignalSenders(source)) {
+        const bucket = djangoSignalSendersByName.get(signal) ?? [];
+        bucket.push(sym.id);
+        djangoSignalSendersByName.set(signal, bucket);
+      }
+      for (const signal of extractDjangoSignalReceivers(source)) {
+        const bucket = djangoSignalReceiversByName.get(signal) ?? [];
+        bucket.push(sym.id);
+        djangoSignalReceiversByName.set(signal, bucket);
+      }
+    }
+
+    if (filePath.endsWith(".cs")) {
+      for (const event of extractCSharpEventInvokers(source)) {
+        const bucket = csharpEventInvokersByName.get(event) ?? [];
+        bucket.push(sym.id);
+        csharpEventInvokersByName.set(event, bucket);
+      }
+      for (const { event } of extractCSharpEventSubscribers(source)) {
+        const bucket = csharpEventSubscribersByEvent.get(event) ?? [];
+        bucket.push(sym.id);
+        csharpEventSubscribersByEvent.set(event, bucket);
+      }
     }
   }
 
@@ -371,6 +542,54 @@ export function synthesizeEventEdges(db: Database.Database): number {
       for (const handlerId of handlerIds) {
         if (callerId !== handlerId) {
           pendingEdges.push({ sourceId: callerId, targetId: handlerId, kind: "event" });
+        }
+      }
+    }
+  }
+
+  for (const [chan, senderIds] of goChanSendersByName) {
+    const receiverIds = goChanReceiversByName.get(chan);
+    if (!receiverIds || receiverIds.length === 0) continue;
+    for (const senderId of senderIds) {
+      for (const receiverId of receiverIds) {
+        if (senderId !== receiverId) {
+          pendingEdges.push({ sourceId: senderId, targetId: receiverId, kind: "event" });
+        }
+      }
+    }
+  }
+
+  for (const [name, senderIds] of rustTokioSendersByName) {
+    const receiverIds = rustTokioReceiversByName.get(name);
+    if (!receiverIds || receiverIds.length === 0) continue;
+    for (const senderId of senderIds) {
+      for (const receiverId of receiverIds) {
+        if (senderId !== receiverId) {
+          pendingEdges.push({ sourceId: senderId, targetId: receiverId, kind: "event" });
+        }
+      }
+    }
+  }
+
+  for (const [signal, senderIds] of djangoSignalSendersByName) {
+    const receiverIds = djangoSignalReceiversByName.get(signal);
+    if (!receiverIds || receiverIds.length === 0) continue;
+    for (const senderId of senderIds) {
+      for (const receiverId of receiverIds) {
+        if (senderId !== receiverId) {
+          pendingEdges.push({ sourceId: senderId, targetId: receiverId, kind: "event" });
+        }
+      }
+    }
+  }
+
+  for (const [event, invokerIds] of csharpEventInvokersByName) {
+    const subscriberIds = csharpEventSubscribersByEvent.get(event);
+    if (!subscriberIds || subscriberIds.length === 0) continue;
+    for (const invokerId of invokerIds) {
+      for (const subscriberId of subscriberIds) {
+        if (invokerId !== subscriberId) {
+          pendingEdges.push({ sourceId: invokerId, targetId: subscriberId, kind: "event" });
         }
       }
     }

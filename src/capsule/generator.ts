@@ -1345,7 +1345,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       augmented.push({
         symbol: bestSymbol.symbol,
         file,
-        score: bestSymbol.lexicalScore * 1.4 + bestSymbol.symbol.centrality * 4 + 0.5,
+        score: bestSymbol.lexicalScore * 4 + computeQueryOverlap(bestSymbol.symbol.name) * 6 + bestSymbol.symbol.centrality * 1 + 0.25,
         distance: 2,
         isPivot: false,
         lexicalScore: bestSymbol.lexicalScore,
@@ -1428,6 +1428,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     for (const candidate of rankedExtras) {
       const queryOverlap = computeQueryOverlap(candidate.symbol.name);
       if (queryOverlap === 0 && !hasDirectEdgeToPivot(candidate.symbol.id)) continue;
+      if (queryOverlap === 0 && candidate.symbol.centrality > centralityHubThreshold && !hasDirectEdgeToPivot(candidate.symbol.id)) continue;
       const filePath = candidate.file.path;
       const score = scoreBackfillCandidate(candidate.symbol, candidate.lexicalScore, filePath);
       extras.push({ ...candidate, score });
@@ -1876,6 +1877,34 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         }
       }
     }
+
+    if (tokensUsed < tokenBudget * 0.65 && candidates.length > selected.length) {
+      const topCandidateScore = ranked[0]?.score ?? 0;
+      const scoreFloor = topCandidateScore * 0.3;
+      const selectedIds = new Set(selected.map((c) => c.symbol.id));
+      const remaining = ranked
+        .filter((c) => !selectedIds.has(c.symbol.id) && c.score >= scoreFloor && c.lexicalScore > 0)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 20);
+      if (remaining.length > 0) {
+        const fillSelected = [...selected, ...remaining];
+        const fillNodes = buildScoredNodes(fillSelected);
+        const fillClusterMap = buildClusterBySymbolId(fillNodes);
+        const fillResult = packNodesStoryMode(fillNodes, tokenBudget, codeRatio, fillClusterMap);
+        const packedIdsBefore = new Set(packed.map((n) => n.symbol.id));
+        const fillPackedIds = new Set(fillResult.packed.map((n) => n.symbol.id));
+        const droppedFromPacked = [...packedIdsBefore].filter((id) => !fillPackedIds.has(id));
+        if (fillResult.tokensUsed > tokensUsed && droppedFromPacked.length === 0) {
+          selected = fillSelected;
+          scoredNodes = fillNodes;
+          clusterBySymbolId = fillClusterMap;
+          packed = fillResult.packed;
+          tokensUsed = fillResult.tokensUsed;
+          fileSummaries = fillResult.fileSummaries;
+          logger.debug("fill-to-85 pass", { added: remaining.length, tokensUsed });
+        }
+      }
+    }
   }
 
   const relevanceLexicalThreshold = baseLexThreshold;
@@ -1987,6 +2016,24 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       relevantClusters.add(clusterId);
     }
   }
+  if (intent === "task" && pivotQueryTerms.length > 0) {
+    const queryTermSet = new Set(pivotQueryTerms.map((t) => t.toLowerCase()));
+    const topScore = packed.reduce((max, n) => Math.max(max, n.score), 0);
+    const before = packed.length;
+    packed = packed.filter((node) => {
+      if (pivotSymbolIds.has(node.symbol.id)) return true;
+      if (node.score >= topScore * 0.5) return true;
+      const nameTokens = tokenizeSymbolName(node.symbol.name);
+      const sigTokens = tokenizeSymbolName(node.symbol.signature ?? "");
+      return [...nameTokens, ...sigTokens].some((token) => queryTermSet.has(token));
+    });
+    const dropped = before - packed.length;
+    if (dropped > 0) {
+      tokensUsed = packed.reduce((sum, n) => sum + n.tokenCount, 0);
+      logger.debug("post-pack semantic validation", { dropped, remaining: packed.length });
+    }
+  }
+
   const packedClusters = new Set<number>();
   const finalUiStrip = stripUiPackedNoise(packed);
   packed = finalUiStrip.packed;

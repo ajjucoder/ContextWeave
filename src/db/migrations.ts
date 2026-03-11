@@ -432,6 +432,23 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 19,
+    up(db) {
+      const cols = db.prepare("PRAGMA table_info(symbols)").all() as Array<{ name: string }>;
+      const names = new Set(cols.map((c) => c.name));
+      if (!names.has("parent_symbol_id")) {
+        db.exec("ALTER TABLE symbols ADD COLUMN parent_symbol_id INTEGER REFERENCES symbols(id)");
+      }
+      if (!names.has("qualified_name")) {
+        db.exec("ALTER TABLE symbols ADD COLUMN qualified_name TEXT");
+      }
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_symbols_qualified_name ON symbols (qualified_name);
+        CREATE INDEX IF NOT EXISTS idx_symbols_parent_symbol_id ON symbols (parent_symbol_id);
+      `);
+    },
+  },
 ];
 
 export function runMigrations(db: Database.Database): void {

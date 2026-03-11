@@ -83,6 +83,14 @@ export function resolveExactSymbolMatches(
       .sort((a, b) => b.centrality - a.centrality || a.startLine - b.startLine);
   }
 
+  if (parsed.ownerName) {
+    const qualifiedName = `${parsed.ownerName}.${parsed.symbolName}`;
+    const byQualified = symbols.getByQualifiedName(qualifiedName);
+    if (byQualified.length > 0) {
+      return byQualified.sort((a, b) => b.centrality - a.centrality || a.fileId - b.fileId || a.startLine - b.startLine);
+    }
+  }
+
   return symbols
     .getByName(parsed.symbolName)
     .filter((symbol) => matchesOwner(db, symbol, parsed.ownerName))
