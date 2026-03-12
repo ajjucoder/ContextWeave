@@ -264,7 +264,8 @@ export interface ParsedFrameworkCall {
     | "axum_route"
     | "laravel_route"
     | "celery_task"
-    | "sidekiq_task";
+    | "sidekiq_task"
+    | "actix_route";
   httpMethod?: string;
   routePath?: string;
   convexModule?: string;

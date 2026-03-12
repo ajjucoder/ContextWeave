@@ -1,11 +1,8 @@
 import type { ParsedFrameworkCall, ParsedSymbol } from "../../core/types.js";
 import type { FrameworkResolveContext, FrameworkTracePlugin } from "../types.js";
+import { lineNumberForOffset } from "../utils.js";
 
 const FASTAPI_ROUTE_RE = /@(?:app|router)\s*\.\s*(get|post|put|patch|delete|options|head)\s*\(\s*["']([^"']+)["']/g;
-
-function lineNumberForOffset(source: string, startLine: number, offset: number): number {
-  return startLine + source.slice(0, offset).split("\n").length - 1;
-}
 
 export const fastapiFrameworkPlugin: FrameworkTracePlugin = {
   id: "fastapi",

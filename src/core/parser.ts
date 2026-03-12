@@ -666,10 +666,8 @@ export function assignParentNames(
 
   for (const symbol of symbols) {
     if (symbol.kind !== "method" && symbol.kind !== "function" && symbol.kind !== "arrow" && symbol.kind !== "variable") continue;
-    if (symbol.kind === "method" || symbol.kind === "function" || symbol.kind === "arrow" || symbol.kind === "variable") {
-      const parent = findContainingClass(symbol, symbols);
-      if (parent) symbol.parentName = parent;
-    }
+    const parent = findContainingClass(symbol, symbols);
+    if (parent) symbol.parentName = parent;
   }
 
   return symbols;

@@ -110,9 +110,9 @@ def create(cls):
 
     const result = parseFile("model.py", content, "python");
     const valueFn = result.symbols.find((s) => s.name === "value");
-    if (valueFn?.decorators) {
-      expect(valueFn.decorators.some((d) => d.name === "property")).toBe(true);
-    }
+    expect(valueFn).toBeDefined();
+    expect(valueFn!.decorators).toBeDefined();
+    expect(valueFn!.decorators!.some((d) => d.name === "property")).toBe(true);
   });
 });
 

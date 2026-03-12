@@ -118,7 +118,7 @@ export function computeSessionStats(
     uniqueFiles: allFiles.size,
     uniqueSymbols: allSymbols.size,
     estimatedRawTokens,
-    estimatedSavingsPercent: Math.max(0, savings) as number,
+    estimatedSavingsPercent: Math.max(0, savings),
     firstPassRate: followUpMetrics.firstPassRate,
     correctionRate: followUpMetrics.correctionRate,
     budgetUtilization,

@@ -1,12 +1,9 @@
 import type { ParsedFrameworkCall, ParsedSymbol } from "../../core/types.js";
 import type { FrameworkResolveContext, FrameworkTracePlugin } from "../types.js";
+import { lineNumberForOffset } from "../utils.js";
 
 const FLASK_ROUTE_RE = /@(?:app|bp|blueprint)\s*\.\s*route\s*\(\s*["']([^"']+)["'][^)]*\)/g;
 const FLASK_METHOD_RE = /methods\s*=\s*\[([^\]]+)\]/;
-
-function lineNumberForOffset(source: string, startLine: number, offset: number): number {
-  return startLine + source.slice(0, offset).split("\n").length - 1;
-}
 
 export const flaskFrameworkPlugin: FrameworkTracePlugin = {
   id: "flask",

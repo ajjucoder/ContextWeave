@@ -203,7 +203,9 @@ export class ActiveLspBridge implements LspBridge {
       const settled = await Promise.allSettled(
         batch.map((name) => this.resolveOneDef(name))
       );
-      for (const outcome of settled) {
+      for (let j = 0; j < settled.length; j++) {
+        const outcome = settled[j]!;
+        const name = batch[j]!;
         if (outcome.status === "fulfilled") {
           results.push(outcome.value);
           if (outcome.value.fromLsp) {
@@ -212,12 +214,10 @@ export class ActiveLspBridge implements LspBridge {
             this.stats.fallbacks++;
           }
         } else {
-          // Rejected — log quietly and fall back
-          const name = batch[settled.indexOf(outcome)];
           log.debug(`LSP resolveDefinition failed for ${name}: ${String(outcome.reason)}`);
           this.stats.errors++;
           this.stats.fallbacks++;
-          results.push({ symbolName: name ?? "unknown", locations: [], fromLsp: false });
+          results.push({ symbolName: name, locations: [], fromLsp: false });
         }
       }
     }
@@ -226,10 +226,6 @@ export class ActiveLspBridge implements LspBridge {
   }
 
   private async resolveOneDef(symbolName: string): Promise<LspDefinitionResult> {
-    // Placeholder: in a full implementation this would send a
-    // textDocument/definition JSON-RPC request over stdio.
-    // For now we return an empty result (graceful degradation).
-    this.stats.fallbacks++;
     return { symbolName, locations: [], fromLsp: false };
   }
 

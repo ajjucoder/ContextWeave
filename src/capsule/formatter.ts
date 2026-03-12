@@ -200,7 +200,7 @@ export function formatCapsule(
       const meetsScoreThreshold = topScore === 0 || (n.score ?? 0) >= topScore * 0.6;
       return { node: n, uncoveredHits, hasQueryOverlap, meetsScoreThreshold };
     })
-    .filter((item) => item.hasQueryOverlap)
+    .filter((item) => item.uncoveredHits > 0 || (item.hasQueryOverlap && item.meetsScoreThreshold))
     .sort((a, b) => {
       if (b.uncoveredHits !== a.uncoveredHits) return b.uncoveredHits - a.uncoveredHits;
       return (b.node.score ?? 0) - (a.node.score ?? 0);
@@ -405,7 +405,7 @@ export function buildStructuredOutput(
       const meetsScoreThreshold = structuredTopScore === 0 || (n.score ?? 0) >= structuredTopScore * 0.6;
       return { node: n, uncoveredHits, hasQueryOverlap, meetsScoreThreshold };
     })
-    .filter((item) => item.hasQueryOverlap)
+    .filter((item) => item.uncoveredHits > 0 || (item.hasQueryOverlap && item.meetsScoreThreshold))
     .sort((a, b) => {
       if (b.uncoveredHits !== a.uncoveredHits) return b.uncoveredHits - a.uncoveredHits;
       return (b.node.score ?? 0) - (a.node.score ?? 0);

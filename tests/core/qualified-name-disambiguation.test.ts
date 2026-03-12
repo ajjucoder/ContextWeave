@@ -54,6 +54,7 @@ export class UserHandler {
       await indexProject(db, root);
 
       const syms = symbolQueries(db);
+      const edges = edgeQueries(db);
 
       const userProcess = syms.getByQualifiedName("UserService.process");
       const orderProcess = syms.getByQualifiedName("OrderService.process");
@@ -61,6 +62,16 @@ export class UserHandler {
       expect(userProcess.length).toBeGreaterThan(0);
       expect(orderProcess.length).toBeGreaterThan(0);
       expect(userProcess[0]!.id).not.toBe(orderProcess[0]!.id);
+
+      const handleMethod = syms.getByQualifiedName("UserHandler.handle");
+      expect(handleMethod.length).toBeGreaterThan(0);
+
+      const outEdges = edges.getBySource(handleMethod[0]!.id);
+      const targetIds = outEdges.map((e) => e.targetSymbolId);
+      expect(targetIds.length).toBeGreaterThan(0);
+
+      const targetsOrderProcess = targetIds.includes(orderProcess[0]!.id);
+      expect(targetsOrderProcess).toBe(false);
 
       db.close();
     } finally {

@@ -1,5 +1,6 @@
 import type { ParsedFrameworkCall, ParsedSymbol } from "../../core/types.js";
 import type { FrameworkResolveContext, FrameworkTracePlugin } from "../types.js";
+import { lineNumberForOffset } from "../utils.js";
 
 const SPRING_MAPPING_RE = /@(GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping|RequestMapping)\s*(?:\(\s*(?:value\s*=\s*)?["']([^"']+)["'])?/g;
 
@@ -11,10 +12,6 @@ const METHOD_MAP: Record<string, string> = {
   PatchMapping: "PATCH",
   RequestMapping: "ANY",
 };
-
-function lineNumberForOffset(source: string, startLine: number, offset: number): number {
-  return startLine + source.slice(0, offset).split("\n").length - 1;
-}
 
 export const springFrameworkPlugin: FrameworkTracePlugin = {
   id: "spring",

@@ -1,12 +1,9 @@
 import type { ParsedFrameworkCall, ParsedSymbol } from "../../core/types.js";
 import type { FrameworkResolveContext, FrameworkTracePlugin } from "../types.js";
+import { lineNumberForOffset } from "../utils.js";
 
 const URLPATTERNS_RE = /path\s*\(\s*["']([^"']+)["']\s*,\s*([A-Za-z_][\w.]*)/g;
 const INCLUDE_RE = /include\s*\(\s*["']([^"']+)["']/g;
-
-function lineNumberForOffset(source: string, startLine: number, offset: number): number {
-  return startLine + source.slice(0, offset).split("\n").length - 1;
-}
 
 export const djangoFrameworkPlugin: FrameworkTracePlugin = {
   id: "django",

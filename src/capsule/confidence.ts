@@ -133,9 +133,13 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
   if (tokenUtilization < 0.30) {
     confidence = Math.min(confidence, 0.40);
   } else if (tokenUtilization < 0.50) {
-    confidence = Math.min(confidence, 0.65);
-  } else if (tokenUtilization < 0.60) {
+    confidence = Math.min(confidence, 0.62);
+  } else if (tokenUtilization <= 0.60) {
     confidence = Math.min(confidence, 0.75);
+  }
+
+  if (pivotCoverage < 0.60 && tokenUtilization > 0.60) {
+    confidence = Math.min(confidence, 0.90);
   }
 
   if (pivotCoverage < 0.30 && relevantCoverage < 0.4) {

@@ -1428,7 +1428,6 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     for (const candidate of rankedExtras) {
       const queryOverlap = computeQueryOverlap(candidate.symbol.name);
       if (queryOverlap === 0 && !hasDirectEdgeToPivot(candidate.symbol.id)) continue;
-      if (queryOverlap === 0 && candidate.symbol.centrality > centralityHubThreshold && !hasDirectEdgeToPivot(candidate.symbol.id)) continue;
       const filePath = candidate.file.path;
       const score = scoreBackfillCandidate(candidate.symbol, candidate.lexicalScore, filePath);
       extras.push({ ...candidate, score });
@@ -2016,7 +2015,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       relevantClusters.add(clusterId);
     }
   }
-  if (intent === "task" && pivotQueryTerms.length > 0) {
+  if (pivotQueryTerms.length > 0) {
     const queryTermSet = new Set(pivotQueryTerms.map((t) => t.toLowerCase()));
     const topScore = packed.reduce((max, n) => Math.max(max, n.score), 0);
     const before = packed.length;

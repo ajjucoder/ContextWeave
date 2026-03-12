@@ -1,11 +1,8 @@
 import type { ParsedFrameworkCall, ParsedSymbol } from "../../core/types.js";
 import type { FrameworkResolveContext, FrameworkTracePlugin } from "../types.js";
+import { lineNumberForOffset } from "../utils.js";
 
 const ACTIX_ROUTE_RE = /#\[(?:get|post|put|patch|delete|options)\s*\(\s*"([^"]+)"\s*\)\]/g;
-
-function lineNumberForOffset(source: string, startLine: number, offset: number): number {
-  return startLine + source.slice(0, offset).split("\n").length - 1;
-}
 
 function extractAxumMethod(routeCall: string): string {
   const match = routeCall.match(/\b(get|post|put|patch|delete|options)\s*\(/);
@@ -56,7 +53,7 @@ export const axumFrameworkPlugin: FrameworkTracePlugin = {
           callerSymbol: symbol.name,
           targetName: symbol.name,
           line,
-          framework: "axum_route",
+          framework: "actix_route",
           httpMethod,
           routePath,
         });
@@ -67,7 +64,7 @@ export const axumFrameworkPlugin: FrameworkTracePlugin = {
   },
 
   supports(call: ParsedFrameworkCall): boolean {
-    return call.framework === "axum_route";
+    return call.framework === "axum_route" || call.framework === "actix_route";
   },
 
   resolveTargets(call: ParsedFrameworkCall, context: FrameworkResolveContext): number[] {

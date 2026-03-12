@@ -1,11 +1,8 @@
 import type { ParsedFrameworkCall, ParsedSymbol } from "../../core/types.js";
 import type { FrameworkResolveContext, FrameworkTracePlugin } from "../types.js";
+import { lineNumberForOffset } from "../utils.js";
 
 const GIN_ROUTE_RE = /(?:r|e|router|group)\s*\.\s*(GET|POST|PUT|PATCH|DELETE|Any|Handle)\s*\(\s*"([^"]+)"\s*,\s*([A-Za-z_][\w.]*)/g;
-
-function lineNumberForOffset(source: string, startLine: number, offset: number): number {
-  return startLine + source.slice(0, offset).split("\n").length - 1;
-}
 
 export const ginFrameworkPlugin: FrameworkTracePlugin = {
   id: "gin",

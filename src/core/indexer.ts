@@ -774,7 +774,10 @@ function resolveEdges(
 
     const importedClassIds = new Set<number>();
     for (const [, ids] of importedTargetsByName) {
-      for (const id of ids) importedClassIds.add(id);
+      for (const id of ids) {
+        const s = symbols.getById(id);
+        if (s && (s.kind === "class" || s.kind === "interface")) importedClassIds.add(id);
+      }
     }
 
     const callerRecord = fileSymbolsById.get(callerId);

@@ -116,6 +116,17 @@ describe("ActiveLspBridge", () => {
     expect(stats.errors).toBe(0);
   });
 
+  it("getStats lspHits + fallbacks + errors equals totalRequests (accounting completeness)", async () => {
+    const b = new ActiveLspBridge([{ language: "typescript", binary: "typescript-language-server" }]);
+    await b.resolveDefinitions(["x", "y", "z"]);
+    await b.getReferences("w");
+    const stats = b.getStats();
+    expect(stats.lspHits + stats.fallbacks + stats.errors).toBe(stats.totalRequests);
+    expect(stats.totalRequests).toBe(4);
+    expect(stats.fallbacks).toBe(4);
+    expect(stats.lspHits).toBe(0);
+  });
+
   it("shutdown does not throw", () => {
     expect(() => bridge.shutdown()).not.toThrow();
   });

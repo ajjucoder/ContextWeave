@@ -1,11 +1,8 @@
 import type { ParsedFrameworkCall, ParsedSymbol } from "../../core/types.js";
 import type { FrameworkResolveContext, FrameworkTracePlugin } from "../types.js";
+import { lineNumberForOffset } from "../utils.js";
 
 const LARAVEL_ROUTE_RE = /Route\s*::\s*(get|post|put|patch|delete|any|match)\s*\(\s*["']([^"']+)["']\s*,\s*(?:\[([A-Za-z\\]+)\s*,\s*["']([A-Za-z_][\w]*)["']\]|["']([A-Za-z\\@]+)["'])/g;
-
-function lineNumberForOffset(source: string, startLine: number, offset: number): number {
-  return startLine + source.slice(0, offset).split("\n").length - 1;
-}
 
 export const laravelFrameworkPlugin: FrameworkTracePlugin = {
   id: "laravel",

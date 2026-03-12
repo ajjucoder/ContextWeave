@@ -1,5 +1,6 @@
 import type { ParsedFrameworkCall, ParsedSymbol } from "../../core/types.js";
 import type { FrameworkResolveContext, FrameworkTracePlugin } from "../types.js";
+import { lineNumberForOffset } from "../utils.js";
 
 const ASPNET_ATTR_RE = /\[(HttpGet|HttpPost|HttpPut|HttpDelete|HttpPatch|Route)\s*(?:\(\s*["']([^"']+)["'])?\s*\]/g;
 
@@ -11,10 +12,6 @@ const METHOD_MAP: Record<string, string> = {
   HttpPatch: "PATCH",
   Route: "ANY",
 };
-
-function lineNumberForOffset(source: string, startLine: number, offset: number): number {
-  return startLine + source.slice(0, offset).split("\n").length - 1;
-}
 
 export const aspnetFrameworkPlugin: FrameworkTracePlugin = {
   id: "aspnet",

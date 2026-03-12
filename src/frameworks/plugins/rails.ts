@@ -1,11 +1,8 @@
 import type { ParsedFrameworkCall, ParsedSymbol } from "../../core/types.js";
 import type { FrameworkResolveContext, FrameworkTracePlugin } from "../types.js";
+import { lineNumberForOffset } from "../utils.js";
 
 const RAILS_ROUTE_RE = /(?:get|post|put|patch|delete|resources?|namespace)\s+["']([^"']+)["']\s*(?:,\s*to:\s*["']([^"']+)["'])?/g;
-
-function lineNumberForOffset(source: string, startLine: number, offset: number): number {
-  return startLine + source.slice(0, offset).split("\n").length - 1;
-}
 
 function extractControllerAction(toStr: string): { controller: string; action: string } | null {
   const parts = toStr.split("#");

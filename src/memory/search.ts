@@ -70,6 +70,8 @@ function isBroadNaturalQuery(query: string): boolean {
 export class MemorySearch {
   private readonly store: ObservationStore;
   private readonly db: Database.Database;
+  private stmtCheckExisting: Database.Statement | null = null;
+  private stmtLatestSession: Database.Statement | null = null;
 
   constructor(db: Database.Database) {
     this.store = new ObservationStore(db);
@@ -98,16 +100,12 @@ export class MemorySearch {
 
     const note = `capsule for "${input.query}" included: ${fileList}`;
 
-    const existing = this.db
-      .prepare("SELECT id FROM observations WHERE note = ? AND archived = 0 LIMIT 1")
-      .get(note);
+    this.stmtCheckExisting ??= this.db.prepare("SELECT id FROM observations WHERE note = ? AND archived = 0 LIMIT 1");
+    const existing = this.stmtCheckExisting.get(note);
     if (existing) return;
 
-    // Observations require a valid session_id FK. Use the most recent session,
-    // or skip if none exists (e.g. during early init).
-    const sessionRow = this.db
-      .prepare("SELECT id FROM sessions ORDER BY started_at DESC LIMIT 1")
-      .get() as { id: string } | undefined;
+    this.stmtLatestSession ??= this.db.prepare("SELECT id FROM sessions ORDER BY started_at DESC LIMIT 1");
+    const sessionRow = this.stmtLatestSession.get() as { id: string } | undefined;
     if (!sessionRow) return;
 
     const now = Date.now();

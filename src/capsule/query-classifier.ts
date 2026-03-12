@@ -81,19 +81,12 @@ const IMPLEMENTATION_KEYWORDS = new Set([
   "optimize", "migrate", "remove", "delete", "extract",
 ]);
 
-// camelCase or PascalCase single-token heuristic
 const CAMEL_OR_PASCAL_RE = /^[a-zA-Z_$][a-zA-Z0-9_$]*[A-Z][a-zA-Z0-9_$]*$/;
 const IDENTIFIER_ONLY_RE = /^[a-zA-Z_$][a-zA-Z0-9_$]*$/;
 
-// ---------------------------------------------------------------------------
-// Code-pattern detection
-// ---------------------------------------------------------------------------
-
 interface PatternSpec {
   label: string;
-  /** Terms that trigger this pattern when any match */
   triggerTerms: string[];
-  /** Negative patterns for result filtering (symbol names to exclude) */
   negativeNameFragments: string[];
 }
 
@@ -160,10 +153,6 @@ const CODE_PATTERNS: PatternSpec[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Tokenisation helpers
-// ---------------------------------------------------------------------------
-
 function tokenize(query: string): string[] {
   return query
     .replace(/[^a-zA-Z0-9_\s]/g, " ")
@@ -180,10 +169,6 @@ function uniq<T>(arr: T[]): T[] {
 function isSignalToken(token: string): boolean {
   return /[A-Z]/.test(token) || token.includes("_") || token.length >= 7;
 }
-
-// ---------------------------------------------------------------------------
-// Pattern detection
-// ---------------------------------------------------------------------------
 
 function detectCodePatterns(terms: string[], rawQuery: string): { labels: string[]; negativePatterns: RegExp[] } {
   const queryLower = rawQuery.toLowerCase();
@@ -209,10 +194,6 @@ function detectCodePatterns(terms: string[], rawQuery: string): { labels: string
   return { labels, negativePatterns };
 }
 
-// ---------------------------------------------------------------------------
-// Intent classification
-// ---------------------------------------------------------------------------
-
 function classifyIntent(
   terms: string[],
   rawQuery: string,
@@ -220,47 +201,35 @@ function classifyIntent(
 ): QueryIntent {
   const trimmed = rawQuery.trim();
 
-  // Single identifier (no spaces) → symbol lookup
   if (!trimmed.includes(" ") && IDENTIFIER_ONLY_RE.test(trimmed)) {
     return "symbol_lookup";
   }
 
-  // camelCase/PascalCase token among terms → likely a symbol name
   const rawTerms = rawQuery.split(/\s+/);
   if (rawTerms.length <= 2 && rawTerms.some((t) => CAMEL_OR_PASCAL_RE.test(t))) {
     return "symbol_lookup";
   }
 
-  // Flow trace: explicit trace/propagation/call-chain language
   if (terms.some((t) => FLOW_KEYWORDS.has(t))) {
     return "flow_trace";
   }
 
-  // Implementation: action-verb intent takes priority over architectural
-  // (e.g. "refactor the database query layer" → implementation, not architectural)
   if (terms.some((t) => IMPLEMENTATION_KEYWORDS.has(t))) {
     return "implementation";
   }
 
-  // Architectural: high-level structure keywords
   if (terms.some((t) => ARCHITECTURAL_KEYWORDS.has(t))) {
     return "architectural";
   }
 
-  // Conceptual: explain/understand/concept with question words
   if (hasQuestionWord || terms.some((t) => CONCEPTUAL_KEYWORDS.has(t))) {
     if (terms.length <= 3) return "conceptual";
     return "broad";
   }
 
-  // Default to broad for longer multi-term queries
   if (terms.length >= 4) return "broad";
   return "conceptual";
 }
-
-// ---------------------------------------------------------------------------
-// Retrieval strategy factory
-// ---------------------------------------------------------------------------
 
 const STRATEGIES: Record<QueryIntent, RetrievalStrategy> = {
   symbol_lookup: {
@@ -324,10 +293,6 @@ const STRATEGIES: Record<QueryIntent, RetrievalStrategy> = {
     budgetMultiplier: 2.0,
   },
 };
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
 
 export function classifyQuery(query: string): ClassifiedQuery {
   const rawTerms = tokenize(query);

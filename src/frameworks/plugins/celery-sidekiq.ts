@@ -1,14 +1,11 @@
 import type { ParsedFrameworkCall, ParsedSymbol } from "../../core/types.js";
 import type { FrameworkResolveContext, FrameworkTracePlugin } from "../types.js";
+import { lineNumberForOffset } from "../utils.js";
 
 const CELERY_TASK_RE = /@(?:shared_task|app\.task|celery\.task)(?:\([^)]*\))?/g;
 const CELERY_DELAY_RE = /([A-Za-z_][\w]*)\s*\.\s*(?:delay|apply_async)\s*\(/g;
 const SIDEKIQ_PERFORM_ASYNC_RE = /([A-Za-z_][\w]*)\s*\.\s*perform_async\s*\(/g;
 const SIDEKIQ_PERFORM_RE = /def\s+perform\s*\(/g;
-
-function lineNumberForOffset(source: string, startLine: number, offset: number): number {
-  return startLine + source.slice(0, offset).split("\n").length - 1;
-}
 
 export const celerySidekiqFrameworkPlugin: FrameworkTracePlugin = {
   id: "celery-sidekiq",

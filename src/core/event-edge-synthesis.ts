@@ -54,7 +54,7 @@ function extractRustTokioSenders(source: string): string[] {
   const sendRe = new RegExp(RUST_TOKIO_SEND_RE.source, RUST_TOKIO_SEND_RE.flags);
   for (const match of source.matchAll(sendRe)) {
     const name = match[1];
-    if (name) senders.push(normalizeChannel(name));
+    if (name && chanNames.has(name)) senders.push(normalizeChannel(name));
   }
   return senders;
 }

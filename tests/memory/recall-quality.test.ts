@@ -185,10 +185,11 @@ describe("MemorySearch — broad query OR logic", () => {
 
   it("does not expand short camelCase queries (not broad)", () => {
     const search = new MemorySearch(db);
-    // "authenticateUser" is camelCase — should NOT be treated as broad
-    const results = search.search("authenticateUser session manager", { limit: 20 });
-    // Just verify it doesn't throw and returns an array
+    const allResults = search.search("auth", { limit: 20 });
+    const totalObservations = allResults.length;
+    const results = search.search("authenticateUser", { limit: 20 });
     expect(Array.isArray(results)).toBe(true);
+    expect(results.length).toBeLessThan(totalObservations);
   });
 });
 

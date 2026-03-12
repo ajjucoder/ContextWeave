@@ -113,14 +113,14 @@ describe("pre-pack symbol relevance gate (filterCandidatesBySymbolRelevance)", (
     expect(result.content).toContain("generateCapsule");
   });
 
-  it("does not apply relevance gate for broad queries", () => {
+  it("does not apply relevance gate for broad queries (more symbols than narrow focused query)", () => {
     const broad = generateCapsule(db, {
-      query: "capsule generation pipeline symbols indexer candidates",
+      query: "capsule generation pipeline symbols indexer candidates scorer formatter",
       tokenBudget: 8000,
       mode: "feature",
     });
     const narrow = generateCapsule(db, {
-      query: "capsule generation pipeline symbols indexer candidates",
+      query: "generateCapsule",
       tokenBudget: 8000,
       mode: "feature",
     });
