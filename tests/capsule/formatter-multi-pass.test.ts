@@ -108,3 +108,71 @@ describe("formatCapsule multi-pass rendering", () => {
     expect(output).toContain("Uncertainty:");
   });
 });
+
+describe("formatCapsule confidence tier labels", () => {
+  function makeMetadataWithConfidence(coverageConfidence: number): CapsuleMetadata {
+    return {
+      ...createMetadata(),
+      quality: {
+        ...createMetadata().quality,
+        coverageConfidence,
+      },
+    };
+  }
+
+  it("shows LOW for coverage confidence below 0.45", () => {
+    const file = createFile(1, "src/a.ts");
+    const nodes: ScoredNode[] = [
+      { symbol: createSymbol(1, 1, "fn"), file, score: 0.5, distance: 0, compressionLevel: 0, rendered: "fn", tokenCount: 10 },
+    ];
+    const output = formatCapsule(nodes, [], makeMetadataWithConfidence(0.3), []);
+    expect(output).toContain("Confidence: LOW");
+  });
+
+  it("shows MEDIUM for coverage confidence in [0.45, 0.75)", () => {
+    const file = createFile(1, "src/a.ts");
+    const nodes: ScoredNode[] = [
+      { symbol: createSymbol(1, 1, "fn"), file, score: 0.5, distance: 0, compressionLevel: 0, rendered: "fn", tokenCount: 10 },
+    ];
+    const output = formatCapsule(nodes, [], makeMetadataWithConfidence(0.6), []);
+    expect(output).toContain("Confidence: MEDIUM");
+  });
+
+  it("shows HIGH for coverage confidence >= 0.75", () => {
+    const file = createFile(1, "src/a.ts");
+    const nodes: ScoredNode[] = [
+      { symbol: createSymbol(1, 1, "fn"), file, score: 0.5, distance: 0, compressionLevel: 0, rendered: "fn", tokenCount: 10 },
+    ];
+    const output = formatCapsule(nodes, [], makeMetadataWithConfidence(0.8), []);
+    expect(output).toContain("Confidence: HIGH");
+  });
+});
+
+describe("formatCapsule previously-covered footer", () => {
+  it("renders a single footer line for omitted symbols instead of inline markers", () => {
+    const file = createFile(1, "src/a.ts");
+    const nodes: ScoredNode[] = [
+      { symbol: createSymbol(1, 1, "fn"), file, score: 0.5, distance: 0, compressionLevel: 0, rendered: "fn", tokenCount: 10 },
+    ];
+    const metadata: CapsuleMetadata = {
+      ...createMetadata(),
+      previouslyCovered: ["oldFn", "anotherFn"],
+    };
+    const output = formatCapsule(nodes, [], metadata, []);
+    expect(output).toContain("2 symbols from prior capsules omitted");
+    expect(output).not.toContain("[previously shown]");
+  });
+
+  it("omits the footer line when previouslyCovered is empty", () => {
+    const file = createFile(1, "src/a.ts");
+    const nodes: ScoredNode[] = [
+      { symbol: createSymbol(1, 1, "fn"), file, score: 0.5, distance: 0, compressionLevel: 0, rendered: "fn", tokenCount: 10 },
+    ];
+    const metadata: CapsuleMetadata = {
+      ...createMetadata(),
+      previouslyCovered: [],
+    };
+    const output = formatCapsule(nodes, [], metadata, []);
+    expect(output).not.toContain("symbols from prior capsules omitted");
+  });
+});

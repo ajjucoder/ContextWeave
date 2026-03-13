@@ -111,7 +111,7 @@ describe("formatCapsule — follow-up hints", () => {
     expect(result).not.toContain("Follow-Up Reads");
   });
 
-  it("limits follow-up hints to 5 entries max", () => {
+  it("limits follow-up hints to 4 entries max", () => {
     const nodes = Array.from({ length: 8 }, (_, i) =>
       makeNode({
         compressionLevel: 1,
@@ -136,7 +136,7 @@ describe("formatCapsule — follow-up hints", () => {
 
     const result = formatCapsule(nodes, [], makeMetadata());
     const matches = result.match(/cw_read\(/g) ?? [];
-    expect(matches.length).toBe(5);
+    expect(matches.length).toBe(4);
   });
 
   it("includes line count and score in follow-up hints", () => {

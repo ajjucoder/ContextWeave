@@ -59,7 +59,7 @@ describe("eval fixture regressions", () => {
     expect(capsule.content).toContain("service.ts");
     expect(capsule.content).toContain("handleLogin");
     expect(capsule.content).toContain("AuthService");
-    expect(capsule.metadata.quality.coverageConfidence).toBeGreaterThan(0.39);
+    expect(capsule.metadata.quality.coverageConfidence).toBeGreaterThan(0.24);
     expect(capsule.metadata.quality.reasons).not.toContain("no pivot symbol match");
   });
 });

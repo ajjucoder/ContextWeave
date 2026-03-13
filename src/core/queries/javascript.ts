@@ -115,4 +115,11 @@ export const jsxUsages = `
   (jsx_expression
     (member_expression
       property: (property_identifier) @prop_value))) @jsx_prop
+
+(jsx_attribute
+  (property_identifier) @prop_name
+  (jsx_expression
+    (arrow_function
+      body: (call_expression
+        function: (identifier) @prop_value)))) @jsx_prop
 `;

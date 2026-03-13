@@ -4,6 +4,10 @@ import { runMigrations } from "../../src/db/migrations.js";
 import { MemorySearch } from "../../src/memory/search.js";
 import { observationQueries } from "../../src/db/queries/observations.js";
 import { BM25Index } from "../../src/memory/bm25.js";
+import { fileQueries } from "../../src/db/queries/files.js";
+import { resolveFilePath } from "../../src/mcp/tools/read.js";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 let db: Database.Database;
 
@@ -362,5 +366,76 @@ describe("expandQueryWithSynonyms — coverage spot checks", () => {
     expect(expanded).toContain("function");
     expect(expanded).toContain("class");
     expect(expanded).toContain("variable");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveFilePath — multi-strategy path resolution
+// ---------------------------------------------------------------------------
+
+describe("resolveFilePath — multi-strategy resolution", () => {
+  function makeDb(): { db: Database.Database; projectRoot: string } {
+    const projectRoot = tmpdir();
+    const testDb = new Database(":memory:");
+    runMigrations(testDb);
+    const files = fileQueries(testDb);
+    files.insert({
+      path: "src/lib/ratelimit.ts",
+      hash: "abc",
+      lastIndexed: Date.now(),
+      mtime: Date.now(),
+      language: "typescript",
+      symbolCount: 5,
+      error: null,
+    });
+    files.insert({
+      path: "src/auth/token.ts",
+      hash: "def",
+      lastIndexed: Date.now(),
+      mtime: Date.now(),
+      language: "typescript",
+      symbolCount: 3,
+      error: null,
+    });
+    return { db: testDb, projectRoot };
+  }
+
+  it("resolves exact relative path stored in DB", () => {
+    const { db, projectRoot } = makeDb();
+    const result = resolveFilePath("src/lib/ratelimit.ts", projectRoot, db);
+    expect(result).toBeTruthy();
+    expect(result).toContain("ratelimit.ts");
+    db.close();
+  });
+
+  it("resolves suffix path — capsule outputs 'lib/ratelimit.ts' but DB has 'src/lib/ratelimit.ts'", () => {
+    const { db, projectRoot } = makeDb();
+    const result = resolveFilePath("lib/ratelimit.ts", projectRoot, db);
+    expect(result).toBeTruthy();
+    expect(result).toContain("ratelimit.ts");
+    db.close();
+  });
+
+  it("resolves bare filename suffix — 'ratelimit.ts' matches 'src/lib/ratelimit.ts'", () => {
+    const { db, projectRoot } = makeDb();
+    const result = resolveFilePath("ratelimit.ts", projectRoot, db);
+    expect(result).toBeTruthy();
+    expect(result).toContain("ratelimit.ts");
+    db.close();
+  });
+
+  it("resolves path with src/ prefix explicitly provided", () => {
+    const { db, projectRoot } = makeDb();
+    const result = resolveFilePath("src/auth/token.ts", projectRoot, db);
+    expect(result).toBeTruthy();
+    expect(result).toContain("token.ts");
+    db.close();
+  });
+
+  it("returns null for a path not in DB and not on filesystem", () => {
+    const { db, projectRoot } = makeDb();
+    const result = resolveFilePath("nonexistent/totally-fake.ts", projectRoot, db);
+    expect(result).toBeNull();
+    db.close();
   });
 });

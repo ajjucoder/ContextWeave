@@ -125,7 +125,7 @@ describe("computeCoverageConfidence — escape hatch removal", () => {
     expect(conf).toBeLessThanOrEqual(0.62);
   });
 
-  it("confidence never exceeds 0.75 when utilization is at boundary (0.60)", () => {
+  it("confidence at tokenUtilization 0.60 is uncapped by utilization gate", () => {
     const conf = computeCoverageConfidence({
       ...BASE_PARAMS,
       intent: "feature",
@@ -133,7 +133,14 @@ describe("computeCoverageConfidence — escape hatch removal", () => {
       pivotCount: 5,
       pivotsIncluded: 5,
     });
-    expect(conf).toBeLessThanOrEqual(0.90);
+    const cappedConf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "feature",
+      tokenUtilization: 0.59,
+      pivotCount: 5,
+      pivotsIncluded: 5,
+    });
+    expect(conf).toBeGreaterThan(cappedConf);
   });
 
   it("confidence never exceeds 0.90 when pivotCoverage <= 0.60", () => {
@@ -145,6 +152,239 @@ describe("computeCoverageConfidence — escape hatch removal", () => {
       pivotsIncluded: 5,
     });
     expect(conf).toBeLessThanOrEqual(0.90);
+  });
+});
+
+describe("computeCoverageConfidence — graduated utilization caps", () => {
+  it("15% utilization caps at 0.30 (tier 1: < 0.20)", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "narrow",
+      tokenUtilization: 0.15,
+    });
+    expect(conf).toBeLessThanOrEqual(0.30);
+  });
+
+  it("25% utilization caps at 0.40 (tier 2: < 0.30)", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "narrow",
+      tokenUtilization: 0.25,
+      pivotCount: 5,
+      pivotsIncluded: 5,
+    });
+    expect(conf).toBeLessThanOrEqual(0.40);
+  });
+
+  it("35% utilization caps at 0.50 (tier 3: < 0.40)", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "narrow",
+      tokenUtilization: 0.35,
+      pivotCount: 5,
+      pivotsIncluded: 5,
+    });
+    expect(conf).toBeLessThanOrEqual(0.50);
+  });
+
+  it("45% utilization caps at 0.60 (tier 4: < 0.50)", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "narrow",
+      tokenUtilization: 0.45,
+      pivotCount: 5,
+      pivotsIncluded: 5,
+    });
+    expect(conf).toBeLessThanOrEqual(0.60);
+  });
+
+  it("55% utilization caps at 0.70 (tier 5: < 0.60)", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "narrow",
+      tokenUtilization: 0.55,
+      pivotCount: 5,
+      pivotsIncluded: 5,
+    });
+    expect(conf).toBeLessThanOrEqual(0.70);
+  });
+
+  it("graduated caps apply to broad intent (no intent-gated bypass)", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "broad",
+      tokenUtilization: 0.25,
+      pivotCount: 5,
+      pivotsIncluded: 5,
+    });
+    expect(conf).toBeLessThanOrEqual(0.40);
+  });
+
+  it("graduated caps apply to task intent (no intent-gated bypass)", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "task",
+      tokenUtilization: 0.35,
+      pivotCount: 5,
+      pivotsIncluded: 5,
+    });
+    expect(conf).toBeLessThanOrEqual(0.50);
+  });
+});
+
+describe("computeCoverageConfidence — pivot coverage gate (all intents)", () => {
+  it("pivotCoverage 0.20 caps at 0.45 for narrow intent", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "narrow",
+      tokenUtilization: 0.90,
+      pivotCount: 10,
+      pivotsIncluded: 2,
+    });
+    expect(conf).toBeLessThanOrEqual(0.45);
+  });
+
+  it("pivotCoverage 0.20 caps at 0.45 for broad intent", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "broad",
+      tokenUtilization: 0.90,
+      pivotCount: 10,
+      pivotsIncluded: 2,
+    });
+    expect(conf).toBeLessThanOrEqual(0.45);
+  });
+
+  it("pivotCoverage 0.20 caps at 0.45 for task intent", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "task",
+      tokenUtilization: 0.90,
+      pivotCount: 10,
+      pivotsIncluded: 2,
+    });
+    expect(conf).toBeLessThanOrEqual(0.45);
+  });
+
+  it("pivotCoverage 0.40 caps at 0.60 (tier 2: < 0.50)", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "narrow",
+      tokenUtilization: 0.90,
+      pivotCount: 10,
+      pivotsIncluded: 4,
+    });
+    expect(conf).toBeLessThanOrEqual(0.60);
+  });
+
+  it("pivotCoverage 0.65 caps at 0.80 (tier 3: < 0.70)", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "narrow",
+      tokenUtilization: 0.90,
+      pivotCount: 20,
+      pivotsIncluded: 13,
+    });
+    expect(conf).toBeLessThanOrEqual(0.80);
+  });
+
+  it("pivotCoverage 0.80 has no pivot coverage cap", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "narrow",
+      tokenUtilization: 0.90,
+      pivotCount: 10,
+      pivotsIncluded: 8,
+      relevantPivotsIncluded: 4,
+      totalRelevantPivots: 4,
+    });
+    expect(conf).toBeGreaterThan(0.60);
+  });
+});
+
+describe("computeCoverageConfidence — query-term validation", () => {
+  it("drops confidence when no query terms match packed symbol names (narrow)", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "narrow",
+      tokenUtilization: 0.80,
+      pivotCount: 5,
+      pivotsIncluded: 5,
+      relevantPivotsIncluded: 4,
+      totalRelevantPivots: 4,
+      packedSymbolNames: ["unrelatedFoo", "barBaz", "quxQuux"],
+      queryTerms: ["userservice", "auth", "login"],
+    });
+    expect(conf).toBeLessThanOrEqual(0.50);
+  });
+
+  it("does not drop confidence when query terms match packed symbol names", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "narrow",
+      tokenUtilization: 0.80,
+      pivotCount: 5,
+      pivotsIncluded: 5,
+      relevantPivotsIncluded: 4,
+      totalRelevantPivots: 4,
+      packedSymbolNames: ["userService", "authLogin", "loginHandler"],
+      queryTerms: ["user", "login"],
+    });
+    expect(conf).toBeGreaterThan(0.50);
+  });
+
+  it("query-term validation skips broad intent even when no terms match", () => {
+    const noTermsConf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "broad",
+      tokenUtilization: 0.80,
+      pivotCount: 5,
+      pivotsIncluded: 5,
+      relevantPivotsIncluded: 4,
+      totalRelevantPivots: 4,
+      packedSymbolNames: ["unrelatedFoo", "barBaz"],
+      queryTerms: ["completely", "different", "terms"],
+    });
+    const withTermsConf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "broad",
+      tokenUtilization: 0.80,
+      pivotCount: 5,
+      pivotsIncluded: 5,
+      relevantPivotsIncluded: 4,
+      totalRelevantPivots: 4,
+    });
+    expect(noTermsConf).toBeGreaterThan(0.50);
+    expect(noTermsConf).toBeCloseTo(withTermsConf, 2);
+  });
+
+  it("query-term validation is skipped when packedSymbolNames is absent", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "narrow",
+      tokenUtilization: 0.80,
+      pivotCount: 5,
+      pivotsIncluded: 5,
+      relevantPivotsIncluded: 4,
+      totalRelevantPivots: 4,
+      queryTerms: ["unmatched", "terms"],
+    });
+    expect(conf).toBeGreaterThan(0.50);
+  });
+
+  it("query-term validation handles camelCase symbol names via tokenization", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "narrow",
+      tokenUtilization: 0.80,
+      pivotCount: 5,
+      pivotsIncluded: 5,
+      relevantPivotsIncluded: 4,
+      totalRelevantPivots: 4,
+      packedSymbolNames: ["computeCoverageConfidence", "buildUncertainty"],
+      queryTerms: ["compute", "coverage"],
+    });
+    expect(conf).toBeGreaterThan(0.50);
   });
 });
 

@@ -1164,6 +1164,10 @@ function parseJsLikeModuleImports(tree: Parser.Tree, content: string): ParsedImp
   return imports;
 }
 
+function isCallbackProp(propName: string): boolean {
+  return /^on[A-Z]|^handle|^callback|^ref$/i.test(propName);
+}
+
 function parseCalls(
   tree: Parser.Tree,
   language: string,
@@ -1272,7 +1276,7 @@ function parseCalls(
             const callLine = propValueCapture.node.startPosition.row + 1;
             if (callLine < symbol.startLine || callLine > symbol.endLine) continue;
             const propName = propNameCapture?.node.text ?? "";
-            if (!/^on[A-Z]|^handle|^callback|^ref$/i.test(propName)) continue;
+            if (!isCallbackProp(propName)) continue;
             const rawName = propValueCapture.node.text;
             const name = rawName.includes(".") ? rawName.split(".").pop()! : rawName;
             const key = `${symbol.name}:${name}:callback`;

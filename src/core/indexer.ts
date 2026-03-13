@@ -50,6 +50,7 @@ export const BUILTIN_IGNORE_PATTERNS = [
   ".contextweave",
   "coverage",
   "__pycache__",
+  ".mypy_cache",
   ".turbo",
   ".cache",
   "venv",

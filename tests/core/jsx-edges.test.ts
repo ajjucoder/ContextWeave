@@ -152,3 +152,126 @@ export function Header() {
     }
   });
 });
+
+describe("JSX callback prop edge coverage", () => {
+  const CALLBACK_PROPS = ["onClick", "onChange", "onSubmit", "onPress", "onError", "onSuccess"] as const;
+
+  for (const prop of CALLBACK_PROPS) {
+    it(`creates callback edge for ${prop}={handler} in .tsx`, async () => {
+      const root = mkdtempSync(join(tmpdir(), `cw-jsx-prop-`));
+      mkdirSync(join(root, "src"), { recursive: true });
+
+      writeFileSync(
+        join(root, "src", "Widget.tsx"),
+        `export function handler() {}
+export function Widget() {
+  return <div ${prop}={handler} />;
+}
+`
+      );
+
+      const db = new Database(":memory:");
+      runMigrations(db);
+
+      try {
+        await indexProject(db, root);
+
+        const symbols = symbolQueries(db);
+        const edges = edgeQueries(db);
+
+        const widgetSym = symbols.getByName("Widget").find((s) => s.kind === "function");
+        expect(widgetSym).toBeDefined();
+
+        const handlerSym = symbols.getByName("handler").find((s) => s.kind === "function");
+        expect(handlerSym).toBeDefined();
+
+        const outgoing = edges.getBySource(widgetSym!.id);
+        const hasCallback = outgoing.some(
+          (e) => e.targetSymbolId === handlerSym!.id && e.kind === "callback"
+        );
+        expect(hasCallback).toBe(true);
+      } finally {
+        db.close();
+        rmSync(root, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it("creates callback edge for onClick={() => handler()} arrow wrapper in .tsx", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cw-jsx-arrow-"));
+    mkdirSync(join(root, "src"), { recursive: true });
+
+    writeFileSync(
+      join(root, "src", "Widget.tsx"),
+      `export function handler() {}
+export function Widget() {
+  return <div onClick={() => handler()} />;
+}
+`
+    );
+
+    const db = new Database(":memory:");
+    runMigrations(db);
+
+    try {
+      await indexProject(db, root);
+
+      const symbols = symbolQueries(db);
+      const edges = edgeQueries(db);
+
+      const widgetSym = symbols.getByName("Widget").find((s) => s.kind === "function");
+      expect(widgetSym).toBeDefined();
+
+      const handlerSym = symbols.getByName("handler").find((s) => s.kind === "function");
+      expect(handlerSym).toBeDefined();
+
+      const outgoing = edges.getBySource(widgetSym!.id);
+      const hasEdge = outgoing.some(
+        (e) => e.targetSymbolId === handlerSym!.id && (e.kind === "callback" || e.kind === "call")
+      );
+      expect(hasEdge).toBe(true);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("creates callback edge for onSubmit={handler} in .jsx file", async () => {
+    const root = mkdtempSync(join(tmpdir(), "cw-jsx-jsxfile-"));
+    mkdirSync(join(root, "src"), { recursive: true });
+
+    writeFileSync(
+      join(root, "src", "Form.jsx"),
+      `export function handleSubmit(e) { e.preventDefault(); }
+export function Form() {
+  return <form onSubmit={handleSubmit}><button>Submit</button></form>;
+}
+`
+    );
+
+    const db = new Database(":memory:");
+    runMigrations(db);
+
+    try {
+      await indexProject(db, root);
+
+      const symbols = symbolQueries(db);
+      const edges = edgeQueries(db);
+
+      const formSym = symbols.getByName("Form").find((s) => s.kind === "function");
+      expect(formSym).toBeDefined();
+
+      const handleSubmitSym = symbols.getByName("handleSubmit").find((s) => s.kind === "function");
+      expect(handleSubmitSym).toBeDefined();
+
+      const outgoing = edges.getBySource(formSym!.id);
+      const hasCallback = outgoing.some(
+        (e) => e.targetSymbolId === handleSubmitSym!.id && e.kind === "callback"
+      );
+      expect(hasCallback).toBe(true);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});

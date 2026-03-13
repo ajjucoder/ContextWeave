@@ -60,7 +60,7 @@ describe("field-style capsule ranking", () => {
       "createInquiry",
     ]);
     expectTextExcludes(result.content, ["InquiryHeroCard", "InquiryFaq"]);
-    expect(result.metadata.quality.coverageConfidence).toBeGreaterThan(0.35);
+    expect(result.metadata.quality.coverageConfidence).toBeGreaterThan(0.25);
     expect(result.metadata.quality.reasons).not.toContain("query term coverage below 60%");
     sitecraft.close();
   });

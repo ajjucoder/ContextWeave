@@ -1070,6 +1070,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const centralityHubThreshold = quantile(centralityValues, 0.9);
   const degreeHubThreshold = quantile(degreeValues, 0.9);
 
+  const isNoisyTestFile = (filePath: string): boolean => {
+    if (isTestFile(filePath)) return true;
+    const lower = filePath.toLowerCase().replaceAll("\\", "/");
+    return lower.includes("/mock") || lower.includes("/fixture") || lower.includes("/__mocks__/") || lower.includes("/fixtures/");
+  };
+
   for (const candidate of candidates) {
     const sameFileAsPivot = pivotFileIds.has(candidate.file.id);
     const normalizedPath = normalizeRetrievalPath(candidate.file.path, 6);
@@ -1085,7 +1091,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         ? actionSignal ? 0.82 : 0.58
         : 1;
     const testFilePenalty =
-      !queryLooksTestFocused && isTestFile(candidate.file.path) ? 0.5 : 1;
+      !queryLooksTestFocused && mode !== "debug" && isNoisyTestFile(candidate.file.path) ? 0.3 : 1;
     const localityBoost =
       (sameFileAsPivot ? 1.35 : sameDirAsPivot ? 1.2 : 1) *
       directoryWeight *
@@ -1141,12 +1147,32 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       candidate.score *= 0.4;
     }
 
-    if (mode !== "debug" && candidate.distance > 0 && !queryLooksTestFocused && isTestFile(candidate.file.path)) {
-      candidate.score *= 0.5;
+    if (mode !== "debug" && candidate.distance > 0 && !queryLooksTestFocused && isNoisyTestFile(candidate.file.path)) {
+      candidate.score *= 0.3;
     }
   }
 
   let ranked = [...candidates].sort((a, b) => b.score - a.score);
+
+  function filterCandidatesBySymbolRelevance(candidates: RankedCandidate[]): RankedCandidate[] {
+    if (intent === "broad" || allQueryTerms.length === 0 || candidates.length === 0) {
+      return candidates;
+    }
+    const queryTermSet = new Set(allQueryTerms.map((t) => t.toLowerCase()));
+    const topScore = candidates[0]?.score ?? 0;
+    return candidates.filter((candidate) => {
+      if (candidate.distance === 0) return true;
+      if (candidate.distance === 1) return true;
+      const nameTokens = tokenizeCoverageTerms(candidate.symbol.name);
+      const sigTokens = tokenizeCoverageTerms(candidate.symbol.signature ?? "");
+      const hasQueryOverlap = [...nameTokens, ...sigTokens].some((t) => queryTermSet.has(t));
+      const hasHighScore = topScore > 0 && candidate.score >= topScore * 0.35;
+      return hasQueryOverlap || hasHighScore;
+    });
+  }
+
+  ranked = filterCandidatesBySymbolRelevance(ranked);
+
   const hybridStrategy = {
     enabled: hybridSearchEnabled,
     applied: hybridSearchEnabled,
@@ -1265,7 +1291,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   }
 
   function ensureBroadFileSpread(selectedCandidates: RankedCandidate[]): RankedCandidate[] {
-    if (intent !== "broad" || tokenBudget < 9000 || selectedCandidates.length === 0) {
+    if (intent !== "broad" || tokenBudget < 4000 || selectedCandidates.length === 0) {
       return selectedCandidates;
     }
 
@@ -1345,7 +1371,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       augmented.push({
         symbol: bestSymbol.symbol,
         file,
-        score: bestSymbol.lexicalScore * 4 + computeQueryOverlap(bestSymbol.symbol.name) * 6 + bestSymbol.symbol.centrality * 1 + 0.25,
+        score: computeQueryOverlap(bestSymbol.symbol.name) * 6 + bestSymbol.lexicalScore * 5 + bestSymbol.symbol.centrality * 1 + 0.25,
         distance: 2,
         isPivot: false,
         lexicalScore: bestSymbol.lexicalScore,
@@ -1392,7 +1418,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   }
 
   function backfillWithinSelectedFiles(selectedCandidates: RankedCandidate[]): RankedCandidate[] {
-    if (intent !== "broad" || tokenBudget < 9000 || selectedCandidates.length >= 10) {
+    if (intent !== "broad" || tokenBudget < 4000 || selectedCandidates.length >= 10) {
       return selectedCandidates;
     }
 
@@ -1877,7 +1903,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       }
     }
 
-    if (tokensUsed < tokenBudget * 0.65 && candidates.length > selected.length) {
+    if (tokensUsed < tokenBudget * 0.75 && candidates.length > selected.length) {
       const topCandidateScore = ranked[0]?.score ?? 0;
       const scoreFloor = topCandidateScore * 0.3;
       const selectedIds = new Set(selected.map((c) => c.symbol.id));
@@ -2129,6 +2155,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       avgSymbolsPerFile,
       maxSymbolsPerFile,
     },
+    packedSymbolNames: packed.map((n) => n.symbol.name),
+    queryTerms: baseQueryTerms,
   });
   const effectiveCoverageConfidence = symbolNotFound
     ? Math.min(coverageConfidence, 0.44)

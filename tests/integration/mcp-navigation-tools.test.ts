@@ -171,7 +171,7 @@ describe("mcp navigation tools", () => {
     const result = await getTool(server, "cw_overview").handler({
       path: ".",
       depth: 2,
-      max_tokens: 1200,
+      max_tokens: 3000,
       query: "missingSymbol",
     });
 
@@ -179,7 +179,7 @@ describe("mcp navigation tools", () => {
     expect(result.isError).not.toBe(true);
     expect(text).toContain('Query Focus: "missingSymbol"');
     expect(text).not.toContain("No focused file matches found.");
-    expect(text).toContain("No exact symbol match found. Top files by relevance:");
+    expect(text).toContain("No files matched this query.");
     expect(text).toContain('cw_capsule(query: "missingSymbol")');
     expect(text).toContain('cw_grep(query: "missingSymbol")');
   });

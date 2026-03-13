@@ -99,3 +99,9 @@ export function isTestQuery(queryTerms: string[]): boolean {
   ]);
   return queryTerms.some((term) => TEST_QUERY_TERMS.has(term));
 }
+
+export function isRenderOnlyFile(symbols: ReadonlyArray<Pick<LightSymbolRecord, "kind">>): boolean {
+  if (symbols.length === 0) return false;
+  const SUBSTANTIVE_KINDS = new Set(["function", "class", "method"]);
+  return !symbols.some((s) => SUBSTANTIVE_KINDS.has(s.kind));
+}

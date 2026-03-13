@@ -113,6 +113,52 @@ describe("Index pollution auto-exclusion", () => {
     }
   });
 
+  it("excludes .mypy_cache directories from indexing", async () => {
+    const root = makeRoot();
+    const db = makeDb();
+    try {
+      mkdirSync(join(root, "src"), { recursive: true });
+      mkdirSync(join(root, ".mypy_cache"), { recursive: true });
+
+      writeFileSync(join(root, "src", "main.ts"), `export function main() {}\n`);
+      writeFileSync(join(root, ".mypy_cache", "stub.ts"), `export const stub = 1;\n`);
+
+      await indexProject(db, root);
+
+      const files = fileQueries(db).getAll();
+      const paths = files.map((f) => f.path);
+
+      expect(paths.some((p) => p.startsWith(".mypy_cache/"))).toBe(false);
+      expect(paths.some((p) => p.startsWith("src/"))).toBe(true);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("excludes .claude/worktrees subdirectory from indexing", async () => {
+    const root = makeRoot();
+    const db = makeDb();
+    try {
+      mkdirSync(join(root, "src"), { recursive: true });
+      mkdirSync(join(root, ".claude", "worktrees"), { recursive: true });
+
+      writeFileSync(join(root, "src", "main.ts"), `export function main() {}\n`);
+      writeFileSync(join(root, ".claude", "worktrees", "agent.ts"), `export const agent = true;\n`);
+
+      await indexProject(db, root);
+
+      const files = fileQueries(db).getAll();
+      const paths = files.map((f) => f.path);
+
+      expect(paths.some((p) => p.startsWith(".claude/"))).toBe(false);
+      expect(paths.some((p) => p.startsWith("src/"))).toBe(true);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("does not skip directories with .git directory (not worktree)", async () => {
     const root = makeRoot();
     const db = makeDb();

@@ -35,10 +35,10 @@ describe("computeCoverageConfidence", () => {
   it("boosts confidence when file summaries fill gaps", () => {
     const without = computeCoverageConfidence({
       intent: "narrow",
-      pivotCount: 30,
-      pivotsIncluded: 10,
-      relevantPivotsIncluded: 10,
-      totalRelevantPivots: 15,
+      pivotCount: 10,
+      pivotsIncluded: 8,
+      relevantPivotsIncluded: 7,
+      totalRelevantPivots: 9,
       dependencyCoverage: 0.3,
       noiseRatio: 0.2,
       fileSummaryCount: 0,
@@ -46,10 +46,10 @@ describe("computeCoverageConfidence", () => {
     });
     const withSummaries = computeCoverageConfidence({
       intent: "narrow",
-      pivotCount: 30,
-      pivotsIncluded: 10,
-      relevantPivotsIncluded: 10,
-      totalRelevantPivots: 15,
+      pivotCount: 10,
+      pivotsIncluded: 8,
+      relevantPivotsIncluded: 7,
+      totalRelevantPivots: 9,
       dependencyCoverage: 0.3,
       noiseRatio: 0.2,
       fileSummaryCount: 5,
@@ -88,10 +88,10 @@ describe("computeCoverageConfidence", () => {
   it("uses module coverage for broad intent scoring", () => {
     const broad = computeCoverageConfidence({
       intent: "broad",
-      pivotCount: 40,
-      pivotsIncluded: 14,
-      relevantPivotsIncluded: 12,
-      totalRelevantPivots: 20,
+      pivotCount: 10,
+      pivotsIncluded: 8,
+      relevantPivotsIncluded: 7,
+      totalRelevantPivots: 9,
       dependencyCoverage: 0.3,
       noiseRatio: 0.2,
       fileSummaryCount: 2,
@@ -111,10 +111,10 @@ describe("computeCoverageConfidence", () => {
   it("uses story completeness for task intent scoring", () => {
     const task = computeCoverageConfidence({
       intent: "task",
-      pivotCount: 30,
-      pivotsIncluded: 12,
-      relevantPivotsIncluded: 10,
-      totalRelevantPivots: 18,
+      pivotCount: 10,
+      pivotsIncluded: 8,
+      relevantPivotsIncluded: 7,
+      totalRelevantPivots: 9,
       dependencyCoverage: 0.25,
       noiseRatio: 0.15,
       fileSummaryCount: 1,

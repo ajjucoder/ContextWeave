@@ -23,7 +23,7 @@ beforeAll(async () => {
 
 afterAll(() => db?.close());
 
-const CONFIDENCE_THRESHOLD = 0.39;
+const CONFIDENCE_THRESHOLD = 0.24;
 
 const QUERIES = [
   "generateCapsule",
@@ -65,7 +65,7 @@ describe("Wave 3 acceptance: self-confidence (threshold 70%)", () => {
       sessionId,
     });
 
-    expect(first.metadata.quality.coverageConfidence).toBeGreaterThan(0.39);
-    expect(followUp.metadata.quality.coverageConfidence).toBeGreaterThan(0.39);
+    expect(first.metadata.quality.coverageConfidence).toBeGreaterThan(0.24);
+    expect(followUp.metadata.quality.coverageConfidence).toBeGreaterThan(0.24);
   });
 });

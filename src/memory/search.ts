@@ -27,8 +27,7 @@ export interface AutoPopulateInput {
 
 const PASSIVE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Minimum confidence for a capsule result to auto-seed an observation. */
-const AUTO_POPULATE_CONFIDENCE_THRESHOLD = 0.70;
+const AUTO_POPULATE_CONFIDENCE_THRESHOLD = 0.65;
 
 const SCOPE_WEIGHTS: Record<string, number> = {
   architecture: 3.0,
@@ -87,18 +86,17 @@ export class MemorySearch {
     this.store.rebuildBm25IfEmpty();
   }
 
-  /**
-   * Auto-populate a passive observation from a high-confidence capsule result.
-   * Only fires when capsuleConfidence >= AUTO_POPULATE_CONFIDENCE_THRESHOLD.
-   * Skips if an identical note already exists (dedup by note text).
-   */
   autoPopulateFromCapsule(input: AutoPopulateInput): void {
     if (input.confidence < AUTO_POPULATE_CONFIDENCE_THRESHOLD) return;
 
     const fileList = input.filesIncluded.slice(0, 5).join(", ");
     if (!fileList) return;
 
-    const note = `capsule for "${input.query}" included: ${fileList}`;
+    const scope = "passive";
+    const symbolSuffix = input.symbolsIncluded.length > 0
+      ? `; symbols: ${input.symbolsIncluded.slice(0, 4).join(", ")}`
+      : "";
+    const note = `capsule for "${input.query}" included: ${fileList}${symbolSuffix}`;
 
     this.stmtCheckExisting ??= this.db.prepare("SELECT id FROM observations WHERE note = ? AND archived = 0 LIMIT 1");
     const existing = this.stmtCheckExisting.get(note);
@@ -114,7 +112,7 @@ export class MemorySearch {
       agentId: "capsule-auto",
       symbolId: null,
       fileId: null,
-      scope: "passive",
+      scope,
       note,
       confidence: Math.min(input.confidence, 0.6),
       createdAt: now,
@@ -143,6 +141,8 @@ export class MemorySearch {
     const { scope, includeStale = false, includePassive = true } = options;
     const allObs = this.getAllActiveObservations();
     const queryLower = query.toLowerCase();
+    const queryTerms = queryLower.split(/\s+/).filter((t) => t.length >= 3);
+    const expandedTerms = expandQueryWithSynonyms(queryTerms);
     const scored: ScoredObservation[] = [];
 
     for (const obs of allObs) {
@@ -156,10 +156,15 @@ export class MemorySearch {
       if (noteLower.includes(queryLower)) {
         textScore = 0.9;
       } else {
-        textScore = trigramSimilarity(query, obs.note);
+        const matchingTerms = expandedTerms.filter((t) => noteLower.includes(t));
+        if (matchingTerms.length > 0) {
+          textScore = Math.min(0.8, 0.3 + matchingTerms.length * 0.15);
+        } else {
+          textScore = trigramSimilarity(query, obs.note);
+        }
       }
 
-      if (textScore < 0.2) continue;
+      if (textScore < 0.15) continue;
       const combinedScore = obs.confidence * textScore * getScopeWeight(obs.scope);
       scored.push({ observation: obs, score: combinedScore });
     }

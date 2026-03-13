@@ -16,8 +16,6 @@ export interface SessionStats {
   correctionRate: number;
   budgetUtilization: number;
   averageFollowUpReads: number;
-  estimatedRawTokens: number;
-  estimatedSavingsPercent: number;
 }
 
 export interface FollowUpMetrics {
@@ -71,8 +69,6 @@ export function computeSessionStats(
       correctionRate: 0,
       budgetUtilization: 0,
       averageFollowUpReads: 0,
-      estimatedRawTokens: 0,
-      estimatedSavingsPercent: 0,
     };
   }
 
@@ -98,27 +94,12 @@ export function computeSessionStats(
   const followUpCount = logs.reduce((sum, log) => sum + (log.followedUp ? 1 : 0), 0);
   const averageFollowUpReads = followUpCount / logs.length;
 
-  const AVG_SYMBOLS_PER_FILE = 8;
-  const AVG_TOKENS_PER_SYMBOL = 80;
-  const TARGETED_READ_FRACTION = 0.3;
-  const estimatedRawTokens = Math.max(
-    allFiles.size * AVG_SYMBOLS_PER_FILE * AVG_TOKENS_PER_SYMBOL * TARGETED_READ_FRACTION,
-    totalUsed
-  );
-
-  const savings =
-    estimatedRawTokens > 0
-      ? Math.round(((estimatedRawTokens - totalUsed) / estimatedRawTokens) * 100)
-      : 0;
-
   return {
     capsulesGenerated: logs.length,
     totalTokensBudgeted: totalBudgeted,
     totalTokensUsed: totalUsed,
     uniqueFiles: allFiles.size,
     uniqueSymbols: allSymbols.size,
-    estimatedRawTokens,
-    estimatedSavingsPercent: Math.max(0, savings),
     firstPassRate: followUpMetrics.firstPassRate,
     correctionRate: followUpMetrics.correctionRate,
     budgetUtilization,
@@ -132,15 +113,19 @@ function formatStats(stats: SessionStats, sessionId: string): string {
       ? Math.round(stats.totalTokensUsed / stats.capsulesGenerated)
       : 0;
 
+  const budgetUtilizationPct = (stats.budgetUtilization * 100).toFixed(0);
+
   const lines = [
     "ContextWeave Session Stats",
     `Session: ${sessionId}`,
     "",
-    `Tokens used: ${stats.totalTokensUsed.toLocaleString()} | Budget utilization: ${formatRatePct(stats.budgetUtilization)} | Capsules issued: ${stats.capsulesGenerated} | Avg tokens/capsule: ${avgTokensPerCapsule.toLocaleString()}`,
+    `Indexed: ${stats.uniqueFiles} files, ${stats.uniqueSymbols} symbols`,
+    `Avg tokens per capsule: ${avgTokensPerCapsule.toLocaleString()}`,
+    `Budget utilization: ${budgetUtilizationPct}%`,
     "",
+    `Capsules issued:       ${stats.capsulesGenerated}`,
+    `Total tokens used:     ${stats.totalTokensUsed.toLocaleString()}`,
     `Total tokens budgeted: ${stats.totalTokensBudgeted.toLocaleString()}`,
-    `Unique files covered:  ${stats.uniqueFiles}`,
-    `Unique symbols served: ${stats.uniqueSymbols}`,
     `First-pass rate:       ${formatRatePct(stats.firstPassRate)}`,
     `Correction rate:       ${formatRatePct(stats.correctionRate)}`,
     `Avg follow-up reads:   ${stats.averageFollowUpReads.toFixed(2)}`,
@@ -152,15 +137,6 @@ function formatStats(stats: SessionStats, sessionId: string): string {
       ? "Budget underutilized — capsules may be incomplete"
       : "Budget severely underutilized — consider broader queries or higher budgets";
   lines.push(`Quality: ${qualityNote}`);
-
-  if (stats.capsulesGenerated > 0) {
-    lines.push(
-      "",
-      `Estimated grep+read baseline: ~${stats.estimatedRawTokens.toLocaleString()} tokens`,
-      `Actual CW tokens used: ${stats.totalTokensUsed.toLocaleString()} tokens`,
-      "(baseline estimate assumes ~30% of referenced files read via grep — actual varies by query complexity)"
-    );
-  }
 
   return lines.join("\n");
 }
@@ -175,7 +151,7 @@ export function registerStatsTool(
 
   registerTool(
     "cw_stats",
-    "Show session context savings: capsules generated, tokens used vs estimated raw reads, files and symbols covered.",
+    "Show session stats: capsules generated, tokens used, budget utilization, files and symbols covered.",
     {
       session_id: z
         .string()

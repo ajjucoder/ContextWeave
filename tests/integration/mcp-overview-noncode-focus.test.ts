@@ -76,4 +76,33 @@ describe("cw_overview non-code focus", () => {
     expect(text).toContain("district approval");
     expect(text).not.toContain("no direct symbol name match");
   });
+
+  it("shows Key Entry Points section with top exported symbols by centrality", async () => {
+    const result = await getTool(server, "cw_overview").handler({
+      path: ".",
+      depth: 2,
+      max_tokens: 2000,
+    });
+
+    const text = result.content[0]?.text ?? "";
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain("Key Entry Points:");
+    expect(text).toContain("evaluatePartnerEligibility");
+    expect(text).toMatch(/function evaluatePartnerEligibility \(src\/eligibility\.ts:\d+\)/);
+  });
+
+  it("shows 'No files matched' message when query has no matches, without padding with unrelated files", async () => {
+    const result = await getTool(server, "cw_overview").handler({
+      path: ".",
+      depth: 2,
+      max_tokens: 2000,
+      query: "xyznonexistentquerytermthatwontmatch",
+    });
+
+    const text = result.content[0]?.text ?? "";
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain("No files matched this query.");
+    expect(text).not.toContain("No exact symbol match found");
+    expect(text).toContain("cw_capsule");
+  });
 });

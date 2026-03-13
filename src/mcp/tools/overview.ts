@@ -216,6 +216,20 @@ export function registerOverviewTool(
           lines.push(`- ${file.path} (${file.symbolCount} symbols)`);
         }
 
+        const fileIdToPath = new Map(files.map((f) => [f.id, f.path]));
+        const entryPoints = symbolsApi
+          .getExported()
+          .filter((s) => fileIdToPath.has(s.fileId))
+          .sort((a, b) => b.centrality - a.centrality)
+          .slice(0, 10);
+        if (entryPoints.length > 0) {
+          lines.push("", "Key Entry Points:");
+          for (const sym of entryPoints) {
+            const filePath = fileIdToPath.get(sym.fileId) ?? "";
+            lines.push(`- ${sym.kind} ${sym.name} (${filePath}:${sym.startLine})`);
+          }
+        }
+
         const conventionGraph = loadConventions(db);
         if (conventionGraph.conventions.length > 0) {
           lines.push("", ...formatConventionSummary(conventionGraph));
@@ -278,17 +292,7 @@ export function registerOverviewTool(
           lines.push("", `Query Focus: \"${queryTerm}\"`);
 
           if (focusedFiles.length === 0) {
-            lines.push("No exact symbol match found. Top files by relevance:");
-            const topRelevantFiles = [...files]
-              .sort((a, b) => b.symbolCount - a.symbolCount || a.path.localeCompare(b.path))
-              .slice(0, 5);
-            for (const file of topRelevantFiles) {
-              const rows = getSymbolStmt().all(`%${queryTerm.replace(/[\\%_]/g, "\\$&")}%`, file.id);
-              const exportsLabel = rows.length > 0
-                ? rows.map((r) => r.name).join(", ")
-                : `${file.symbolCount} symbols`;
-              lines.push(`- ${file.path} (${file.symbolCount} symbols — ${exportsLabel})`);
-            }
+            lines.push("No files matched this query.");
             lines.push(`- Suggested: cw_capsule(query: "${queryTerm}") for deeper context`);
             lines.push(`- Or: cw_grep(query: "${queryTerm}") for exact text matches`);
           } else {

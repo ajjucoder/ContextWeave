@@ -33,6 +33,15 @@ function clamp(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
+function tokenizeForMatch(name: string): string[] {
+  return name
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 0);
+}
+
 export function computeCoverageConfidence(params: ConfidenceParams): number {
   const {
     intent,
@@ -47,6 +56,8 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
     queryTermCoverage = 1,
     retrievalSurfaceScore = 1,
     moduleCoverageStats,
+    packedSymbolNames,
+    queryTerms,
   } = params;
 
   const relevantCoverage =
@@ -130,29 +141,31 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
     }
   }
 
-  if (tokenUtilization < 0.30) {
+  if (tokenUtilization < 0.20) {
+    confidence = Math.min(confidence, 0.30);
+  } else if (tokenUtilization < 0.30) {
     confidence = Math.min(confidence, 0.40);
-  } else if (tokenUtilization < 0.50) {
-    confidence = Math.min(confidence, 0.62);
-  } else if (tokenUtilization <= 0.60) {
-    confidence = Math.min(confidence, 0.75);
-  }
-
-  if (pivotCoverage < 0.60 && tokenUtilization > 0.60) {
-    confidence = Math.min(confidence, 0.90);
-  }
-
-  if (pivotCoverage < 0.30 && relevantCoverage < 0.4) {
-    confidence = Math.min(confidence, 0.45);
-  } else if (pivotCoverage < 0.20) {
+  } else if (tokenUtilization < 0.40) {
     confidence = Math.min(confidence, 0.50);
+  } else if (tokenUtilization < 0.50) {
+    confidence = Math.min(confidence, 0.60);
+  } else if (tokenUtilization < 0.60) {
+    confidence = Math.min(confidence, 0.70);
+  }
+
+  if (pivotCoverage < 0.30) {
+    confidence = Math.min(confidence, 0.45);
+  } else if (pivotCoverage < 0.50) {
+    confidence = Math.min(confidence, 0.60);
+  } else if (pivotCoverage < 0.70) {
+    confidence = Math.min(confidence, 0.80);
   }
 
   if (intent === "broad" && pivotsIncluded < 3) {
     confidence = Math.min(confidence, 0.5);
   }
 
-  if (intent !== "narrow" && relevantCoverage < 0.3) {
+  if (relevantCoverage < 0.3) {
     confidence = Math.min(confidence, 0.5);
   }
 
@@ -165,6 +178,20 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
 
   if (intent !== "broad" && totalRelevantPivots > 0 && relevantPivotsIncluded < totalRelevantPivots * 0.5) {
     confidence = Math.min(confidence, 0.55);
+  }
+
+  if (packedSymbolNames && queryTerms && queryTerms.length > 0) {
+    const packedTokenSet = new Set(
+      packedSymbolNames.flatMap((n) => tokenizeForMatch(n))
+    );
+    const expandedQueryTokens = new Set(
+      queryTerms.flatMap((t) => tokenizeForMatch(t))
+    );
+    const termHits = [...expandedQueryTokens].filter((t) => packedTokenSet.has(t)).length;
+    const termCoverage = termHits / expandedQueryTokens.size;
+    if (termCoverage < 0.3 && intent !== "broad") {
+      confidence = Math.min(confidence, 0.50);
+    }
   }
 
   return clamp(confidence);

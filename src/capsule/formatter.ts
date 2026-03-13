@@ -1,5 +1,6 @@
 import { isUiLikePath } from "./signals.js";
 import { splitIdentifier } from "../utils/camel-split.js";
+import { confidenceToLabel } from "./confidence.js";
 import type {
   ScoredNode,
   ObservationRecord,
@@ -93,7 +94,7 @@ export function formatCapsule(
   const noisePct = Math.round(metadata.quality.noiseRatio * 100);
   const coverageConfidencePct = Math.round(metadata.quality.coverageConfidence * 100);
   const coverageConf = metadata.quality.coverageConfidence;
-  const confidence = coverageConf < 0.45 ? "LOW" : coverageConf < 0.75 ? "MEDIUM" : "HIGH";
+  const confidence = confidenceToLabel(coverageConf);
   const uncertainty = metadata.quality.uncertainty.toUpperCase();
 
   const strategyLabel = metadata.strategy
@@ -205,7 +206,7 @@ export function formatCapsule(
       if (b.uncoveredHits !== a.uncoveredHits) return b.uncoveredHits - a.uncoveredHits;
       return (b.node.score ?? 0) - (a.node.score ?? 0);
     })
-    .slice(0, 5)
+    .slice(0, 4)
     .map((item) => item.node);
 
   const topDirectory = (() => {
@@ -316,8 +317,7 @@ export function formatCapsule(
   }
 
   if (metadata.previouslyCovered && metadata.previouslyCovered.length > 0) {
-    parts.push(`\n--- Previously Shown (skipped to save tokens) ---`);
-    parts.push(metadata.previouslyCovered.join(", "));
+    parts.push(`\n(${metadata.previouslyCovered.length} symbols from prior capsules omitted)`);
   }
 
   return parts.join("\n");
@@ -331,7 +331,7 @@ export function buildStructuredOutput(
 ): StructuredCapsuleOutput {
   const intent = metadata.strategy?.intent ?? "narrow";
   const confidenceScore = metadata.quality.coverageConfidence;
-  const confidence = confidenceScore < 0.45 ? "LOW" : confidenceScore < 0.75 ? "MEDIUM" : "HIGH";
+  const confidence = confidenceToLabel(confidenceScore);
   const tokenUtilization = metadata.tokenBudget > 0 ? metadata.tokensUsed / metadata.tokenBudget : 0;
 
   // Build per-file data
@@ -410,7 +410,7 @@ export function buildStructuredOutput(
       if (b.uncoveredHits !== a.uncoveredHits) return b.uncoveredHits - a.uncoveredHits;
       return (b.node.score ?? 0) - (a.node.score ?? 0);
     })
-    .slice(0, 5)
+    .slice(0, 4)
     .map((item) => ({
       tool: "cw_read" as const,
       args: { file: item.node.file.path, symbol: item.node.symbol!.name },

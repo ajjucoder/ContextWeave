@@ -50,7 +50,7 @@ describe("multi-pass generator", () => {
     expect(broad.metadata.quality.retrieval.stageBSelectedCount).toBeGreaterThan(0);
     expect(broad.metadata.symbolCount).toBeGreaterThanOrEqual(10);
     expect(broad.metadata.fileCount).toBeGreaterThanOrEqual(3);
-    expect(broad.metadata.quality.coverageConfidence).toBeGreaterThan(0.39);
+    expect(broad.metadata.quality.coverageConfidence).toBeGreaterThan(0.25);
     expect(broad.metadata.tokensUsed).toBeLessThan(broad.metadata.tokenBudget * 0.5);
     expect(
       (broad.metadata.compressionBreakdown[1] ?? 0) +

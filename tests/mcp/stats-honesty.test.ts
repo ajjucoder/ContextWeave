@@ -38,31 +38,14 @@ afterEach(() => {
   db.close();
 });
 
-describe("stats honesty — no misleading >50% savings claims", () => {
-  it("estimatedSavingsPercent is never >50% when used tokens exceed targeted estimate", () => {
+describe("stats honesty — factual metrics only, no misleading savings claims", () => {
+  it("does not expose estimatedSavingsPercent or estimatedRawTokens", () => {
     setupSession("s1");
     insertCapsuleLog("s1", "auth", 8000, 6000, ["fn1", "fn2"], ["src/a.ts"]);
 
     const stats = computeSessionStats(db, "s1");
-    expect(stats.estimatedSavingsPercent).toBeLessThanOrEqual(50);
-  });
-
-  it("uses targeted estimate (8 symbols * 80 tokens * 0.3 fraction per file)", () => {
-    setupSession("s1");
-    insertCapsuleLog("s1", "auth", 4000, 50, ["fn1"], ["src/a.ts"]);
-
-    const stats = computeSessionStats(db, "s1");
-    // 1 file * 8 * 80 * 0.3 = 192 tokens
-    expect(stats.estimatedRawTokens).toBe(192);
-  });
-
-  it("estimatedRawTokens equals max(uniqueFiles*192, totalUsed)", () => {
-    setupSession("s1");
-    insertCapsuleLog("s1", "auth", 4000, 5000, ["fn1"], ["src/a.ts", "src/b.ts"]);
-
-    const stats = computeSessionStats(db, "s1");
-    expect(stats.estimatedRawTokens).toBe(5000);
-    expect(stats.estimatedSavingsPercent).toBe(0);
+    expect((stats as Record<string, unknown>).estimatedSavingsPercent).toBeUndefined();
+    expect((stats as Record<string, unknown>).estimatedRawTokens).toBeUndefined();
   });
 
   it("budgetUtilization is displayed in stats", () => {
@@ -89,13 +72,11 @@ describe("stats honesty — no misleading >50% savings claims", () => {
     expect(stats.uniqueFiles).toBe(3);
   });
 
-  it("savings estimate based on targeted estimate when used < targeted estimate", () => {
+  it("budgetUtilization is calculated correctly as average per capsule", () => {
     setupSession("s1");
     insertCapsuleLog("s1", "q1", 4000, 200, ["fn1"], ["a.ts", "b.ts", "c.ts", "d.ts"]);
 
     const stats = computeSessionStats(db, "s1");
-    // 4 files * 8 * 80 * 0.3 = 768 tokens
-    expect(stats.estimatedRawTokens).toBe(768);
-    expect(stats.estimatedSavingsPercent).toBe(Math.round(((768 - 200) / 768) * 100));
+    expect(stats.budgetUtilization).toBeCloseTo(200 / 4000, 5);
   });
 });

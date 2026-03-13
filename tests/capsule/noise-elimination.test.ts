@@ -135,4 +135,85 @@ describe("pre-pack symbol relevance gate (filterCandidatesBySymbolRelevance)", (
     });
     expect(result.metadata.quality.noiseRatio).toBeLessThan(0.7);
   });
+
+  it("pivot symbols at distance 0 are always kept regardless of name overlap", () => {
+    const result = generateCapsule(db, {
+      query: "generateCapsule",
+      tokenBudget: 4000,
+      mode: "feature",
+    });
+    expect(result.content).toContain("generateCapsule");
+    expect(result.metadata.quality.pivotsIncluded).toBeGreaterThan(0);
+  });
+
+  it("distance-1 dependencies are preserved even without name overlap with query terms", () => {
+    const result = generateCapsule(db, {
+      query: "generateCapsule",
+      tokenBudget: 6000,
+      mode: "feature",
+    });
+    expect(result.metadata.symbolCount).toBeGreaterThan(1);
+    expect(result.metadata.quality.dependencyCoverage).toBeGreaterThan(0);
+  });
+
+  it("relevance gate for task intent filters distance-2 symbols without query overlap", () => {
+    const task = generateCapsule(db, {
+      query: "scoring ranked candidates capsule pipeline",
+      tokenBudget: 5000,
+      mode: "feature",
+    });
+    const content = task.content.toLowerCase();
+    expect(content).toMatch(/scor|rank|candidat/);
+    expect(task.metadata.quality.noiseRatio).toBeLessThan(0.7);
+  });
+
+  it("broad intent bypasses the distance-2 filter and returns at least as many symbols", () => {
+    const broad = generateCapsule(db, {
+      query: "capsule generation pipeline indexer scorer formatter packer",
+      tokenBudget: 6000,
+      mode: "feature",
+    });
+    const task = generateCapsule(db, {
+      query: "capsule generation pipeline indexer scorer formatter packer",
+      tokenBudget: 6000,
+      mode: "feature",
+    });
+    expect(broad.metadata.symbolCount).toBeGreaterThan(0);
+    expect(task.metadata.symbolCount).toBeGreaterThan(0);
+  });
+
+  it("budget utilization improves when filtering irrelevant distance-2+ symbols", () => {
+    const result = generateCapsule(db, {
+      query: "generateCapsule scoring candidates pipeline",
+      tokenBudget: 8000,
+      mode: "feature",
+    });
+    const utilization = result.metadata.tokensUsed / result.metadata.tokenBudget;
+    expect(utilization).toBeGreaterThan(0.05);
+    expect(result.metadata.quality.noiseRatio).toBeLessThan(0.8);
+  });
+
+  it("test files are penalized and source files dominate in feature mode", () => {
+    const result = generateCapsule(db, {
+      query: "generateCapsule pivot scoring ranked candidates",
+      tokenBudget: 10000,
+      mode: "feature",
+    });
+    const files = result.metadata.filesIncluded;
+    const testFileCount = files.filter((f) =>
+      f.includes(".test.") || f.includes(".spec.") || f.includes("/tests/")
+    ).length;
+    const sourceFileCount = files.length - testFileCount;
+    expect(sourceFileCount).toBeGreaterThan(testFileCount);
+  });
+
+  it("irrelevant distance-2+ symbols are excluded from narrow queries", () => {
+    const result = generateCapsule(db, {
+      query: "weightedBfsTraversal",
+      tokenBudget: 4000,
+      mode: "feature",
+    });
+    expect(result.content).toContain("weightedBfsTraversal");
+    expect(result.metadata.quality.noiseRatio).toBeLessThan(0.6);
+  });
 });

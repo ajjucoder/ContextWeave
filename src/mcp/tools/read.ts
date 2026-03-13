@@ -72,6 +72,36 @@ function resolveSymbolTarget(
   return filtered[0]!;
 }
 
+export function resolveFilePath(
+  inputPath: string,
+  projectRoot: string,
+  db: Database.Database
+): string | null {
+  const files = fileQueries(db);
+  const candidates = [
+    inputPath,
+    resolve(projectRoot, inputPath),
+    resolve(projectRoot, "src", inputPath),
+  ];
+
+  for (const candidate of candidates) {
+    const normalized = candidate.replace(/\\/g, "/");
+    const file = files.getByPath(normalized);
+    if (file) return resolve(projectRoot, normalized);
+    try {
+      statSync(candidate);
+      return candidate;
+    } catch {
+    }
+  }
+
+  const suffix = inputPath.replace(/\\/g, "/");
+  const match = files.getByPathSuffix(suffix);
+  if (match) return resolve(projectRoot, match.path);
+
+  return null;
+}
+
 export function parseSymbolTarget(
   input: string
 ): { fileSuffix: string; symbolName: string } | null {
@@ -120,7 +150,13 @@ export function registerReadTool(server: McpServer, db: Database.Database, proje
         const resolvedRoot = resolve(projectRoot);
         const maxLines = max_lines ?? 200;
 
-        const requestedPath = path ? resolve(resolvedRoot, path) : undefined;
+        let requestedPath: string | undefined;
+        if (path) {
+          const direct = resolve(resolvedRoot, path);
+          let exists = false;
+          try { statSync(direct); exists = true; } catch { }
+          requestedPath = exists ? direct : (resolveFilePath(path, resolvedRoot, db) ?? direct);
+        }
         if (requestedPath && !isSafeProjectPath(requestedPath, resolvedRoot)) {
           return {
             content: [{ type: "text" as const, text: `Error: path "${path}" is outside the project root` }],
