@@ -1618,7 +1618,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     intent === "task"
       ? 0
       : intent === "broad"
-        ? (broadLargeBudget ? 2 : 1)
+        ? 2
         : isSingleFocusNarrowQuery
           ? 0
           : 1;
@@ -1977,6 +1977,68 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
           tokensUsed = fillResult.tokensUsed;
           fileSummaries = fillResult.fileSummaries;
           logger.debug("fill-to-85 pass", { added: remaining.length, tokensUsed });
+        }
+      }
+    }
+
+    if (tokensUsed < tokenBudget * 0.4 && selected.length > 0) {
+      const selectedIds = new Set(selected.map((c) => c.symbol.id));
+      const selectedDirs = new Set(
+        selected.map((c) => dirname(normalizeRetrievalPath(c.file.path, 6)))
+      );
+      const poolExtras: RankedCandidate[] = [];
+
+      for (const file of files.iterateAll()) {
+        if (poolExtras.length >= 40) break;
+        const fileDir = dirname(normalizeRetrievalPath(file.path, 6));
+        if (!selectedDirs.has(fileDir)) continue;
+        if (isTestFile(file.path)) continue;
+        if (!queryUiFocused && isUiLikePath(file.path)) continue;
+
+        for (const symbol of symbols.getByFileIdLight(file.id)) {
+          if (selectedIds.has(symbol.id)) continue;
+          const lexScore = getLexicalScore(
+            symbol, file, expandedQueryTerms, exactQueryTermSet
+          );
+          poolExtras.push({
+            symbol,
+            file,
+            score: scoreNode({
+              distance: 2,
+              centrality: symbol.centrality,
+              lastSeen: symbol.lastSeen,
+              observationCount: 0,
+              isExported: symbol.isExported,
+              isPivot: false,
+              lexicalBoost: 1 + Math.min(1.5, lexScore * 0.3),
+              localityBoost: getDirectoryWeight(file.path, params.projectRoot),
+              hubPenalty: 1,
+              mode,
+            }),
+            distance: 2,
+            isPivot: false,
+            lexicalScore: lexScore,
+            degree: 0,
+          });
+        }
+      }
+
+      if (poolExtras.length > 0) {
+        poolExtras.sort((a, b) => b.score - a.score);
+        const widenedSelected = [...selected, ...poolExtras.slice(0, 20)];
+        const widenedNodes = buildScoredNodes(widenedSelected);
+        const widenedClusterMap = buildClusterBySymbolId(widenedNodes);
+        const widenedResult = packNodesStoryMode(
+          widenedNodes, tokenBudget, codeRatio, widenedClusterMap
+        );
+        if (widenedResult.tokensUsed > tokensUsed) {
+          selected = widenedSelected;
+          scoredNodes = widenedNodes;
+          clusterBySymbolId = widenedClusterMap;
+          packed = widenedResult.packed;
+          tokensUsed = widenedResult.tokensUsed;
+          fileSummaries = widenedResult.fileSummaries;
+          logger.debug("pool-widen pass", { added: poolExtras.length, tokensUsed });
         }
       }
     }

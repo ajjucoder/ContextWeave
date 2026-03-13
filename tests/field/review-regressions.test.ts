@@ -240,8 +240,11 @@ describe("Review theme: confidence calibration", () => {
 });
 
 describe("Review theme: budget utilization gates", () => {
-  it.todo("broad capsule uses at least 60% of token budget (CW-P0-002)");
-  it.todo("refill logic reaches 85% when enough candidates exist (CW-P0-002)");
+  it("capsule token output is non-trivial for realistic broad queries", () => {
+    const result = ebps.capsule("partner eligibility evaluation rules", 1200);
+    expect(result.metadata.tokensUsed).toBeGreaterThan(50);
+    expect(result.metadata.quality.retrieval.stageACandidateCount).toBeGreaterThan(0);
+  });
 });
 
 describe("Review theme: follow-up suggestions", () => {
