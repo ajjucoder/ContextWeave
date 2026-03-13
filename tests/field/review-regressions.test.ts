@@ -225,3 +225,33 @@ describe("EBPS field regression", () => {
     ]);
   });
 });
+
+describe("Review theme: confidence calibration", () => {
+  it("narrow capsule for nonexistent symbol does not report HIGH confidence", () => {
+    const result = ebps.capsule("xyzNonExistentSymbol42", 1200);
+    expect(result.metadata.quality.coverageConfidence).toBeLessThanOrEqual(0.44);
+  });
+
+  it("broad capsule confidence is bounded between 0 and 1", () => {
+    const result = nextPagesRouter.capsule("user detail page load flow", 1200);
+    expect(result.metadata.quality.coverageConfidence).toBeGreaterThan(0);
+    expect(result.metadata.quality.coverageConfidence).toBeLessThanOrEqual(1);
+  });
+});
+
+describe("Review theme: budget utilization gates", () => {
+  it.todo("broad capsule uses at least 60% of token budget (CW-P0-002)");
+  it.todo("refill logic reaches 85% when enough candidates exist (CW-P0-002)");
+});
+
+describe("Review theme: follow-up suggestions", () => {
+  it("follow-up reads include file paths when present", () => {
+    const result = nextPagesRouter.capsule("user detail page load flow", 1200);
+    if (result.content.includes("Follow-Up Reads")) {
+      const followUpSection = result.content.split("Follow-Up Reads")[1]?.split("---")[0] ?? "";
+      if (followUpSection.includes("cw_read")) {
+        expect(followUpSection).toMatch(/file:\s*"/);
+      }
+    }
+  });
+});
