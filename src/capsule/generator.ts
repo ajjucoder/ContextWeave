@@ -996,12 +996,15 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   // Phase 2: Lazy BFS traversal keeps memory stable on large graphs.
   const skipBfs = isOverBudget(0.5);
   const baseDepth = getDepthForBudget(retrievalBudget);
+  const hasExactPivot = exactPivotIds.size > 0;
   const maxDepth =
     intent === "broad"
       ? Math.max(2, baseDepth - 1)
       : intent === "task"
         ? Math.min(6, baseDepth)
-        : baseDepth;
+        : intent === "symbol-lookup"
+          ? (hasExactPivot ? 2 : Math.min(3, baseDepth))
+          : (hasExactPivot && intent === "narrow" ? Math.min(baseDepth, 3) : baseDepth);
   const rankingPivotDirs =
     intent === "broad"
       ? pivotDirs
@@ -1015,7 +1018,10 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
   }
   const scopeDirs = scopeDirSet.size > 0 ? [...scopeDirSet] : null;
-  const maxVisitedNodes = Math.min(MAX_BFS_VISITED_CAP, Math.floor(retrievalBudget / MAX_BFS_VISITED_DIVISOR));
+  const maxVisitedBase = Math.min(MAX_BFS_VISITED_CAP, Math.floor(retrievalBudget / MAX_BFS_VISITED_DIVISOR));
+  const maxVisitedNodes = intent === "symbol-lookup" && hasExactPivot
+    ? Math.min(maxVisitedBase, 30)
+    : maxVisitedBase;
   const effectiveBfsDepth = skipBfs ? 1 : maxDepth;
   const bfsIncomingMult = intent === "broad" ? 4.0 : 1.5;
   const bfsNodes = weightedBfsTraversal(db, [...pivotSymbolIds], effectiveBfsDepth, scopeDirs, { maxVisitedNodes, maxHops: MAX_BFS_HOPS, incomingEdgeCostMultiplier: bfsIncomingMult });

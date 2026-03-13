@@ -101,4 +101,52 @@ describe("exact-match capsule fast path", () => {
       "src/core/build-recommendations.ts",
     ]));
   });
+
+  it("exact definition outranks camelCase-split secondary even with higher centrality", () => {
+    insertSymbol("src/auth/validate-email.ts", "validateEmail", { centrality: 0.01 });
+    insertSymbol("src/auth/validate-email-batch.ts", "validateEmailBatch", {
+      centrality: 0.9,
+      fullSource: "export function validateEmailBatch() { return validateEmail(); }",
+    });
+    insertSymbol("src/views/email-validation-view.ts", "EmailValidationView", {
+      centrality: 0.5,
+      fullSource: "export function EmailValidationView() { return 'validate email ui'; }",
+    });
+
+    const result = generateCapsule(db, { query: "validateEmail", tokenBudget: 1800 });
+
+    const firstFile = result.structured?.files[0];
+    expect(firstFile?.path).toMatch(/validate-email\.ts$/);
+    expect(firstFile?.symbols).toContain("validateEmail");
+  });
+
+  it("symbol-lookup intent restricts BFS expansion to prevent noise", () => {
+    const exactId = insertSymbol("src/core/parser.ts", "parseConfig", {
+      centrality: 0.02,
+      fullSource: "export function parseConfig(input: string) { return JSON.parse(input); }",
+    });
+    const calleeId = insertSymbol("src/core/validator.ts", "validateConfig", {
+      centrality: 0.03,
+      fullSource: "export function validateConfig(config: any) { return true; }",
+    });
+
+    const edges = edgeQueries(db);
+    const now = Date.now();
+    edges.insert({ sourceSymbolId: exactId, targetSymbolId: calleeId, kind: "call", createdAt: now });
+
+    for (let i = 0; i < 15; i++) {
+      const noiseId = insertSymbol(`src/unrelated/module-${i}.ts`, `unrelatedFunction${i}`, {
+        centrality: 0.7,
+        fullSource: `export function unrelatedFunction${i}() { return ${i}; }`,
+      });
+      edges.insert({ sourceSymbolId: noiseId, targetSymbolId: calleeId, kind: "call", createdAt: now });
+    }
+
+    const result = generateCapsule(db, { query: "parseConfig", tokenBudget: 1200 });
+
+    expect(result.content).toContain("parseConfig");
+    expect(result.content).toContain("validateConfig");
+    const noiseCount = (result.content.match(/unrelatedFunction/g) ?? []).length;
+    expect(noiseCount).toBeLessThanOrEqual(3);
+  });
 });
