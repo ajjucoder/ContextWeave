@@ -1230,21 +1230,21 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
 
     const isNarrowMultiTerm = intent === "narrow" && exactQueryTerms.length >= 3;
-    const broadBudgetBoost = intent === "broad" && tokenBudget >= 9000;
+    const broadBudgetBoost = intent === "broad" && tokenBudget >= 8000;
     if (intent === "narrow" && !isNarrowMultiTerm) {
       return selectedCandidates;
     }
 
-    const maxFiles = isNarrowMultiTerm ? 4 : intent === "broad" ? (broadBudgetBoost ? 10 : 10) : 7;
+    const maxFiles = isNarrowMultiTerm ? 4 : intent === "broad" ? (broadBudgetBoost ? 12 : 10) : 7;
     const maxPerFile = isNarrowMultiTerm ? 4 : intent === "broad" ? (broadBudgetBoost ? 5 : 3) : 4;
-    const maxTotal = isNarrowMultiTerm ? 20 : intent === "broad" ? (broadBudgetBoost ? 40 : 35) : 24;
+    const maxTotal = isNarrowMultiTerm ? 20 : intent === "broad" ? (broadBudgetBoost ? 56 : 35) : 24;
     const lexicalFloor = isNarrowMultiTerm ? 2 : intent === "broad" ? (broadBudgetBoost ? 0.9 : 1.5) : 1.2;
     const ordered = [...selectedCandidates].sort((a, b) => {
       if (a.isPivot !== b.isPivot) return a.isPivot ? -1 : 1;
       return b.score - a.score;
     });
     const topScore = ordered[0]?.score ?? 0;
-    const scoreFloor = topScore * (isNarrowMultiTerm ? 0.7 : intent === "broad" ? (broadBudgetBoost ? 0.45 : 0.6) : 0.55);
+    const scoreFloor = topScore * (isNarrowMultiTerm ? 0.7 : intent === "broad" ? (broadBudgetBoost ? 0.4 : 0.6) : 0.55);
 
     const kept: RankedCandidate[] = [];
     const includedFiles = new Set<number>();
@@ -1585,15 +1585,20 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       : isSingleFocusNarrowQuery
         ? 2
         : 1;
+  const broadLargeBudget = intent === "broad" && tokenBudget >= 8000;
   const candidateLimitMultiplier =
-    intent === "narrow" ? 0.85 : intent === "broad" ? 0.45 : 0.55;
+    intent === "narrow" ? 0.85 : intent === "broad" ? (broadLargeBudget ? 0.6 : 0.45) : 0.55;
   const dynamicLimit = Math.max(
     40,
     Math.floor((retrievalBudget / 10) * candidateLimitMultiplier)
   );
   const narrowHardCap = isSingleFocusNarrowQuery ? 48 : 80;
   const hardCap =
-    intent === "narrow" ? narrowHardCap : intent === "broad" ? Math.max(120, Math.floor(tokenBudget / 50)) : 84;
+    intent === "narrow"
+      ? narrowHardCap
+      : intent === "broad"
+        ? Math.max(broadLargeBudget ? 180 : 120, Math.floor(tokenBudget / (broadLargeBudget ? 32 : 50)))
+        : 84;
   const baseCandidateLimit = Math.min(dynamicLimit, hardCap);
 
   const recentSymbolIds: Set<number> = hasExplicitSession && sessionCtx
@@ -1603,7 +1608,14 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     recentSymbolIds.size > 0 &&
     ((intent !== "narrow" && intent !== "symbol-lookup") || previousSameQueryTokens !== null);
 
-  const baseMaxDistance = intent === "task" ? 0 : intent === "broad" ? 1 : isSingleFocusNarrowQuery ? 0 : 1;
+  const baseMaxDistance =
+    intent === "task"
+      ? 0
+      : intent === "broad"
+        ? (broadLargeBudget ? 2 : 1)
+        : isSingleFocusNarrowQuery
+          ? 0
+          : 1;
   let selected = backfillWithinSelectedFiles(
     ensureBroadFileSpread(
       pruneUiNoise(
@@ -1642,6 +1654,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   let packed: ScoredNode[] = [];
   let tokensUsed = 0;
   let fileSummaries: string[] = [];
+  const recomputeTokensUsed = (nodes: ScoredNode[], summaries: string[]): number =>
+    nodes.reduce((sum, node) => sum + node.tokenCount, 0) +
+    summaries.reduce((sum, summary) => sum + countTokens(summary), 0);
 
   const stripUiPackedNoise = (nodes: ScoredNode[]): { packed: ScoredNode[]; removedTokens: number } => {
     if (
@@ -1730,6 +1745,35 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     packed = packedResult.packed;
     tokensUsed = packedResult.tokensUsed;
     fileSummaries = packedResult.fileSummaries;
+  }
+
+  if (
+    useMultiPass &&
+    (intent === "broad" || intent === "task") &&
+    tokensUsed < tokenBudget * 0.45 &&
+    scoredNodes.length > packed.length
+  ) {
+    const singlePassFallback = packNodesStoryMode(scoredNodes, tokenBudget, codeRatio, clusterBySymbolId);
+    if (singlePassFallback.tokensUsed > tokensUsed) {
+      packed = singlePassFallback.packed;
+      tokensUsed = singlePassFallback.tokensUsed;
+      fileSummaries = singlePassFallback.fileSummaries;
+      logger.debug("single-pass fallback", { n: packed.length, tokensUsed });
+    }
+  }
+
+  if (
+    (intent === "broad" || intent === "task") &&
+    tokensUsed < tokenBudget * 0.4 &&
+    scoredNodes.length > packed.length
+  ) {
+    const denseFallback = packNodes(scoredNodes, tokenBudget, codeRatio, 0.5);
+    if (denseFallback.tokensUsed > tokensUsed) {
+      packed = denseFallback.packed;
+      tokensUsed = denseFallback.tokensUsed;
+      fileSummaries = denseFallback.fileSummaries;
+      logger.debug("dense fallback", { n: packed.length, tokensUsed });
+    }
   }
 
   const skipPromotion = isOverBudget(0.8);
@@ -1974,7 +2018,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     fileSummaries = fileSummaries.filter(
       (summary) => !summary.includes("types/") && !summary.includes(".d.ts")
     );
-    tokensUsed = packed.reduce((sum, node) => sum + node.tokenCount, 0);
+    tokensUsed = recomputeTokensUsed(packed, fileSummaries);
   }
 
   if (previousSameQueryTokens !== null && previousSameQueryTokens > 0 && tokensUsed > previousSameQueryTokens) {
@@ -2054,7 +2098,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     });
     const dropped = before - packed.length;
     if (dropped > 0) {
-      tokensUsed = packed.reduce((sum, n) => sum + n.tokenCount, 0);
+      tokensUsed = recomputeTokensUsed(packed, fileSummaries);
       logger.debug("post-pack semantic validation", { dropped, remaining: packed.length });
     }
   }

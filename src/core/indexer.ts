@@ -87,6 +87,10 @@ interface DiscoverFilesResult {
   unsupportedByExtension: Map<string, number>;
 }
 
+interface PickTargetsOptions {
+  allowGlobalFallback?: boolean;
+}
+
 const WORKER_CONCURRENCY = Math.max(2, Math.min(8, cpus().length - 1));
 const WORKER_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "parser-worker.js");
 const USE_TSX_WORKER_LOADER = WORKER_SCRIPT.includes(`${sep}src${sep}`);
@@ -711,7 +715,11 @@ function resolveEdges(
     return fallbackTargets;
   };
 
-  const pickTargets = (localName: string, lookupName?: string): TargetCandidate[] => {
+  const pickTargets = (
+    localName: string,
+    lookupName?: string,
+    options: PickTargetsOptions = {}
+  ): TargetCandidate[] => {
     const combined = new Map<number, TargetCandidate>();
     const local = localTargetsByName.get(localName);
     if (local) {
@@ -734,7 +742,7 @@ function resolveEdges(
         }
       }
     }
-    if (combined.size === 0) {
+    if (combined.size === 0 && options.allowGlobalFallback !== false) {
       const fallbackName = lookupName ?? localName;
       for (const id of getGlobalFallbackTargets(fallbackName)) {
         combined.set(id, { id, viaReexport: false });
@@ -766,20 +774,20 @@ function resolveEdges(
     return narrowed.length > 0 ? narrowed : targetCandidates;
   };
 
+  const importedClassIds = new Set<number>();
+  for (const [, ids] of importedTargetsByName) {
+    for (const id of ids) {
+      const s = symbols.getById(id);
+      if (s && (s.kind === "class" || s.kind === "interface")) importedClassIds.add(id);
+    }
+  }
+
   const resolveCallWithQualification = (
     _calleeName: string,
     callerId: number,
     candidates: TargetCandidate[]
   ): TargetCandidate[] => {
     if (candidates.length <= 1) return candidates;
-
-    const importedClassIds = new Set<number>();
-    for (const [, ids] of importedTargetsByName) {
-      for (const id of ids) {
-        const s = symbols.getById(id);
-        if (s && (s.kind === "class" || s.kind === "interface")) importedClassIds.add(id);
-      }
-    }
 
     const callerRecord = fileSymbolsById.get(callerId);
     const callerParentName = callerRecord?.qualifiedName?.split(".")[0];
@@ -877,15 +885,23 @@ function resolveEdges(
     const callerId = resolveCallerId(call.callerSymbol, call.line);
     if (!callerId) continue;
 
+    const receiverType = call.receiverName ? variableTypeMap.get(call.receiverName) : undefined;
+    const importedOwnerMatchExists =
+      call.receiverName !== undefined &&
+      importedClassIds.size > 0 &&
+      symbols.getByName(call.calleeName).some(
+        (symbol) => symbol.parentSymbolId !== null && importedClassIds.has(symbol.parentSymbolId)
+      );
     const rawCandidates = narrowToSameOwnerLocalTargets(
       callerId,
       call.calleeName,
-      pickTargets(call.calleeName)
+      pickTargets(call.calleeName, undefined, {
+        allowGlobalFallback: !call.receiverName || Boolean(receiverType) || importedOwnerMatchExists,
+      })
     );
 
     let targetCandidates: TargetCandidate[];
     if (call.receiverName && rawCandidates.length > 1) {
-      const receiverType = variableTypeMap.get(call.receiverName);
       if (receiverType) {
         const receiverClassSymbols = symbols.getByName(receiverType);
         const receiverClassIds = new Set(receiverClassSymbols.map((s) => s.id));

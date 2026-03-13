@@ -10,6 +10,7 @@ import { generateCapsule } from "../../src/capsule/generator.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 let db: Database.Database;
+let repoDb: Database.Database;
 
 beforeAll(async () => {
   db = new Database(":memory:");
@@ -17,10 +18,17 @@ beforeAll(async () => {
   createSchema(db);
   await indexProject(db, resolve(__dirname, "../../src"));
   updateCentralityScores(db);
+
+  repoDb = new Database(":memory:");
+  repoDb.pragma("foreign_keys = ON");
+  createSchema(repoDb);
+  await indexProject(repoDb, resolve(__dirname, "../.."));
+  updateCentralityScores(repoDb);
 }, 60000);
 
 afterAll(() => {
   db.close();
+  repoDb.close();
 });
 
 describe("budget filling for broad queries", () => {
@@ -74,6 +82,28 @@ describe("budget filling for broad queries", () => {
       mode: "feature",
     });
     expect(result.metadata.quality.noiseRatio).toBeLessThan(0.6);
+  });
+
+  it("8K broad queries on the full repo do not regress below 25% utilization", () => {
+    const queries = [
+      "capsule generation pipeline symbols indexer candidates scorer formatter",
+      "database schema migration tables indexes",
+      "optimize the BFS traversal for large graphs",
+    ];
+
+    for (const query of queries) {
+      const result = generateCapsule(repoDb, {
+        query,
+        tokenBudget: 8000,
+        mode: "feature",
+        projectRoot: resolve(__dirname, "../.."),
+      });
+      const utilization = result.metadata.tokensUsed / result.metadata.tokenBudget;
+      expect(
+        utilization,
+        `${query} used ${result.metadata.tokensUsed}/${result.metadata.tokenBudget}`
+      ).toBeGreaterThanOrEqual(0.25);
+    }
   });
 
   it("capsule generation still works after budget filling changes", () => {

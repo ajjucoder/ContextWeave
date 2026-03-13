@@ -50,7 +50,8 @@ function summarizeUnpacked(
   scoredNodes: ScoredNode[],
   packed: ScoredNode[],
   codeBudget: number,
-  initialTokensUsed: number
+  initialTokensUsed: number,
+  minSymbols = FILE_SUMMARY_MIN_SYMBOLS
 ): { fileSummaries: string[]; tokensUsed: number } {
   let tokensUsed = initialTokensUsed;
   const packedIds = new Set(packed.map((n) => n.symbol.id));
@@ -65,7 +66,7 @@ function summarizeUnpacked(
 
   const fileSummaries: string[] = [];
   for (const { path, symbols } of unpackedByFile.values()) {
-    if (symbols.length < FILE_SUMMARY_MIN_SYMBOLS) continue;
+    if (symbols.length < minSymbols) continue;
     const summary = renderFileSummary(path, symbols);
     const summaryTokens = countTokens(summary);
     if (tokensUsed + summaryTokens > codeBudget) continue;
@@ -238,7 +239,8 @@ export function packNodes(
     }
   }
 
-  const summaryResult = summarizeUnpacked(scoredNodes, packed, codeBudget, tokensUsed);
+  const summaryMinSymbols = tokensUsed / codeBudget < 0.4 ? 1 : FILE_SUMMARY_MIN_SYMBOLS;
+  const summaryResult = summarizeUnpacked(scoredNodes, packed, codeBudget, tokensUsed, summaryMinSymbols);
 
   return {
     packed,
@@ -497,7 +499,34 @@ export function packNodesStoryMode(
     }
   }
 
-  const summaryResult = summarizeUnpacked(scoredNodes, packed, codeBudget, tokensUsed);
+  const dedupedPackedIds = new Set(packed.map((node) => node.symbol.id));
+  if (tokensUsed / codeBudget < STORY_TARGET_UTILIZATION) {
+    const refillPrimaryFileIds = new Set(packed.map((node) => node.file.id));
+    const refillCandidates = [...scoredNodes]
+      .filter((node) => !dedupedPackedIds.has(node.symbol.id))
+      .sort((a, b) => {
+        const priorityDelta =
+          scoreTailNode(b, refillPrimaryFileIds) - scoreTailNode(a, refillPrimaryFileIds);
+        if (priorityDelta !== 0) return priorityDelta;
+        if (a.distance !== b.distance) return a.distance - b.distance;
+        return b.score - a.score;
+      });
+
+    for (const node of refillCandidates) {
+      if (tokensUsed / codeBudget >= STORY_TARGET_UTILIZATION) break;
+      const preferredLevel: CompressionLevel =
+        node.distance <= 1 && node.score >= topPackedScore * 0.65 ? 2 : 3;
+      const rendered = renderSymbol(node.symbol, node.file, preferredLevel);
+      const tokens = countTokens(rendered);
+      if (tokensUsed + tokens > codeBudget) continue;
+      packed.push({ ...node, compressionLevel: preferredLevel, rendered, tokenCount: tokens });
+      dedupedPackedIds.add(node.symbol.id);
+      tokensUsed += tokens;
+    }
+  }
+
+  const summaryMinSymbols = tokensUsed / codeBudget < 0.4 ? 1 : FILE_SUMMARY_MIN_SYMBOLS;
+  const summaryResult = summarizeUnpacked(scoredNodes, packed, codeBudget, tokensUsed, summaryMinSymbols);
 
   return {
     packed,
