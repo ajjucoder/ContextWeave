@@ -1442,7 +1442,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       filePath: string
     ): number => {
       const queryOverlap = computeQueryOverlap(symbol.name);
-      let score = queryOverlap * 6 + lexicalScore * 1.5 + symbol.centrality * 2 + 0.25;
+      const centralityContrib = Math.min(symbol.centrality * 0.8, 0.5);
+      let score = queryOverlap * 6 + lexicalScore * 1.5 + centralityContrib + 0.25;
       if (applyTestFilePenalty && isTestFile(filePath)) {
         score *= 0.3;
       }
@@ -1512,8 +1513,19 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       return b.score - a.score;
     });
 
-    const targetCount = Math.min(12, selectedCandidates.length + extras.length);
-    return [...selectedCandidates, ...extras.slice(0, Math.max(0, targetCount - selectedCandidates.length))];
+    const maxPerFile = 4;
+    const perFileCounts = new Map<number, number>();
+    const cappedExtras: RankedCandidate[] = [];
+    for (const extra of extras) {
+      const fileId = extra.file.id;
+      const count = perFileCounts.get(fileId) ?? 0;
+      if (count >= maxPerFile) continue;
+      cappedExtras.push(extra);
+      perFileCounts.set(fileId, count + 1);
+    }
+
+    const targetCount = Math.min(12, selectedCandidates.length + cappedExtras.length);
+    return [...selectedCandidates, ...cappedExtras.slice(0, Math.max(0, targetCount - selectedCandidates.length))];
   }
 
   function batchFetchOutgoingEdges(symbolIds: number[]): Map<number, EdgeSummary[]> {
