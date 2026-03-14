@@ -207,9 +207,20 @@ export function formatCapsule(
     .sort((a, b) => {
       if (b.uncoveredHits !== a.uncoveredHits) return b.uncoveredHits - a.uncoveredHits;
       return (b.node.score ?? 0) - (a.node.score ?? 0);
-    })
-    .slice(0, 4)
-    .map((item) => item.node);
+    });
+
+  const diverseFollowUps: typeof followUpCandidates = [];
+  const followUpFileCount = new Map<string, number>();
+  for (const item of followUpCandidates) {
+    if (diverseFollowUps.length >= 3) break;
+    const filePath = item.node.file?.path ?? "";
+    const count = followUpFileCount.get(filePath) ?? 0;
+    if (count >= 2) continue;
+    diverseFollowUps.push(item);
+    followUpFileCount.set(filePath, count + 1);
+  }
+
+  const followUpNodes = diverseFollowUps.map((item) => item.node);
 
   const topDirectory = (() => {
     const firstPath = visibleNodes[0]?.file.path?.replaceAll("\\", "/");
@@ -254,10 +265,10 @@ export function formatCapsule(
 
   parts.push(...codeSections);
 
-  if (followUpCandidates.length > 0) {
+  if (followUpNodes.length > 0) {
     parts.push("\n--- Follow-Up Reads ---");
     parts.push("These symbols were compressed. Use cw_read for full source:");
-    for (const node of followUpCandidates) {
+    for (const node of followUpNodes) {
       const lineCount = (node.symbol?.endLine ?? 0) - (node.symbol?.startLine ?? 0) + 1;
       const name = node.symbol?.name ?? "unknown";
       const filePath = node.file?.path ?? "";
@@ -299,8 +310,8 @@ export function formatCapsule(
 
   if (metadata.quality.lowConfidence) {
     parts.push("\n--- Next Actions ---");
-    if (followUpCandidates.length > 0) {
-      const first = followUpCandidates[0]!;
+    if (followUpNodes.length > 0) {
+      const first = followUpNodes[0]!;
       const symbolName = first.symbol?.name ?? "unknown";
       const filePath = first.file?.path ?? "";
       const readArgs = filePath

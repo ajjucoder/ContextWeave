@@ -111,14 +111,19 @@ describe("formatCapsule — follow-up hints", () => {
     expect(result).not.toContain("Follow-Up Reads");
   });
 
-  it("limits follow-up hints to 4 entries max", () => {
-    const nodes = Array.from({ length: 8 }, (_, i) =>
+  it("limits follow-up hints to 3 entries max with file diversity", () => {
+    const nodes = Array.from({ length: 6 }, (_, i) =>
       makeNode({
         compressionLevel: 1,
         score: 1.0 - i * 0.1,
+        file: {
+          ...makeNode({ compressionLevel: 1 }).file,
+          id: i < 4 ? 1 : 2,
+          path: i < 4 ? "src/core/primary.ts" : "src/core/secondary.ts",
+        },
         symbol: {
           id: i + 1,
-          fileId: 1,
+          fileId: i < 4 ? 1 : 2,
           name: `testQuery${i}`,
           kind: "function",
           startLine: 1,
@@ -136,7 +141,11 @@ describe("formatCapsule — follow-up hints", () => {
 
     const result = formatCapsule(nodes, [], makeMetadata());
     const matches = result.match(/cw_read\(/g) ?? [];
-    expect(matches.length).toBe(4);
+    expect(matches.length).toBeLessThanOrEqual(3);
+    expect(result).toContain('symbol: "testQuery0"');
+    expect(result).toContain('symbol: "testQuery1"');
+    expect(result).toContain('symbol: "testQuery4"');
+    expect(result).not.toContain('symbol: "testQuery2"');
   });
 
   it("includes line count and score in follow-up hints", () => {
