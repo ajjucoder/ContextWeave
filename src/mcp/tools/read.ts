@@ -116,6 +116,7 @@ export function registerReadTool(server: McpServer, db: Database.Database, proje
   const registerTool = getRegisterTool(server);
   const inputSchema: Record<string, z.ZodTypeAny> = {
     path: z.string().optional().describe("File path to read (absolute or relative to project root)"),
+    file: z.string().optional().describe("Alias for path (accepted for compatibility)"),
     symbol: z.string().optional().describe("Optional indexed symbol name to resolve file/range"),
     start_line: z.number().int().min(1).optional().describe("1-based starting line"),
     end_line: z.number().int().min(1).optional().describe("1-based ending line"),
@@ -127,19 +128,22 @@ export function registerReadTool(server: McpServer, db: Database.Database, proje
     "Read a safe, bounded range from a project file. Supports optional indexed symbol lookup.",
     inputSchema,
     async ({
-      path,
+      path: pathArg,
+      file: fileArg,
       symbol,
       start_line,
       end_line,
       max_lines,
     }: {
       path?: string;
+      file?: string;
       symbol?: string;
       start_line?: number;
       end_line?: number;
       max_lines?: number;
     }) => {
       try {
+        const path = pathArg ?? fileArg;
         if (!path && !symbol) {
           return {
             content: [{ type: "text" as const, text: "Error: provide path or symbol" }],

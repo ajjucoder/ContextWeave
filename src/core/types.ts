@@ -306,7 +306,7 @@ export interface StructuredCapsuleFile {
 
 export interface StructuredCapsuleSuggestedRead {
   tool: "cw_read";
-  args: { file: string; symbol: string };
+  args: { path: string; symbol: string };
   reason: string;
 }
 

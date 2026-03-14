@@ -263,7 +263,7 @@ export function formatCapsule(
       const filePath = node.file?.path ?? "";
       const scoreStr = (node.score ?? 0).toFixed(2);
       if (filePath) {
-        parts.push(`  cw_read(file: "${filePath}", symbol: "${name}")  — ${lineCount} lines, scored ${scoreStr}`);
+        parts.push(`  cw_read(path: "${filePath}", symbol: "${name}")  — ${lineCount} lines, scored ${scoreStr}`);
       } else {
         parts.push(`  cw_read(symbol: "${name}")  — ${lineCount} lines, scored ${scoreStr}`);
       }
@@ -299,7 +299,7 @@ export function formatCapsule(
       const symbolName = first.symbol?.name ?? "unknown";
       const filePath = first.file?.path ?? "";
       const readArgs = filePath
-        ? `file: "${filePath}", symbol: "${symbolName}"`
+        ? `path: "${filePath}", symbol: "${symbolName}"`
         : `symbol: "${symbolName}"`;
       parts.push(`- Read the highest-value compressed symbol next: cw_read(${readArgs})`);
     } else {
@@ -415,7 +415,7 @@ export function buildStructuredOutput(
     .slice(0, 4)
     .map((item) => ({
       tool: "cw_read" as const,
-      args: { file: item.node.file.path, symbol: item.node.symbol!.name },
+      args: { path: item.node.file.path, symbol: item.node.symbol!.name },
       reason: `Compressed at level ${item.node.compressionLevel}, score ${(item.node.score ?? 0).toFixed(2)}`,
     }));
 
