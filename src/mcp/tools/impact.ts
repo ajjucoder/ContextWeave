@@ -176,6 +176,36 @@ export function registerImpactTool(server: McpServer, db: Database.Database): vo
         }
 
         if (allImpacts.length === 0) {
+          const edges = edgeQueries(db);
+          const files = fileQueries(db);
+          const symbols = symbolQueries(db);
+          const allSameNameSymbols = symbols.getByName(resolvedName);
+          const fallbackSymbols = allSameNameSymbols.length > pivotSymbols.length
+            ? allSameNameSymbols
+            : pivotSymbols;
+          for (const sym of fallbackSymbols) {
+            const directDeps = edges.getByTarget(sym.id);
+            for (const edge of directDeps) {
+              const depSym = symbols.getById(edge.sourceSymbolId);
+              if (!depSym) continue;
+              const depFile = files.getById(depSym.fileId);
+              const key = `${depFile?.path ?? ""}:${depSym.startLine}:${depSym.name}`;
+              if (!seen.has(key)) {
+                seen.add(key);
+                allImpacts.push({
+                  name: formatSymbolDisplayName(db, depSym),
+                  kind: depSym.kind,
+                  file: depFile?.path ?? "unknown",
+                  line: depSym.startLine,
+                  depth: 1,
+                  edgeKind: edge.kind,
+                });
+              }
+            }
+          }
+        }
+
+        if (allImpacts.length === 0) {
           const files = fileQueries(db);
           const locHint = pivotSymbols.length === 1
             ? ` (${pivotSymbols[0]!.kind} in ${files.getById(pivotSymbols[0]!.fileId)?.path ?? "unknown"})`
