@@ -2127,6 +2127,77 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     }
   }
 
+  if (
+    (intent === "broad" || intent === "task") &&
+    !isOverBudget(0.8) &&
+    tokensUsed < tokenBudget * 0.50 &&
+    packed.length > 0 &&
+    packed.length < 8
+  ) {
+    const packedIds = new Set(packed.map((n) => n.symbol.id));
+    const hopSeeds: number[] = [];
+    for (const node of packed) {
+      const callees = getDirectCalleeIds.all(node.symbol.id) as Array<{ symbolId: number }>;
+      const callers = getDirectCallerIds.all(node.symbol.id) as Array<{ symbolId: number }>;
+      for (const row of [...callees, ...callers]) {
+        if (!packedIds.has(row.symbolId) && hopSeeds.length < 30) {
+          hopSeeds.push(row.symbolId);
+        }
+      }
+    }
+
+    if (hopSeeds.length > 0) {
+      const hopCandidates: RankedCandidate[] = [];
+      for (const id of hopSeeds) {
+        const sym = symbols.getByIdLight(id);
+        if (!sym) continue;
+        const file = getFile(sym.fileId);
+        if (!file) continue;
+        const dirWeight = getDirectoryWeight(normalizeRetrievalPath(file.path, 6), params.projectRoot);
+        if (dirWeight <= 0.2) continue;
+        if (!queryUiFocused && isUiLikePath(file.path)) continue;
+        const lexScore = getLexicalScore(sym, file, expandedQueryTerms, exactQueryTermSet);
+        hopCandidates.push({
+          symbol: sym,
+          file,
+          score: scoreNode({
+            distance: 2,
+            centrality: sym.centrality,
+            lastSeen: sym.lastSeen,
+            observationCount: 0,
+            isExported: sym.isExported,
+            isPivot: false,
+            lexicalBoost: 1 + Math.min(1.5, lexScore * 0.3),
+            localityBoost: dirWeight,
+            hubPenalty: 1,
+            mode,
+          }),
+          distance: 2,
+          isPivot: false,
+          lexicalScore: lexScore,
+          degree: 0,
+        });
+      }
+
+      if (hopCandidates.length > 0) {
+        hopCandidates.sort((a, b) => b.score - a.score);
+        const hopSelected = [...selected, ...hopCandidates.slice(0, 20)];
+        const hopNodes = buildScoredNodes(hopSelected);
+        const hopClusterMap = buildClusterBySymbolId(hopNodes);
+        const hopResult = packNodesStoryMode(hopNodes, tokenBudget, codeRatio, hopClusterMap);
+        if (hopResult.tokensUsed > tokensUsed) {
+          selected = hopSelected;
+          scoredNodes = hopNodes;
+          clusterBySymbolId = hopClusterMap;
+          packed = hopResult.packed;
+          tokensUsed = hopResult.tokensUsed;
+          fileSummaries = hopResult.fileSummaries;
+          logger.debug("multi-hop pass", { seeds: hopSeeds.length, added: hopCandidates.length, tokensUsed });
+        }
+      }
+    }
+  }
+
   const relevanceLexicalThreshold = baseLexThreshold;
   const canonicalFilePath = (node: ScoredNode): string =>
     getFile(node.symbol.fileId)?.path ?? node.file.path;
