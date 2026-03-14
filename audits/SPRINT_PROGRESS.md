@@ -5,104 +5,68 @@ Branch: main
 Execution mode: single-agent implementation
 Source spec: `audits/IMPLEMENTATION_PLAN_END_TO_END.md`
 
-## Ticket Status
+## Real Code Changes Made This Session
 
-| Ticket | Tier | Status | Evidence |
-|---|---|---|---|
-| CW-P0-001 | P0 | done | BFS depth capped to 2 for symbol-lookup with exact match, maxVisitedNodes capped to 30. Tests: `exact-match-fast-path.test.ts` (4 tests) => pass. |
-| CW-P0-002 | P0 | done | Pool-widen pass adds symbols from selected directories when util <40%. baseMaxDistance for broad raised to 2. Tests: `story-packing.test.ts`, `two-phase-retrieval.test.ts`, `review-regressions.test.ts` => pass. |
-| CW-P0-003 | P0 | done | Centrality contribution in backfill capped at 0.5, per-file backfill capped at 4. Tests: `noise-elimination.test.ts` => pass. |
-| CW-P0-004 | P0 | done | `npx vitest run tests/capsule/confidence-5level.test.ts tests/unit/confidence-calibration.test.ts tests/integration/threshold-ratchet.test.ts` => pass. |
-| CW-P0-005 | P0 | done | `npx vitest run tests/integration/post-tool-use.test.ts` => pass. |
-| CW-P0-006 | P0 | done | `npx vitest run tests/memory/bootstrap-seeds.test.ts tests/unit/formatter-followup.test.ts` => pass. |
-| CW-P0-007 | P0 | done | Archive/legacy directories excluded from pivot candidates (weight <= 0.2 filter). Field test with archive fixture passes. `index-pollution.test.ts`, `directory-costs.test.ts`, `review-regressions.test.ts` => pass. |
-| CW-P0-008 | P0 | done | Benign TSX parse tolerance field-closed. SessionStats.tsx fixture with `&amp;` entities parses without errors. `parser.test.ts` (36 tests), `review-regressions.test.ts` => pass. |
-| CW-P0-009 | P0 | done | `npx vitest run tests/integration/mcp-navigation-tools.test.ts` => pass in prior evidence bundle. |
-| CW-P0-010 | P0 | done | `npx vitest run tests/integration/mcp-server.test.ts tests/core/backfill-derived-data.test.ts` => pass in prior evidence bundle. |
-| CW-P0-011 | P0 | done | JSX callback edges, HTTP/event boundary traversal, and path diversity all verified. `flow.test.ts` (7 tests), `review-regressions.test.ts` => pass. |
-| CW-P0-012 | P0 | done | Review-theme regression tests added (confidence calibration, follow-up suggestions, budget utilization gates). `review-regressions.test.ts` => 18 pass. |
-| CW-P1-001 | P1 | done | `npx vitest run tests/core/chunker.test.ts` => pass. |
-| CW-P1-002 | P1 | done | `npx vitest run tests/core/indexer-chunks.test.ts tests/db/migration-upgrade-path.test.ts` => pass. |
-| CW-P1-003 | P1 | done | `npx vitest run tests/core/embedder.test.ts` => pass. |
-| CW-P1-004 | P1 | done | `npx vitest run tests/core/vector-store.test.ts tests/db/migration-upgrade-path.test.ts` => pass. |
-| CW-P1-005 | P1 | done | `npx vitest run tests/core/indexer-embedding.test.ts tests/core/watcher-behavior.test.ts` => pass. |
-| CW-P1-006 | P1 | done | `npx vitest run tests/capsule/hybrid-ranker.test.ts tests/integration/capsule-hybrid-runtime.test.ts tests/integration/threshold-ratchet.test.ts` => pass. |
-| CW-P1-007 | P1 | done | UI component path penalty (0.55x) for runtime-focused queries in file-summaries ranking. `file-summaries.test.ts`, `review-regressions.test.ts` => pass. |
-| CW-P1-008 | P1 | done | Follow-up suggestions already rank by uncovered query terms, file-qualified by default. `formatter-followup.test.ts` (11 tests) => pass. |
-| CW-P1-009 | P1 | done | cw_recall separates intentional vs passive (3.0x vs 0.3x scope weight), 7-day passive TTL. `recall-quality.test.ts` (24 tests), `observation-promotion.test.ts` => pass. Field test confirms ordering. |
-| CW-P1-010 | P1 | done | Ratchet tolerances tightened: p95Latency 80ms, taskSuccessRate 0.04, firstPassSuccessRate 0.08, correctionRate 0.12. `threshold-ratchet.test.ts` => pass. |
-| CW-P2-001 | P2 | done | Previously-shown markers already minimal (count only). Dedup logic preserves L0/L1 quality. |
-| CW-P2-002 | P2 | done | Structured output already provides JSON-serializable contract with files, suggestedReads, observations, intent, confidence. No HTML-comment parsing needed. |
-| CW-P2-003 | P2 | done | Path-qualified reads use consistent `cw_read(file: "...", symbol: "...")` format across text and structured output. `mcp-navigation-tools.test.ts` (13 tests) => pass. |
-| CW-P2-004 | P2 | done | Patterns gated by overlap > 0 and broad/task intent. `pattern-detector.test.ts` (4 tests), `pattern-output.test.ts` => pass. |
-| CW-P2-005 | P2 | done | DB is project-relative (`.contextweave/contextweave.db`). `migration-upgrade-path.test.ts` (14 tests) => pass. |
-| CW-P2-006 | P2 | done | Implementation plan review matrix updated to reflect actual closure state. All ticket statuses aligned. |
+| Change | Files Modified | What Actually Changed |
+|--------|---------------|----------------------|
+| Exact match BFS cap | generator.ts | symbol-lookup: BFS depth 2, maxVisitedNodes 30 when exact match exists |
+| Broad hardCap raise | generator.ts | 120→200 (normal), 180→300 (large budget), task 84→120 |
+| Pool-widen pass | generator.ts | Fetches ALL symbols from selected files + directory siblings when util <40% |
+| Noise backfill scoring | generator.ts | computeQueryOverlap now checks signature+path, 0.5x penalty for zero-relevance, centrality capped at 0.5 |
+| Per-file backfill cap | generator.ts | Max 4 backfill additions per file |
+| Archive exclusion | generator.ts | Weight <= 0.2 filter in both pivot candidates and scoring loop |
+| UI penalty in file search | file-summaries.ts | 0.55x penalty for components/views/templates when runtime-focused query |
+| Follow-up relevance | formatter.ts | Edge-to-pivot fallback path, tighter relevance gating |
+| Ratchet tolerances | threshold-ratchet.test.ts | p95Latency 80ms, taskSuccessRate 0.04, firstPassSuccess 0.08, correctionRate 0.12 |
+
+## What Was Already Fixed (Verified This Session)
+
+| Review Claim | Current State | Evidence |
+|---|---|---|
+| Confidence escape hatches (compactButGrounded, intent gate, thinRetrieval) | ALREADY REMOVED in prior session | confidence.ts has unconditional utilization caps at lines 144-154, no escape hatches |
+| Binary LOW/HIGH in formatter | ALREADY FIXED | confidenceToLabel returns LOW/MEDIUM/HIGH (confidence.ts:28-29) |
+| Structured output has no query-awareness | ALREADY FIXED | buildStructuredOutput uses uncoveredHits+query overlap scoring (formatter.ts:369-418) |
+| cw_stats inflated savings | ALREADY FIXED | Stats shows budget utilization, tokens used/budgeted, first-pass/correction rates honestly — no fake savings claims |
+| JSX prop callbacks not indexed | ALREADY FIXED | Parser creates callback edges for onClick/onSubmit (parser.ts:1273-1291). Verified: jsx-callback-edges.test.ts passes |
+| BFS weight table missing callback/server-action | ALREADY FIXED | weighted-bfs.ts has callback:0.7, server-action:0.7, route-handler:0.7 |
+| Worktree/QA exclusion in indexer | ALREADY FIXED | .claude, .worktrees, .qa-temp-*, .git-worktree* in BUILTIN_IGNORE_PATTERNS + isGitWorktree detection |
+| Body-aware features not indexed | ALREADY FIXED | extractBodyFeatures indexes qualified names, SQL, JSX text, string literals. body_features in FTS5. Verified: body-features-search.test.ts passes |
+| Symbol not found signal | ALREADY FIXED | generator.ts:909 symbolNotFound + line 2370 "No symbol named X" note |
+| Primary target reservation | ALREADY FIXED | packer.ts:96-118 reserves 40% for top distance=0 symbol at L0 |
+| Impact file-level conflation | ALREADY FIXED | impact.ts:63 filters import/reexport at depth>=1, line 64-67 prevents root file cycle at depth>=2 |
+
+## Test Evidence
+
+- `npm run lint` => pass (tsc --noEmit)
+- `npm test` => **1126 passed**, 6 todo, 177 test files
+- New tests added this session:
+  - `tests/core/jsx-callback-edges.test.ts` (2 tests) — JSX callback edge creation + flow traversal
+  - `tests/core/body-features-search.test.ts` (3 tests) — body-aware FTS5 search
+  - `tests/core/cross-boundary-synthesis.test.ts` (2 tests) — event + HTTP route edge synthesis
+  - `tests/capsule/exact-match-fast-path.test.ts` (+2 tests) — camelCase secondary ranking, BFS noise
+  - `tests/unit/flow.test.ts` (+1 test) — path diversity
+  - `tests/field/review-regressions.test.ts` (+4 tests) — confidence, budget, follow-up gates
+
+## What Remains Honestly Open
+
+| Item | Status | Why |
+|---|---|---|
+| Budget underutilization on very small fixtures (<50 symbols) | Partial | Pool-widen and hardCap raise help but small codebases simply don't have enough symbols to fill 8K budgets |
+| Cross-encoder reranking (Enhancement 1) | Not done | Would require adding @huggingface/transformers ONNX dependency (~85MB). Highest ROI enhancement but significant effort |
+| HyDE query expansion (Enhancement 4) | Not done | Requires LLM call at query time |
+| Multi-hop retrieval (Enhancement 5) | Not done | Formalized version of existing refill pass |
+| Speculative retrieval (Enhancement 6) | Not done | Pre-compute likely follow-ups |
 
 ## Completion Summary
 
-- P0: 12/12 done (100%)
-- P1: 10/10 done (100%)
-- P2: 6/6 done (100%)
-- Overall: 28/28 done (100%)
-
-## Phase 1 Verification (2026-03-14)
-
-- `npm run lint` => pass (tsc --noEmit)
-- `npm test` => 1118 passed, 6 todo, 174 files
-- `npx vitest run tests/field/review-regressions.test.ts` => 18 passed
-- `npx vitest run tests/integration/threshold-ratchet.test.ts` => 3 passed
-- No regressions from Phase 1 changes
-
-## Phase 2 Verification (2026-03-14)
-
-- `npm run lint` => pass (tsc --noEmit)
-- `npm test` => 1119 passed, 6 todo, 174 files
-- `npx vitest run tests/field/review-regressions.test.ts` => 18 passed
-- `npx vitest run tests/integration/threshold-ratchet.test.ts` => 3 passed
-- No regressions from Phase 2 changes
-
-## Review Finding Matrix Status After Phase 2
-
-| Review theme | Status |
-|---|---|
-| Confidence overstates incomplete answers | closed |
-| Broad queries miss critical files | partial (pool-widen helps but small fixtures still underfill) |
-| Noise dominates capsules | partial (centrality cap + per-file cap applied) |
-| Budget underutilization | partial (pool-widen pass added, baseMaxDistance raised) |
-| Flow tracing weak across real boundaries | closed |
-| Exact symbol query failure modes | closed |
-| Index pollution from QA/worktree/archive dirs | closed |
-| Cross-session feedback contamination | closed |
-| cw_stats honesty | closed |
-| Follow-up suggestions low quality | closed |
-| cw_overview lexical/shallow | closed |
-| Intent classification brittle | closed |
-| TSX false syntax errors | closed |
-| cw_recall weak | closed |
-| Search ergonomics inconsistencies | closed |
-| MCP response shape omits structured data | closed |
-| Duplicate snippets / previously-shown waste | closed |
-| Path/read UX inconsistencies | closed |
-| Pattern detector not materially helping capsules | closed |
-
-## Phase 3 Verification (2026-03-14)
-
-- `npm run lint` => pass (tsc --noEmit)
-- `npm test` => 1119 passed, 6 todo, 174 files
-- No regressions from Phase 3 changes
-
-## Final Verification (2026-03-14)
-
-- `npm run lint` => pass (tsc --noEmit)
-- `npm test` => 1119 passed, 6 todo, 174 files
-- `npx vitest run tests/field/review-regressions.test.ts` => 18 passed
-- `npx vitest run tests/integration/threshold-ratchet.test.ts` => 3 passed
-- All 28 tickets done. All 19 review themes: 18 closed, 1 partial (budget underutilization on small fixtures).
-- No unresolved P0 or P1 blockers.
-
-## Stop Condition Met
-
-- Every blocking and important review theme is closed.
-- The verification bundle is green (1119 tests, lint clean).
-- The sprint tracker shows no unresolved blocker.
-- Budget underutilization on very small fixtures (< 50 symbols) is the only partial theme — accepted as non-blocking since pool-widening pass was added and real-world codebases (100k+ lines) are the primary target.
+- Review Fix 1 (Confidence): Already fixed in prior session — verified no escape hatches remain
+- Review Fix 2 (Budget): Real code change — hardCap raised, pool-widen added
+- Review Fix 3 (Noise): Real code change — queryRelevance scoring, centrality cap, per-file cap
+- Review Fix 4 (Flow): Already fixed in prior session — verified with integration tests
+- Review Fix 5 (Follow-up): Real code change — edge-to-pivot relevance fallback
+- Review Fix 6 (Stats): Already fixed in prior session — verified honest metrics
+- Review Fix 7 (Pollution): Already fixed in prior session + real code change (archive exclusion in capsule)
+- Review Fix 8 (Target protection): Already implemented — verified with existing tests
+- Review Fix 9 (Symbol not found): Already implemented — verified in code
+- Review Fix 10 (Impact conflation): Already implemented — verified edge filtering
+- Enhancement 3 (Query pipelines): Already implemented — intent-specific branching throughout generator
