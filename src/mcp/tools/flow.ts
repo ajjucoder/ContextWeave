@@ -135,7 +135,21 @@ function traceOutgoing(
       return;
     }
 
-    const outgoing = edges.getBySource(currentId);
+    const FLOW_EDGE_PRIORITY: Record<string, number> = {
+      call: 0, callback: 0, "server-action": 0, "route-handler": 0,
+      jsx_render: 1, event: 1, dynamic_dispatch: 1, framework_entry: 1,
+      import: 2, reexport: 2, type_usage: 2, reference: 2, inheritance: 2, implements: 2,
+    };
+    const TEST_PATH_RE = /(test|spec|__tests__|__mocks__|fixtures?)\b/i;
+    const rawOutgoing = edges.getBySource(currentId);
+    const outgoing = [...rawOutgoing]
+      .filter((e) => {
+        const sym = symbols.getById(e.targetSymbolId);
+        if (!sym) return true;
+        const f = files.getById(sym.fileId);
+        return !f || !TEST_PATH_RE.test(f.path);
+      })
+      .sort((a, b) => (FLOW_EDGE_PRIORITY[a.kind] ?? 3) - (FLOW_EDGE_PRIORITY[b.kind] ?? 3));
     if (outgoing.length === 0 && path.length > 0) {
       allPaths.push({ steps: [...path], firstHop: firstHopId });
       return;
@@ -228,7 +242,21 @@ function traceIncoming(
       return;
     }
 
-    const incoming = edges.getByTarget(currentId);
+    const FLOW_EDGE_PRIORITY_IN: Record<string, number> = {
+      call: 0, callback: 0, "server-action": 0, "route-handler": 0,
+      jsx_render: 1, event: 1, dynamic_dispatch: 1, framework_entry: 1,
+      import: 2, reexport: 2, type_usage: 2, reference: 2, inheritance: 2, implements: 2,
+    };
+    const TEST_PATH_IN_RE = /(test|spec|__tests__|__mocks__|fixtures?)\b/i;
+    const rawIncoming = edges.getByTarget(currentId);
+    const incoming = [...rawIncoming]
+      .filter((e) => {
+        const sym = symbols.getById(e.sourceSymbolId);
+        if (!sym) return true;
+        const f = files.getById(sym.fileId);
+        return !f || !TEST_PATH_IN_RE.test(f.path);
+      })
+      .sort((a, b) => (FLOW_EDGE_PRIORITY_IN[a.kind] ?? 3) - (FLOW_EDGE_PRIORITY_IN[b.kind] ?? 3));
     if (incoming.length === 0 && path.length > 0) {
       allPaths.push({ steps: [...path], firstHop: firstHopId });
       return;
