@@ -41,6 +41,30 @@ function resolveSymbolTarget(
 ): ResolvedSymbol | null {
   const symbols = symbolQueries(db);
   const files = fileQueries(db);
+
+  if (filePathFilter) {
+    const resolvedFilter = resolve(filePathFilter);
+    const allFiles = files.getAll();
+    const matchedFile = allFiles.find((f) => resolve(projectRoot, f.path) === resolvedFilter)
+      ?? allFiles.find((f) => resolvedFilter.endsWith(f.path));
+    if (matchedFile) {
+      const fileSymbols = symbols.getByFileId(matchedFile.id);
+      const exactMatch = fileSymbols.find((s) => s.name.toLowerCase() === symbolName.toLowerCase());
+      if (exactMatch) {
+        return { symbol: exactMatch, filePath: resolve(projectRoot, matchedFile.path) };
+      }
+      const fuzzyMatches = fuzzyMatch(symbolName, fileSymbols.map((s) => s.name), 0.6);
+      if (fuzzyMatches.length > 0) {
+        const matched = fileSymbols.find((s) => s.name === fuzzyMatches[0]!.name);
+        if (matched) {
+          return { symbol: matched, filePath: resolve(projectRoot, matchedFile.path) };
+        }
+      }
+      return null;
+    }
+    return null;
+  }
+
   const allNames = symbols.getAllNames();
   const matches = fuzzyMatch(symbolName, allNames, 0.6);
   if (matches.length === 0) return null;
@@ -54,12 +78,9 @@ function resolveSymbolTarget(
     })
     .filter((candidate): candidate is ResolvedSymbol => candidate !== null);
 
-  const filtered = filePathFilter
-    ? candidates.filter((candidate) => resolve(candidate.filePath) === resolve(filePathFilter))
-    : candidates;
-  if (filtered.length === 0) return null;
+  if (candidates.length === 0) return null;
 
-  filtered.sort((a, b) => {
+  candidates.sort((a, b) => {
     if (b.symbol.centrality !== a.symbol.centrality) {
       return b.symbol.centrality - a.symbol.centrality;
     }
@@ -69,7 +90,7 @@ function resolveSymbolTarget(
     return a.filePath.localeCompare(b.filePath);
   });
 
-  return filtered[0]!;
+  return candidates[0]!;
 }
 
 export function resolveFilePath(
