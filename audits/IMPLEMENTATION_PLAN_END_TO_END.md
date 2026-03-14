@@ -110,7 +110,7 @@ Repair the remediation plan after the failed March 14 rerun, reopen any falsely 
   - narrow exact-symbol capsules do not widen into unrelated adjacent helpers unless the query asks broader intent
 - linked tests:
   - `npx vitest run tests/capsule/pivot-scorer.test.ts tests/field/review-regressions.test.ts`
-- status: todo
+- status: review
 
 #### CW-P0-014
 - owner: codex
@@ -121,7 +121,7 @@ Repair the remediation plan after the failed March 14 rerun, reopen any falsely 
   - broad-task utilization and first-pass completeness improve together on real reviewed queries
 - linked tests:
   - `npx vitest run tests/capsule/story-packing.test.ts tests/integration/threshold-ratchet.test.ts tests/field/review-regressions.test.ts`
-- status: todo
+- status: review
 
 #### CW-P0-015
 - owner: codex
@@ -132,7 +132,7 @@ Repair the remediation plan after the failed March 14 rerun, reopen any falsely 
   - broad answers that miss the runtime bridge file cannot report `HIGH`
 - linked tests:
   - `npx vitest run tests/unit/confidence-calibration.test.ts tests/integration/threshold-ratchet.test.ts tests/field/review-regressions.test.ts`
-- status: todo
+- status: review
 
 #### CW-P0-016
 - owner: codex
@@ -143,7 +143,7 @@ Repair the remediation plan after the failed March 14 rerun, reopen any falsely 
   - stats clearly separate capsule-only metrics from end-to-end session cost
 - linked tests:
   - `npx vitest run tests/integration/post-tool-use.test.ts tests/integration/mcp-navigation-tools.test.ts`
-- status: todo
+- status: review
 
 #### CW-P0-017
 - owner: codex
@@ -154,7 +154,7 @@ Repair the remediation plan after the failed March 14 rerun, reopen any falsely 
   - impact output distinguishes direct callers from low-signal importer or test noise
 - linked tests:
   - `npx vitest run tests/unit/flow.test.ts tests/field/review-regressions.test.ts`
-- status: todo
+- status: review
 
 #### CW-P0-018
 - owner: codex
@@ -165,7 +165,7 @@ Repair the remediation plan after the failed March 14 rerun, reopen any falsely 
   - mixed-language repos no longer let vendored JS outrank the primary backend runtime
 - linked tests:
   - `npx vitest run tests/core/index-pollution.test.ts tests/memory/bootstrap-seeds.test.ts tests/field/review-regressions.test.ts`
-- status: todo
+- status: review
 
 #### CW-P0-019
 - owner: codex
@@ -176,7 +176,7 @@ Repair the remediation plan after the failed March 14 rerun, reopen any falsely 
   - path displays remain shortened only when the full repo-relative path is preserved for navigation
 - linked tests:
   - `npx vitest run tests/integration/mcp-navigation-tools.test.ts tests/unit/formatter-followup.test.ts`
-- status: todo
+- status: review
 
 #### CW-P0-020
 - owner: codex
@@ -187,7 +187,7 @@ Repair the remediation plan after the failed March 14 rerun, reopen any falsely 
   - reindex output clearly distinguishes cold rebuild from incremental update and reports processed, skipped, and total counts
 - linked tests:
   - `npx vitest run tests/unit/parser.test.ts tests/integration/mcp-server.test.ts`
-- status: todo
+- status: review
 
 ### P1 Stabilization And Field Closure
 
@@ -200,7 +200,7 @@ Repair the remediation plan after the failed March 14 rerun, reopen any falsely 
   - monorepo and mixed-repo path scoping remain coherent in overview outputs
 - linked tests:
   - `npx vitest run tests/core/file-summaries.test.ts tests/field/review-regressions.test.ts`
-- status: todo
+- status: review
 
 #### CW-P1-012
 - owner: codex
@@ -211,7 +211,7 @@ Repair the remediation plan after the failed March 14 rerun, reopen any falsely 
   - ambiguous or low-confidence follow-ups are omitted rather than emitted as traps
 - linked tests:
   - `npx vitest run tests/unit/formatter-followup.test.ts tests/field/review-regressions.test.ts`
-- status: todo
+- status: review
 
 #### CW-P1-013
 - owner: codex
@@ -222,7 +222,7 @@ Repair the remediation plan after the failed March 14 rerun, reopen any falsely 
   - project-concept recall is either materially useful or explicitly scoped as session-memory only
 - linked tests:
   - `npx vitest run tests/memory/recall-quality.test.ts tests/memory/observation-promotion.test.ts`
-- status: todo
+- status: review
 
 #### CW-P1-014
 - owner: codex
@@ -233,7 +233,7 @@ Repair the remediation plan after the failed March 14 rerun, reopen any falsely 
   - existing regex and glob ergonomics remain consistent
 - linked tests:
   - `npx vitest run tests/integration/mcp-navigation-tools.test.ts`
-- status: todo
+- status: review
 
 #### CW-P1-015
 - owner: codex

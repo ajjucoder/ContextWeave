@@ -10,6 +10,7 @@ import { fuzzyMatch } from "../../utils/fuzzy.js";
 import type { SymbolRecord } from "../../core/types.js";
 import {
   formatSymbolDisplayName,
+  parseSymbolReference,
   resolveExactSymbolMatches,
 } from "./symbol-resolution.js";
 
@@ -115,11 +116,17 @@ function traceImpactWithBarrelAliases(
 function resolveTargetSymbols(
   db: Database.Database,
   target: string
-): { symbols: SymbolRecord[]; resolvedName: string } | null {
+): { symbols: SymbolRecord[]; resolvedName: string; pinToExactSymbol: boolean } | null {
   const symbols = symbolQueries(db);
+  const parsedTarget = parseSymbolReference(target);
+  const pinToExactSymbol = parsedTarget.fileSuffix !== undefined;
   const exactMatches = resolveExactSymbolMatches(db, target);
   if (exactMatches.length > 0) {
-    return { symbols: exactMatches, resolvedName: target };
+    return {
+      symbols: pinToExactSymbol ? [exactMatches[0]!] : exactMatches,
+      resolvedName: target,
+      pinToExactSymbol,
+    };
   }
 
   const hasQualifier = target.includes(":") || target.includes(".");
@@ -135,7 +142,7 @@ function resolveTargetSymbols(
   const pivotSymbols = symbols.getByName(pivotName);
   if (pivotSymbols.length === 0) return null;
 
-  return { symbols: pivotSymbols, resolvedName: pivotName };
+  return { symbols: pivotSymbols, resolvedName: pivotName, pinToExactSymbol: false };
 }
 
 export function registerImpactTool(server: McpServer, db: Database.Database): void {
@@ -159,14 +166,17 @@ export function registerImpactTool(server: McpServer, db: Database.Database): vo
           };
         }
 
-        const { symbols: pivotSymbols, resolvedName } = resolved;
+        const { symbols: pivotSymbols, resolvedName, pinToExactSymbol } = resolved;
 
         // Trace impact for all resolved symbols (handles barrel re-exports:
         // same-named symbols in index.ts re-exports are traced separately)
         const seen = new Set<string>();
         const allImpacts: ImpactNode[] = [];
         for (const pivot of pivotSymbols) {
-          for (const node of traceImpactWithBarrelAliases(db, pivot, maxDepth)) {
+          const tracedNodes = pinToExactSymbol
+            ? traceImpact(db, pivot.id, maxDepth)
+            : traceImpactWithBarrelAliases(db, pivot, maxDepth);
+          for (const node of tracedNodes) {
             const key = `${node.file}:${node.line}:${node.name}`;
             if (!seen.has(key)) {
               seen.add(key);
@@ -179,10 +189,14 @@ export function registerImpactTool(server: McpServer, db: Database.Database): vo
           const edges = edgeQueries(db);
           const files = fileQueries(db);
           const symbols = symbolQueries(db);
-          const allSameNameSymbols = symbols.getByName(resolvedName);
-          const fallbackSymbols = allSameNameSymbols.length > pivotSymbols.length
-            ? allSameNameSymbols
-            : pivotSymbols;
+          const fallbackSymbols = pinToExactSymbol
+            ? pivotSymbols
+            : (() => {
+              const allSameNameSymbols = symbols.getByName(resolvedName);
+              return allSameNameSymbols.length > pivotSymbols.length
+                ? allSameNameSymbols
+                : pivotSymbols;
+            })();
           for (const sym of fallbackSymbols) {
             const directDeps = edges.getByTarget(sym.id);
             for (const edge of directDeps) {

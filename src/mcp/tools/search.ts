@@ -19,6 +19,8 @@ interface SearchResult {
   path: string;
   line: number;
   snippet: string;
+  isDefinition: boolean;
+  symbolContext: string;
 }
 
 function isSafeProjectPath(filePath: string, projectRoot: string): boolean {
@@ -167,6 +169,13 @@ function renderSnippet(lines: string[], lineNumber: number, contextLines: number
   return out.join("\n");
 }
 
+function rankSearchResults(results: SearchResult[], maxResults: number): SearchResult[] {
+  return results
+    .slice()
+    .sort((a, b) => Number(b.isDefinition) - Number(a.isDefinition))
+    .slice(0, maxResults);
+}
+
 export function registerSearchTool(server: McpServer, db: Database.Database, projectRoot: string): void {
   const registerTool = getRegisterTool(server);
   const inputSchema: Record<string, z.ZodTypeAny> = {
@@ -212,6 +221,7 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
         detectBraceExpansion(ripgrepQuery);
         const contextLines = context_lines ?? 1;
         const maxResults = max_results ?? 20;
+        const candidateBudget = Math.max(maxResults * 3, maxResults);
         const scopePath = path?.trim();
         const globRegex = glob && glob.trim().length > 0 ? globToRegExp(glob.trim()) : null;
 
@@ -244,7 +254,7 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
           });
 
           for (const match of rgMatches) {
-            if (results.length >= maxResults) break;
+            if (results.length >= candidateBudget) break;
             const absPath = resolve(searchRoot, match.path);
             if (!isSafeProjectPath(absPath, resolvedRoot)) continue;
             const relPath = toProjectRelativePath(resolvedRoot, absPath);
@@ -253,6 +263,7 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
             const file = files.getByPath(relPath);
             const enclosing = file ? symbols.getEnclosingSymbol(file.id, match.line) : null;
             const symbolContext = enclosing ? ` [in ${enclosing.kind} ${enclosing.name}]` : "";
+            const isDefinition = enclosing?.startLine === match.line;
 
             let content: string;
             try {
@@ -262,9 +273,11 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
             }
             const lines = content.split(/\r?\n/);
             results.push({
-              path: relPath + symbolContext,
+              path: relPath,
               line: match.line,
               snippet: renderSnippet(lines, match.line, contextLines),
+              isDefinition,
+              symbolContext,
             });
           }
         } else {
@@ -272,7 +285,7 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
           const regex = buildRegex(query, useRegexSearch, effectiveCaseSensitive);
 
           for (const file of files.iterateAll()) {
-            if (results.length >= maxResults) break;
+            if (results.length >= candidateBudget) break;
             const fullPath = resolve(resolvedRoot, file.path);
             if (!isSafeProjectPath(fullPath, resolvedRoot)) continue;
             const relPath = toProjectRelativePath(resolvedRoot, fullPath);
@@ -289,7 +302,7 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
 
             const lineStarts = buildLineStarts(content);
             const lines = content.split(/\r?\n/);
-            const remaining = maxResults - results.length;
+            const remaining = candidateBudget - results.length;
             const spans = regex
               ? findRegexMatches(content, regex, remaining)
               : findLiteralMatches(content, query, effectiveCaseSensitive, remaining);
@@ -300,26 +313,32 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
               const lineNumber = lineForOffset(span.start, lineStarts);
               const enclosing = symbols.getEnclosingSymbol(file.id, lineNumber);
               const symbolContext = enclosing ? ` [in ${enclosing.kind} ${enclosing.name}]` : "";
+              const isDefinition = enclosing?.startLine === lineNumber;
               results.push({
-                path: relPath + symbolContext,
+                path: relPath,
                 line: lineNumber,
                 snippet: renderSnippet(lines, lineNumber, contextLines),
+                isDefinition,
+                symbolContext,
               });
-              if (results.length >= maxResults) break;
+              if (results.length >= candidateBudget) break;
             }
           }
         }
 
-        if (results.length === 0) {
+        const rankedResults = rankSearchResults(results, maxResults);
+
+        if (rankedResults.length === 0) {
           return {
             content: [{ type: "text" as const, text: `No matches found for "${query}"` }],
           };
         }
 
-        const lines = [`Search results for "${query}" (${results.length} match${results.length === 1 ? "" : "es"}):`, ""];
-        for (let i = 0; i < results.length; i++) {
-          const result = results[i]!;
-          lines.push(`${i + 1}. ${result.path}:${result.line}`);
+        const lines = [`Search results for "${query}" (${rankedResults.length} match${rankedResults.length === 1 ? "" : "es"}):`, ""];
+        for (let i = 0; i < rankedResults.length; i++) {
+          const result = rankedResults[i]!;
+          const defTag = result.isDefinition ? " [def]" : "";
+          lines.push(`${i + 1}. ${result.path}${defTag}${result.symbolContext}:${result.line}`);
           lines.push(result.snippet);
           lines.push("");
         }

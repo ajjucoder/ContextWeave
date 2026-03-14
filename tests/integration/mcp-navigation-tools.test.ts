@@ -13,6 +13,7 @@ import { registerReadTool } from "../../src/mcp/tools/read.js";
 import { registerStatusTool } from "../../src/mcp/tools/status.js";
 import { registerCapsuleTool } from "../../src/mcp/tools/capsule.js";
 import { registerStatsTool } from "../../src/mcp/tools/stats.js";
+import { registerImpactTool } from "../../src/mcp/tools/impact.js";
 import { chunkQueries } from "../../src/db/queries/chunks.js";
 import type { ChunkEmbeddingEntry, EmbeddingRuntime } from "../../src/core/types.js";
 
@@ -52,6 +53,7 @@ beforeAll(async () => {
   registerFilesTool(server, db, FIXTURE_DIR);
   registerSearchTool(server, db, FIXTURE_DIR);
   registerReadTool(server, db, FIXTURE_DIR);
+  registerImpactTool(server, db);
 }, 60000);
 
 afterAll(() => {
@@ -105,6 +107,23 @@ describe("mcp navigation tools", () => {
     expect(text).toContain("validateEmail");
   });
 
+  it("cw_grep ranks definition hits first and marks them", async () => {
+    const result = await getTool(server, "cw_grep").handler({
+      query: "buildSessionToken",
+      path: ".",
+      glob: "**/*.ts",
+      context_lines: 0,
+      max_results: 5,
+    });
+
+    const text = result.content[0]?.text ?? "";
+    expect(result.isError).not.toBe(true);
+    const rankedLines = text.split("\n").filter((line) => /^\d+\./.test(line));
+    expect(rankedLines[0]).toContain("zzz-grep-def.ts");
+    expect(rankedLines[0]).toContain("[def]");
+    expect(rankedLines[1]).toContain("aaa-grep-use.ts");
+  });
+
   it("cw_grep treats /pattern/ as regex and expands brace globs consistently", async () => {
     const result = await getTool(server, "cw_grep").handler({
       query: "/validate[A-Z]\\w+/",
@@ -153,6 +172,19 @@ describe("mcp navigation tools", () => {
     expect(text).toContain('No indexed symbol found matching "missingSymbol"');
     expect(text).toContain('cw_grep(query: "missingSymbol")');
     expect(text).toContain('cw_overview(query: "missingSymbol")');
+  });
+
+  it("cw_impact keeps file-qualified targets pinned to the requested file", async () => {
+    const result = await getTool(server, "cw_impact").handler({
+      target: "impact-primary.ts:syncProfile",
+      depth: 3,
+    });
+
+    const text = result.content[0]?.text ?? "";
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain("runPrimarySync");
+    expect(text).not.toContain("runBarrelSync");
+    expect(text).not.toContain("Note: traced 2 symbols with this name");
   });
 
   it("cw_status returns index health and project profile data", async () => {
