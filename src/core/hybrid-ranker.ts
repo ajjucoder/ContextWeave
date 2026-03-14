@@ -354,5 +354,36 @@ export async function hybridSearch(
     return left.chunkId - right.chunkId;
   });
 
+  if (embeddingRuntime.reranker && results.length > 1) {
+    const rerankCandidates = results.slice(0, Math.min(30, results.length));
+    const documents = rerankCandidates.map((r) => {
+      const scopeLabel = r.scopeChain[r.scopeChain.length - 1] ?? r.kind;
+      return `${scopeLabel} in ${r.filePath}`;
+    });
+
+    try {
+      const reranked = await embeddingRuntime.reranker.rerank(options.query, documents);
+      const rerankedResults: HybridSearchResult[] = [];
+      const rerankedIndices = new Set<number>();
+
+      for (const { index, score } of reranked) {
+        const original = rerankCandidates[index];
+        if (!original) continue;
+        rerankedResults.push({
+          ...original,
+          rrfScore: original.rrfScore * 0.4 + score * 0.6,
+        });
+        rerankedIndices.add(index);
+      }
+
+      const remaining = results.filter((_, i) => i >= rerankCandidates.length || !rerankedIndices.has(i));
+      rerankedResults.push(...remaining);
+      rerankedResults.sort((a, b) => b.rrfScore - a.rrfScore);
+      return rerankedResults.slice(0, limit);
+    } catch {
+      // Fall through to RRF-only ranking
+    }
+  }
+
   return results.slice(0, limit);
 }

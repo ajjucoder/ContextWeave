@@ -156,6 +156,9 @@ export interface EmbeddingRuntime {
     search(queryEmbedding: Float32Array, limit?: number): VectorSearchResult[];
     searchWithFilter(queryEmbedding: Float32Array, pathFilter?: string, limit?: number): VectorSearchResult[];
   };
+  reranker?: {
+    rerank(query: string, documents: string[]): Promise<Array<{ index: number; score: number }>>;
+  };
   modelName?: string;
 }
 
