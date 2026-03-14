@@ -82,6 +82,20 @@ const BROAD_SIGNALS = new Set([
   "pipeline",
   "flow",
   "system",
+  "management",
+  "pattern",
+  "patterns",
+  "strategy",
+  "layer",
+  "layers",
+  "module",
+  "modules",
+  "integration",
+  "orchestration",
+  "synchronization",
+  "migration",
+  "authorization",
+  "authentication",
 ]);
 // Debug intent: query is about errors/bugs, not about implementing a fix
 const DEBUG_SIGNALS = new Set(["error", "bug", "broken", "failing", "crash", "exception", "undefined", "null", "TypeError", "wrong", "unexpected"]);

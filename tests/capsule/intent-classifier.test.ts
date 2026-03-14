@@ -40,12 +40,12 @@ describe("classifyQueryIntent", () => {
     expect(classified.normalizedTerms).toEqual(["capsule", "pipeline"]);
   });
 
-  it("classifies question-word queries as exploration, not task", () => {
-    // "how does X work" → narrow (single focus term)
-    expect(classifyQueryIntent("how does authentication work").intent).toBe("narrow");
-    // "what is" → narrow
+  it("classifies question-word queries as exploration or broad based on concept signals", () => {
+    // "how does authentication work" → broad (authentication is a concept signal)
+    expect(classifyQueryIntent("how does authentication work").intent).toBe("broad");
+    // "what is the session guard" → narrow (no concept signal)
     expect(classifyQueryIntent("what is the session guard").intent).toBe("narrow");
-    // "why does" → narrow
+    // "why does login fail" → narrow (no concept signal, but no debug signal either)
     expect(classifyQueryIntent("why does login fail").intent).toBe("narrow");
   });
 
