@@ -723,6 +723,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       if (suppressTypeDeclarations && isTypeDeclarationPath(filePath)) {
         continue;
       }
+      if (getDirectoryWeight(normalizeRetrievalPath(filePath, 6), params.projectRoot) <= 0.2) {
+        continue;
+      }
       candidates.push({ id, name: sym.name, signature: sym.signature ?? "", kind: sym.kind, filePath });
     }
     return candidates;
@@ -1082,11 +1085,15 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     return lower.includes("/mock") || lower.includes("/fixture") || lower.includes("/__mocks__/") || lower.includes("/fixtures/");
   };
 
+  const ARCHIVE_WEIGHT_THRESHOLD = 0.2;
   for (const candidate of candidates) {
     const sameFileAsPivot = pivotFileIds.has(candidate.file.id);
     const normalizedPath = normalizeRetrievalPath(candidate.file.path, 6);
     const sameDirAsPivot = rankingPivotDirs.has(dirname(normalizedPath));
     const directoryWeight = getDirectoryWeight(normalizedPath, params.projectRoot);
+    if (directoryWeight <= ARCHIVE_WEIGHT_THRESHOLD && !candidate.isPivot) {
+      continue;
+    }
     const laneWeight = activeLanes.length > 0 ? getLaneWeightForPath(activeLanes, candidate.file.path) : 1;
     const fileSearchBoost = candidateFileBoostById.get(candidate.file.id) ?? 1;
     const actionSignal = hasActionSignal(candidate.symbol.name, candidate.symbol.signature);

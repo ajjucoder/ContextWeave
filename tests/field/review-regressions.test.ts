@@ -101,6 +101,7 @@ describe("Claud-ometer field regression", () => {
       "SessionTabs",
       "SessionTimeline",
       "SessionHeader",
+      "archive/old-session-loader",
     ]);
   });
 
