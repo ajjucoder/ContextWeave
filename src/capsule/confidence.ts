@@ -21,6 +21,8 @@ export interface ConfidenceParams {
   };
   packedSymbolNames?: string[];
   queryTerms?: string[];
+  layerCount?: number;
+  packedFilePaths?: string[];
 }
 
 export type ConfidenceLabel = "LOW" | "MEDIUM" | "HIGH";
@@ -178,6 +180,24 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
 
   if (intent !== "broad" && totalRelevantPivots > 0 && relevantPivotsIncluded < totalRelevantPivots * 0.5) {
     confidence = Math.min(confidence, 0.55);
+  }
+
+  const layerCount = params.layerCount ?? 0;
+  if ((intent === "broad" || intent === "task") && layerCount > 0) {
+    if (layerCount === 1) {
+      confidence = Math.min(confidence, 0.40);
+    } else if (layerCount === 2) {
+      confidence = Math.min(confidence, 0.60);
+    }
+  }
+
+  if (params.packedFilePaths && queryTerms && queryTerms.length === 1) {
+    const dirs = new Set(
+      params.packedFilePaths.map((p) => p.replace(/\\/g, "/").split("/").slice(0, 2).join("/"))
+    );
+    if (dirs.size >= 3) {
+      confidence -= 0.2;
+    }
   }
 
   if (packedSymbolNames && queryTerms && queryTerms.length > 0) {

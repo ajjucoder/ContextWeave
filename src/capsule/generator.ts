@@ -2410,6 +2410,18 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   }
 
   const tokenUtilization = tokenBudget > 0 ? tokensUsed / tokenBudget : 0;
+  const UI_LAYER_RE = /(^|\/)(?:components?|views?|pages?|app\/(?!api))[/\\]/i;
+  const API_LAYER_RE = /(^|\/)(?:api|routes?|controllers?|app\/api)[/\\]/i;
+  const SERVICE_LAYER_RE = /(^|\/)(?:services?|lib|server|utils?|helpers?)[/\\]/i;
+  const DATA_LAYER_RE = /(^|\/)(?:db|data|models?|repositories?|stores?|convex)[/\\]/i;
+  const packedPaths = packed.map((n) => canonicalFilePath(n));
+  const detectedLayers = [
+    packedPaths.some((p) => UI_LAYER_RE.test(p)),
+    packedPaths.some((p) => API_LAYER_RE.test(p)),
+    packedPaths.some((p) => SERVICE_LAYER_RE.test(p)),
+    packedPaths.some((p) => DATA_LAYER_RE.test(p)),
+  ].filter(Boolean).length;
+
   const coverageConfidence = computeCoverageConfidence({
     intent,
     pivotCount,
@@ -2430,6 +2442,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     },
     packedSymbolNames: packed.map((n) => n.symbol.name),
     queryTerms: baseQueryTerms,
+    layerCount: detectedLayers,
+    packedFilePaths: packedPaths,
   });
   const effectiveCoverageConfidence = symbolNotFound
     ? Math.min(coverageConfidence, 0.44)

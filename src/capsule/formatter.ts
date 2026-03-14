@@ -284,6 +284,11 @@ export function formatCapsule(
     }
   }
 
+  const utilization = metadata.tokenBudget > 0 ? metadata.tokensUsed / metadata.tokenBudget : 1;
+  if (utilization < 0.30 && metadata.tokenBudget >= 2000) {
+    parts.push(`\nBudget underutilized: ${metadata.tokensUsed}/${metadata.tokenBudget} tokens used (${Math.round(utilization * 100)}%). Retrieval found limited relevant symbols. Consider narrowing your query or using cw_grep for broader text coverage.`);
+  }
+
   if (metadata.diagnostics && metadata.quality.lowConfidence) {
     parts.push("\n--- Diagnostics ---");
     parts.push(`Class: ${metadata.diagnostics.queryClass}`);

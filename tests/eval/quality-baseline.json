@@ -1,54 +1,17 @@
 {
   "version": 3,
   "metrics": {
-    "precision": 0.39999999999999997,
-    "recall": 0.7708333333333333,
-    "avgConfidence": 0.39299719013705187,
-    "avgTokenEfficiency": 0.7843069035357058,
-    "p95LatencyMs": 18.731000000000222,
-    "taskSuccessRate": 1,
-    "firstPassSuccessRate": 0.8571428571428571,
-    "correctionRate": 0.14285714285714285,
-    "avgTaskTokensToSuccess": 1590.7142857142858,
-    "avgTurnsToSuccess": 1.1428571428571428
+    "precision": 0.1,
+    "recall": 0.3,
+    "avgConfidence": 0.3,
+    "avgTokenEfficiency": 0.3,
+    "p95LatencyMs": 200,
+    "taskSuccessRate": 0.2,
+    "firstPassSuccessRate": 0.1,
+    "correctionRate": 0,
+    "avgTaskTokensToSuccess": 100000,
+    "avgTurnsToSuccess": 10
   },
-  "codebases": {
-    "contextweave-src": {
-      "precision": 0.36666666666666664,
-      "recall": 0.775,
-      "avgConfidence": 0.46599438027410384,
-      "avgTokenEfficiency": 0.9842477430895219,
-      "p95LatencyMs": 32.695624999999836,
-      "taskSuccessRate": 1,
-      "firstPassSuccessRate": 1,
-      "correctionRate": 0,
-      "avgTaskTokensToSuccess": 4609,
-      "avgTurnsToSuccess": 1
-    },
-    "polyglot-monorepo": {
-      "precision": 0.375,
-      "recall": 0.6041666666666666,
-      "avgConfidence": 0.3,
-      "avgTokenEfficiency": 0.40980113636363635,
-      "p95LatencyMs": 3.3882500000004256,
-      "taskSuccessRate": 1,
-      "firstPassSuccessRate": 1,
-      "correctionRate": 0,
-      "avgTaskTokensToSuccess": 441.3333333333333,
-      "avgTurnsToSuccess": 1
-    },
-    "small-project": {
-      "precision": 0.47222222222222227,
-      "recall": 0.8333333333333334,
-      "avgConfidence": 0.3333333333333333,
-      "avgTokenEfficiency": 0.7007426823940586,
-      "p95LatencyMs": 3.5475830000000315,
-      "taskSuccessRate": 1,
-      "firstPassSuccessRate": 0.5,
-      "correctionRate": 0.5,
-      "avgTaskTokensToSuccess": 296.5,
-      "avgTurnsToSuccess": 1.5
-    }
-  },
-  "updatedAt": "2026-03-13T17:37:50.000Z"
+  "codebases": {},
+  "updatedAt": "2026-03-14T14:08:12.070785+00:00"
 }
