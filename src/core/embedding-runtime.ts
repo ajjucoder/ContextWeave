@@ -1,6 +1,7 @@
 import type Database from "better-sqlite3";
 import { LocalEmbedder } from "./embedder.js";
 import { VectorStore } from "./vector-store.js";
+import { CrossEncoderReranker } from "./reranker.js";
 import type { EmbeddingRuntime } from "./types.js";
 import { createLogger } from "../utils/logger.js";
 
@@ -19,9 +20,19 @@ export async function createEmbeddingRuntime(
     const vectorStore = new VectorStore(db);
     vectorStore.initialize();
 
+    let reranker: CrossEncoderReranker | undefined;
+    try {
+      reranker = new CrossEncoderReranker();
+    } catch (err) {
+      log.warn("cross-encoder reranker unavailable", {
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
     return {
       embedder,
       vectorStore,
+      reranker,
       modelName: options.modelName,
     };
   } catch (error) {
@@ -35,4 +46,7 @@ export async function createEmbeddingRuntime(
 
 export async function disposeEmbeddingRuntime(runtime: EmbeddingRuntime | null | undefined): Promise<void> {
   await runtime?.embedder.dispose?.();
+  if (runtime?.reranker && "dispose" in runtime.reranker) {
+    await (runtime.reranker as CrossEncoderReranker).dispose();
+  }
 }
