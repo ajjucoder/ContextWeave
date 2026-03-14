@@ -66,6 +66,45 @@ describe("cw_flow honest failure", () => {
   });
 });
 
+describe("cw_flow path diversity", () => {
+  it("interleaves paths from different first-hop branches", async () => {
+    const root = makeTempProject();
+    writeFileSync(
+      join(root, "src", "hub.ts"),
+      `export function hub() {
+  branchA();
+  branchB();
+  branchC();
+}
+
+export function branchA() { return leafA(); }
+export function branchB() { return leafB(); }
+export function branchC() { return leafC(); }
+export function leafA() { return "a"; }
+export function leafB() { return "b"; }
+export function leafC() { return "c"; }
+`
+    );
+
+    const db = new Database(":memory:");
+    runMigrations(db);
+
+    try {
+      await indexProject(db, root);
+      const result = buildFlowResult(db, "hub", undefined, 3, "outgoing");
+      const text = result.text;
+      const branchAIdx = text.indexOf("branchA");
+      const branchBIdx = text.indexOf("branchB");
+      const branchCIdx = text.indexOf("branchC");
+      expect(branchAIdx).toBeGreaterThan(-1);
+      expect(branchBIdx).toBeGreaterThan(-1);
+      expect(branchCIdx).toBeGreaterThan(-1);
+    } finally {
+      db.close();
+    }
+  });
+});
+
 describe("cw_flow class and callback tracing", () => {
   it("resolves qualified class methods through JSX callback chains", async () => {
     const root = makeTempProject();
