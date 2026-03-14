@@ -911,6 +911,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     SINGLE_IDENTIFIER_RE.test(query) &&
     pivotCandidates.every((candidate) => candidate.name.toLowerCase() !== queryLower);
 
+  const sameNameDefinitions =
+    (intent === "symbol-lookup" || intent === "narrow") && SINGLE_IDENTIFIER_RE.test(query)
+      ? pivotCandidates.filter((c) => c.name.toLowerCase() === queryLower)
+      : [];
+  const hasSameNameCollision = sameNameDefinitions.length >= 2;
+
   const sessionId = params.sessionId?.trim();
   const hasExplicitSession = typeof sessionId === "string" && sessionId.length > 0;
   const sessionCtx = hasExplicitSession ? new SessionContext(db, sessionId) : null;
@@ -2505,6 +2511,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   let content = formatCapsule(packed, observations, metadata, fileSummaries);
   if (symbolNotFound) {
     const note = `Note: No symbol named '${query}' found in the index. Showing related symbols.\n`;
+    content = note + content;
+  }
+  if (hasSameNameCollision) {
+    const topDef = sameNameDefinitions[0]!;
+    const altPaths = sameNameDefinitions.slice(1).map((c) => c.filePath).join(", ");
+    const note = `Note: Found ${sameNameDefinitions.length} definitions of '${query}'. Showing top-ranked from ${topDef.filePath}. Alternatives: ${altPaths}\n`;
     content = note + content;
   }
   const structured = buildStructuredOutput(packed, observations, metadata, content);

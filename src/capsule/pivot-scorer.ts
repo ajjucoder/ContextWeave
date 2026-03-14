@@ -202,10 +202,14 @@ function describePivotRelevance(
   const pathCoverage = weightedPathHits / totalTermWeight;
   const pathScore = weightedPathHits * (1 + pathCoverage) * 0.3;
 
+  const HTTP_METHOD_NAMES = new Set(["get", "post", "put", "delete", "patch", "head", "options"]);
+  const isHttpMethodQuery = normalizedQueryTerms.length === 1 && HTTP_METHOD_NAMES.has(normalizedQueryTerms[0]!);
+  const httpMethodKindBoost =
+    isHttpMethodQuery && (kindLower === "function" || kindLower === "method") ? 3.0 : 1.0;
   const kindWeight =
     kindLower === "function" || kindLower === "class" || kindLower === "method" ? 1.2 : 1.0;
 
-  let score = (nameScore + sigScore + pathScore) * kindWeight;
+  let score = (nameScore + sigScore + pathScore) * kindWeight * httpMethodKindBoost;
 
   const signalTokens = new Set([
     ...extractSignalTokens(candidate.name),
@@ -263,7 +267,8 @@ function describePivotRelevance(
   }
 
   if (exactCaseInsensitiveMatch) {
-    score += 50;
+    const isSingleTermWholeQuery = normalizedQueryTerms.length === 1;
+    score += isSingleTermWholeQuery ? 100 : 50;
   }
   if (camelCaseMatch) {
     score += 25;
