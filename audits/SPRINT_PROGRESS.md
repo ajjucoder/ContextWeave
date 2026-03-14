@@ -1,64 +1,70 @@
 # Sprint Progress
 
 Date: 2026-03-14
-Branch: main
-Source spec: `audits/IMPLEMENTATION_PLAN_END_TO_END.md` + `ContextWeave-Reviews/ANALYSIS-2026-03-10.md`
+Branch: codex/review-closure-sprint
+Execution mode: single-agent
+Source spec: `audits/IMPLEMENTATION_PLAN_END_TO_END.md` + `audits/IMPLEMENTATION_PLAN_REVIEW_REMEDIATION_V2.md`
 
-## Review Finding Resolution (17 findings from 8-project review)
+## Ticket Status
 
-| # | Finding | Severity | Fix | Evidence |
-|---|---------|----------|-----|----------|
-| 1 | Confidence miscalibration | P0 | Escape hatches removed, 3-tier labels (LOW/MEDIUM/HIGH), unconditional utilization caps | confidence.ts:144-154, field test: nonexistent symbol returns LOW |
-| 2 | Noise domination | P0 | Backfill relevance scoring (name+sig+path), centrality capped 0.5, per-file cap 4, archive exclusion, UI penalty 0.55x | field test: noise ratio < 50% |
-| 3 | Budget underutilization | P0 | hardCap 120→200/300, pool-widen pass, small-codebase expansion (<=100 symbols), multi-hop retrieval | tests pass |
-| 4 | Flow tracing | P0 | JSX callback edges (parser), BFS weights for callback/server-action/route-handler, path diversity (first-hop grouping), cross-boundary synthesis (10+ patterns) | jsx-callback-edges.test.ts, cross-boundary-synthesis.test.ts, field flow tests |
-| 5 | cw_stats inflated | P1 | Honest metrics: budget utilization, tokens used/budgeted, first-pass/correction rates, no fake savings claims | stats.ts verified |
-| 6 | Broad queries miss files | P0 | Pool-widen, multi-hop, HyDE expansion for NL queries, body-aware FTS5 (qualified names, SQL, JSX text, string literals) | body-features-search.test.ts, hyde-expansion.test.ts |
-| 7 | Follow-up irrelevant | P1 | Query-aware ranking in both text and structured output, edge-to-pivot relevance fallback, uncoveredHits primary sort | formatter-followup.test.ts (11 tests) |
-| 8 | cw_recall weak | P1 | Architecture scope 3.0x weight, passive 0.3x, 7-day passive TTL, intentional before passive in output | field recall test |
-| 9 | Test files rank above source | P1 | Test penalty 0.3x in backfill, test path penalty 0.35x in file-summaries ranking | existing tests |
-| 10 | Target compressed while noise full | P0 | 40% code budget reservation for primary target at L0, packed first | target-protection.test.ts (7 tests) |
-| 11 | Index pollution | P0 | BUILTIN_IGNORE_PATTERNS (.claude, .worktrees), .qa-temp-*, worktree detection, weight<=0.2 capsule filter | field test with archive fixture |
-| 12 | Duplicate content | P2 | Packer dedup pass: removes symbols whose line range is contained within a larger rendering | packer.ts:468-497 |
-| 13 | Symbol not found silent | P0 | symbolNotFound flag + "No symbol named X" note in capsule text | field test: uncertainty=critical for nonexistent |
-| 14 | Path overrides content | P1 | UI penalty 0.55x for runtime queries, runtime boost 1.35x, archive exclusion | file-summaries.ts |
-| 15 | [previously shown] waste | P2 | Minimal: shows count only, dedup only for L0/L1 recent symbols | formatter.ts:319-320 |
-| 16 | cw_read path inconsistency | P2 | Suffix match, 3-candidate resolution, symlink safety, file-qualified format | field cw_read tests |
-| 17 | cw_overview padding | P2 | Body-aware FTS5, summary snippet matching, UI penalty | body-features-search.test.ts |
+| Ticket | Severity | Status | Summary | Evidence |
+|---|---|---|---|---|
+| `CW-P0-013` | P0 | todo | reopen exact-match dominance and same-name disambiguation failures | March 14 reviews still fail on `GET`, `ProductModel`, `main` |
+| `CW-P0-014` | P0 | todo | reopen broad retrieval and budget-fill logic from field regressions | March 14 broad recall and utilization worsened versus March 10 |
+| `CW-P0-015` | P0 | todo | reopen confidence calibration with ambiguity and layer-coverage gates | March 14 reviews still show HIGH confidence on wrong answers |
+| `CW-P0-016` | P0 | review | linked session-scope and stats tests pass locally; external rerun evidence still missing | automated: `npx vitest run tests/integration/post-tool-use.test.ts tests/integration/mcp-navigation-tools.test.ts` passed on 2026-03-14; field note: local harness green, external reviewed repos not rerun in this session |
+| `CW-P0-017` | P0 | todo | close runtime-edge gaps for `cw_flow` and `cw_impact` | March 14 reviews still fail on HTTP, Convex, Tauri, callback, WebSocket, artifact flow |
+| `CW-P0-018` | P0 | review | fixed worktree-root ignore pollution so indexed fixtures and field harness no longer collapse to zero files | code: `src/core/indexer.ts`, `tests/core/index-pollution.test.ts`; automated: `npx vitest run tests/core/index-pollution.test.ts tests/memory/bootstrap-seeds.test.ts tests/field/review-regressions.test.ts` passed on 2026-03-14; field note: internal fixture harness green, external reviewed repos not rerun in this session |
+| `CW-P0-019` | P0 | review | navigation/read/overview paths now verify cleanly after indexer fix; external rerun evidence still missing | automated: `npx vitest run tests/integration/mcp-navigation-tools.test.ts tests/unit/formatter-followup.test.ts tests/field/review-regressions.test.ts` passed on 2026-03-14; field note: internal fixture harness green, external reviewed repos not rerun in this session |
+| `CW-P0-020` | P0 | review | parser and MCP server trust-surface tests pass locally; external rerun evidence still missing | automated: `npx vitest run tests/unit/parser.test.ts tests/integration/mcp-server.test.ts` passed on 2026-03-14; field note: no external parser/status/reindex rerun captured in this session |
+| `CW-P1-011` | P1 | todo | fix overview semantics and intent classification | semantic architecture queries still drift or misclassify |
+| `CW-P1-012` | P1 | todo | fix follow-up utility and text/structured parity | visible and structured follow-up suggestions still diverge or mislead |
+| `CW-P1-013` | P1 | todo | make recall useful and demote passive telemetry | March 14 recall output is still mostly passive or empty |
+| `CW-P1-014` | P1 | todo | add exact-symbol grep behavior and definition-first ranking | common-token grep still ranks imports and substrings ahead of definitions |
+| `CW-P1-015` | P1 | in_progress | expand the field harness and keep closure reporting honest | plan and tracker rewritten around reopened sprint; external reruns still pending |
 
-## Fix Plan Resolution (10 fixes + 6 enhancements)
+## Completion Summary
 
-| Item | Status | Evidence |
-|---|---|---|
-| Fix 1: Confidence calibration | Done | No escape hatches in confidence.ts, unconditional caps |
-| Fix 2: Budget filling | Done | hardCap raised, pool-widen, multi-hop retrieval |
-| Fix 3: Noise elimination | Done | Relevance scoring with sig+path, centrality cap, per-file cap |
-| Fix 4: Flow tracing | Done | JSX callbacks, BFS weights, path diversity, cross-boundary edges |
-| Fix 5: Follow-up suggestions | Done | Query-aware in both paths, relevance floor |
-| Fix 6: Honest stats | Done | No fake savings, honest utilization metrics |
-| Fix 7: Index pollution | Done | Indexer exclusions + capsule weight filter |
-| Fix 8: Target protection | Done | 40% reservation at L0 |
-| Fix 9: Symbol not found | Done | symbolNotFound signal in capsule |
-| Fix 10: Impact conflation | Done | Import/reexport filter at depth>=1, root file guard at depth>=2 |
-| Enhancement 1: Cross-encoder | Done | CrossEncoderReranker (ms-marco-MiniLM-L-6-v2), wired into EmbeddingRuntime |
-| Enhancement 2: Cross-boundary edges | Done | event-edge-synthesis.ts handles 10+ patterns |
-| Enhancement 3: Query-type pipelines | Done | Intent-specific branching throughout generator |
-| Enhancement 4: HyDE expansion | Done | Template-based NL→function signature expansion |
-| Enhancement 5: Multi-hop retrieval | Done | Second BFS pass from packed results |
-| Enhancement 6: Speculative retrieval | Not done | Latency optimization, not quality fix |
+- P0: 0 / 8 done = 0.0%
+- P1: 0 / 5 done = 0.0%
+- P2: 0 / 0 done = 0.0%
+- Overall: 0 / 13 done = 0.0%
+
+## Session Evidence
+
+- Planning docs updated:
+  - `audits/IMPLEMENTATION_PLAN_END_TO_END.md`
+  - `audits/IMPLEMENTATION_PLAN_REVIEW_REMEDIATION_V2.md`
+  - `audits/SPRINT_PROGRESS.md`
+- Code changes executed in the isolated worktree:
+  - `src/core/indexer.ts`
+  - `tests/core/index-pollution.test.ts`
+- Root cause closed locally for the first batch:
+  - ignore evaluation was treating ancestor `.worktrees` path segments as in-project pollution, causing worktree-rooted fixture repos to index `0` files
+  - added a regression test proving a project rooted under `.worktrees/...` still indexes its own files
+- Historical implementation evidence exists in git and prior tests, but it is not counted as sprint completion because the March 14 field reruns contradicted those closure claims.
+- Full-suite baseline note:
+  - `npm test` was already red before targeted fixes in this worktree (`27` failing files / `105` failing tests), so batch progress is tracked against linked ticket suites, not the unrelated full-suite baseline.
 
 ## Test Evidence
 
-- `npm run lint` => pass
-- `npm test` => **1147 passed**, 6 todo, 179 test files
-- `tests/field/review-regressions.test.ts` => **24 passed** (covering all major review failure modes)
-- New test files this session:
-  - `tests/core/jsx-callback-edges.test.ts` (2) — JSX callback edge creation + flow
-  - `tests/core/body-features-search.test.ts` (3) — body-aware FTS5 search
-  - `tests/core/cross-boundary-synthesis.test.ts` (2) — event + HTTP synthesis
-  - `tests/core/hyde-expansion.test.ts` (11) — HyDE NL query expansion
-  - `tests/core/reranker.test.ts` (4) — cross-encoder reranking
+| Check | State | Evidence |
+|---|---|---|
+| First batch linked verification bundle | pass | `npx vitest run tests/integration/post-tool-use.test.ts tests/integration/mcp-navigation-tools.test.ts tests/core/index-pollution.test.ts tests/memory/bootstrap-seeds.test.ts tests/field/review-regressions.test.ts tests/unit/formatter-followup.test.ts tests/unit/parser.test.ts tests/integration/mcp-server.test.ts` -> 8 files passed, 99 tests passed on 2026-03-14 |
+| Worktree-root regression | pass | `npx vitest run tests/core/index-pollution.test.ts` passed after adding the `.worktrees` root regression |
+| Product tests | fail | `npm test` run at session start failed before targeted fixes (`27` failing files / `105` failing tests); not used as proof of first-batch completion |
+| External field reruns | not run | required by `CW-P1-015` before any ticket can move to `done` |
 
-## What Cannot Be Verified Without External Codebases
+## Blockers
 
-The 8 review projects (Kuvio, polymarket, FocusPact, lawn, EBPS, Nudgy, CW-Self, t3code) are external codebases not available in this repository. The field fixtures (sitecraft, claudometer, gravity-proxy, ebps, next-pages-router) simulate the same failure patterns and all pass. A definitive re-score requires re-running ContextWeave on the actual 8 review projects.
+- The active sprint cannot claim any remediation ticket as `done` until the matching external field reruns exist.
+- The current repository does not contain the external review repos; field closure depends on re-running against those codebases or equivalent framework-matching repos.
+- `CW-P0-016`, `CW-P0-018`, `CW-P0-019`, and `CW-P0-020` have fresh local automated evidence, but they remain `review` because this session did not produce external field-evidence artifacts.
+- The repo-wide `npm test` baseline is still red outside the linked first-batch suites and must be handled separately from this sprint batch.
+
+## Next Actions
+
+1. Keep `CW-P1-015` open and capture external rerun evidence for the first-batch tickets before any move to `done`.
+2. Start the next execution block with `CW-P0-013`, `CW-P0-014`, and `CW-P0-015`, preserving the rule that retrieval widening cannot land before tightening and confidence gating.
+3. Re-run the repo-wide verification bundle after the next batch to see which non-batch failures remain unrelated versus newly addressed.
+4. Only update completion math from ticket counts when a ticket reaches `done` with both automated evidence and external field evidence.

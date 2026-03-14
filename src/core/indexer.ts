@@ -99,8 +99,13 @@ export interface IndexerOptions {
   embeddings?: EmbeddingRuntime | null;
 }
 
-export function shouldIgnore(filePath: string): boolean {
-  const normalizedPath = filePath.replace(/\\/g, "/");
+function normalizePathForIgnoreChecks(filePath: string, projectRoot?: string): string {
+  const relativePath = projectRoot ? toRelativeProjectPath(filePath, projectRoot) : null;
+  return (relativePath ?? filePath).replace(/\\/g, "/");
+}
+
+export function shouldIgnore(filePath: string, projectRoot?: string): boolean {
+  const normalizedPath = normalizePathForIgnoreChecks(filePath, projectRoot);
   const parts = normalizedPath.split("/").filter(Boolean);
   return (
     BUILTIN_IGNORE_PATTERNS.some((pattern) => parts.includes(pattern)) ||
@@ -213,7 +218,7 @@ export function isSecurityExcludedPath(filePath: string, projectRoot: string): b
 export function isIgnoredForIndexing(filePath: string, projectRoot: string, extraIgnore?: string[]): boolean {
   const relativePath = toRelativeProjectPath(filePath, projectRoot);
   if (relativePath === null) return true;
-  if (shouldIgnore(filePath)) return true;
+  if (shouldIgnore(filePath, projectRoot)) return true;
 
   const gitignorePatterns = loadGitignorePatterns(projectRoot);
   if (gitignorePatterns.length > 0 && isIgnoredByGitignore(relativePath, gitignorePatterns)) return true;
@@ -295,7 +300,7 @@ async function discoverFiles(
       }
 
       if (entry.isDirectory()) {
-        if (shouldIgnore(fullPath)) continue;
+        if (shouldIgnore(fullPath, resolvedRoot)) continue;
         if (extraIgnore && extraIgnore.length > 0 && isIgnoredByGitignore(relativePath, extraIgnore)) continue;
         if (isGitWorktree(fullPath)) continue;
         pendingDirs.push(fullPath);
@@ -303,7 +308,7 @@ async function discoverFiles(
       }
 
       if (!entry.isFile()) continue;
-      if (shouldIgnore(fullPath)) continue;
+      if (shouldIgnore(fullPath, resolvedRoot)) continue;
       if (isAlwaysIgnored(relativePath)) continue;
       if (gitignorePatterns.length > 0 && isIgnoredByGitignore(relativePath, gitignorePatterns)) continue;
       if (cwignorePatterns.length > 0 && isIgnoredByGitignore(relativePath, cwignorePatterns)) continue;

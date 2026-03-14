@@ -89,6 +89,26 @@ describe("Index pollution auto-exclusion", () => {
     }
   });
 
+  it("indexes project roots that happen to live under a .worktrees ancestor", async () => {
+    const parent = makeRoot();
+    const root = join(parent, ".worktrees", "feature-root");
+    const db = makeDb();
+    try {
+      mkdirSync(join(root, "src"), { recursive: true });
+      writeFileSync(join(root, "src", "main.ts"), `export function main() {}\n`);
+
+      await indexProject(db, root);
+
+      const files = fileQueries(db).getAll();
+      const paths = files.map((f) => f.path);
+
+      expect(paths).toContain("src/main.ts");
+    } finally {
+      db.close();
+      rmSync(parent, { recursive: true, force: true });
+    }
+  });
+
   it("excludes git worktree directories (directories with .git file containing gitdir:)", async () => {
     const root = makeRoot();
     const db = makeDb();
