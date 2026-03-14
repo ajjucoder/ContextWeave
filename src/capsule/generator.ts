@@ -1622,8 +1622,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     intent === "narrow"
       ? narrowHardCap
       : intent === "broad"
-        ? Math.max(broadLargeBudget ? 180 : 120, Math.floor(tokenBudget / (broadLargeBudget ? 32 : 50)))
-        : 84;
+        ? Math.max(broadLargeBudget ? 300 : 200, Math.floor(tokenBudget / (broadLargeBudget ? 24 : 35)))
+        : 120;
   const baseCandidateLimit = Math.min(dynamicLimit, hardCap);
 
   const recentSymbolIds: Set<number> = hasExplicitSession && sessionCtx
@@ -2002,13 +2002,46 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
     if (tokensUsed < tokenBudget * 0.4 && selected.length > 0) {
       const selectedIds = new Set(selected.map((c) => c.symbol.id));
+      const selectedFileIds = new Set(selected.map((c) => c.file.id));
       const selectedDirs = new Set(
         selected.map((c) => dirname(normalizeRetrievalPath(c.file.path, 6)))
       );
       const poolExtras: RankedCandidate[] = [];
 
+      for (const fileId of selectedFileIds) {
+        const file = getFile(fileId) ?? files.getById(fileId);
+        if (!file) continue;
+        for (const symbol of symbols.getByFileIdLight(file.id)) {
+          if (selectedIds.has(symbol.id)) continue;
+          const lexScore = getLexicalScore(
+            symbol, file, expandedQueryTerms, exactQueryTermSet
+          );
+          poolExtras.push({
+            symbol,
+            file,
+            score: scoreNode({
+              distance: 1,
+              centrality: symbol.centrality,
+              lastSeen: symbol.lastSeen,
+              observationCount: 0,
+              isExported: symbol.isExported,
+              isPivot: false,
+              lexicalBoost: 1 + Math.min(1.5, lexScore * 0.3),
+              localityBoost: getDirectoryWeight(file.path, params.projectRoot) * 1.2,
+              hubPenalty: 1,
+              mode,
+            }),
+            distance: 1,
+            isPivot: false,
+            lexicalScore: lexScore,
+            degree: 0,
+          });
+        }
+      }
+
       for (const file of files.iterateAll()) {
-        if (poolExtras.length >= 40) break;
+        if (poolExtras.length >= 80) break;
+        if (selectedFileIds.has(file.id)) continue;
         const fileDir = dirname(normalizeRetrievalPath(file.path, 6));
         if (!selectedDirs.has(fileDir)) continue;
         if (isTestFile(file.path)) continue;
@@ -2044,7 +2077,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
       if (poolExtras.length > 0) {
         poolExtras.sort((a, b) => b.score - a.score);
-        const widenedSelected = [...selected, ...poolExtras.slice(0, 20)];
+        const widenedSelected = [...selected, ...poolExtras.slice(0, 40)];
         const widenedNodes = buildScoredNodes(widenedSelected);
         const widenedClusterMap = buildClusterBySymbolId(widenedNodes);
         const widenedResult = packNodesStoryMode(
