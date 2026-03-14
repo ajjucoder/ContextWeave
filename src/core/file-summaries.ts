@@ -191,6 +191,17 @@ function isRuntimeLikePath(path: string): boolean {
   );
 }
 
+function isUiComponentPath(path: string): boolean {
+  const lower = normalizeRetrievalPath(path, 6).toLowerCase();
+  return (
+    lower.includes("/components/") ||
+    lower.includes("/views/") ||
+    lower.includes("/templates/") ||
+    lower.includes("/marketing/") ||
+    lower.includes("/pages/") && !lower.includes("/api/")
+  );
+}
+
 function buildSummaryText(filePath: string, symbols: SymbolRow[]): string {
   const tokenizeSummaryFragment = (value: string): string[] =>
     value
@@ -383,6 +394,7 @@ export function searchFilesByQuery(
       const testPenalty = !testFocusedQuery && isTestLikePath(retrievalPath) ? 0.35 : 1;
       const configPenalty = !configFocusedQuery && isConfigLikePath(retrievalPath) ? 0.18 : 1;
       const runtimeBoost = runtimeFocusedQuery && isRuntimeLikePath(retrievalPath) ? 1.35 : 1;
+      const uiPenalty = runtimeFocusedQuery && isUiComponentPath(retrievalPath) ? 0.55 : 1;
       const typePenalty =
         !typeFocusedQuery && isTypeLikePath(retrievalPath)
           ? runtimeFocusedQuery
@@ -396,6 +408,7 @@ export function searchFilesByQuery(
         Math.max(1, lexicalHits || 1) *
         directoryWeight *
         runtimeBoost *
+        uiPenalty *
         testPenalty *
         configPenalty *
         typePenalty *
