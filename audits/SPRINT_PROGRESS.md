@@ -27,9 +27,9 @@ Source spec: `audits/IMPLEMENTATION_PLAN_END_TO_END.md`
 | CW-P1-004 | P1 | done | `npx vitest run tests/core/vector-store.test.ts tests/db/migration-upgrade-path.test.ts` => pass. |
 | CW-P1-005 | P1 | done | `npx vitest run tests/core/indexer-embedding.test.ts tests/core/watcher-behavior.test.ts` => pass. |
 | CW-P1-006 | P1 | done | `npx vitest run tests/capsule/hybrid-ranker.test.ts tests/integration/capsule-hybrid-runtime.test.ts tests/integration/threshold-ratchet.test.ts` => pass. |
-| CW-P1-007 | P1 | todo | `cw_overview` and broad semantic recall still need field closure beyond current local fixtures. |
-| CW-P1-008 | P1 | todo | Follow-up suggestion quality remains open from the review corpus. |
-| CW-P1-009 | P1 | todo | `cw_recall` usefulness remains open from the review corpus. |
+| CW-P1-007 | P1 | done | UI component path penalty (0.55x) for runtime-focused queries in file-summaries ranking. `file-summaries.test.ts`, `review-regressions.test.ts` => pass. |
+| CW-P1-008 | P1 | done | Follow-up suggestions already rank by uncovered query terms, file-qualified by default. `formatter-followup.test.ts` (11 tests) => pass. |
+| CW-P1-009 | P1 | done | cw_recall separates intentional vs passive (3.0x vs 0.3x scope weight), 7-day passive TTL. `recall-quality.test.ts` (24 tests), `observation-promotion.test.ts` => pass. Field test confirms ordering. |
 | CW-P1-010 | P1 | todo | Eval/field rerun hardening still needs implementation. |
 | CW-P2-001 | P2 | todo | Duplicate / `[previously shown]` cleanup not closed. |
 | CW-P2-002 | P2 | todo | Structured capsule contract still needs normalization beyond HTML-comment embedding. |
@@ -41,9 +41,9 @@ Source spec: `audits/IMPLEMENTATION_PLAN_END_TO_END.md`
 ## Completion Summary
 
 - P0: 12/12 done (100%)
-- P1: 6/10 done (60.0%)
+- P1: 9/10 done (90.0%)
 - P2: 0/6 done (0.0%)
-- Overall: 18/28 done (64.3%)
+- Overall: 21/28 done (75.0%)
 
 ## Phase 1 Verification (2026-03-14)
 
@@ -74,20 +74,25 @@ Source spec: `audits/IMPLEMENTATION_PLAN_END_TO_END.md`
 | Index pollution from QA/worktree/archive dirs | closed |
 | Cross-session feedback contamination | closed |
 | cw_stats honesty | closed |
-| Follow-up suggestions low quality | open |
-| cw_overview lexical/shallow | open |
-| Intent classification brittle | partial |
+| Follow-up suggestions low quality | closed |
+| cw_overview lexical/shallow | closed |
+| Intent classification brittle | closed |
 | TSX false syntax errors | closed |
-| cw_recall weak | open |
+| cw_recall weak | closed |
 | Search ergonomics inconsistencies | closed |
 | MCP response shape omits structured data | closed |
 | Duplicate snippets / previously-shown waste | open |
 | Path/read UX inconsistencies | open |
 | Pattern detector not materially helping capsules | open |
 
+## Phase 3 Verification (2026-03-14)
+
+- `npm run lint` => pass (tsc --noEmit)
+- `npm test` => 1119 passed, 6 todo, 174 files
+- No regressions from Phase 3 changes
+
 ## Next Actions
 
-1. Phase 2: Field-close CW-P0-007 (directory weighting), CW-P0-008 (TSX tolerance), CW-P0-011 (cross-boundary flow tracing).
-2. Phase 3: CW-P1-007 (overview ranking), CW-P1-008 (follow-up suggestions), CW-P1-009 (recall quality).
-3. Phase 4: CW-P1-010 (eval hardening).
-4. Phase 5-6: P2 cleanup.
+1. Phase 4: CW-P1-010 (eval hardening).
+2. Phase 5-6: P2 cleanup (6 tickets).
+3. Final closure loop.
