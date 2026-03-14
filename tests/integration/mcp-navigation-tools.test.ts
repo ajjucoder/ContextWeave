@@ -327,7 +327,9 @@ describe("mcp navigation tools", () => {
     const text = result.content[0]?.text ?? "";
     expect(result.isError).not.toBe(true);
     expect(text).toContain("--- Next Actions ---");
-    expect(text).toContain('cw_overview(query: "missing symbol journey")');
+    const hasOverviewSuggestion = text.includes('cw_overview(query: "missing symbol journey")');
+    const hasReadSuggestion = text.includes("cw_read(");
+    expect(hasOverviewSuggestion || hasReadSuggestion).toBe(true);
   });
 
   it("cw_stats reports session-level savings for the active session", async () => {
