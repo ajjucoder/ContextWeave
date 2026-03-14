@@ -34,7 +34,7 @@ const SCOPE_WEIGHTS: Record<string, number> = {
   decision: 2.0,
   intent: 2.0,
   pattern: 1.5,
-  passive: 0.3,
+  passive: 0.1,
 };
 
 function getScopeWeight(scope: string): number {
