@@ -1038,6 +1038,22 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const resolvedProjectRoot = params.projectRoot ? resolve(params.projectRoot) : null;
   const hasPathRestriction = pathGlobRegex !== null || scopePath !== null;
 
+  const SMALL_CODEBASE_THRESHOLD = 100;
+  const totalSymbolCount = symbols.count();
+  if (
+    totalSymbolCount > 0 &&
+    totalSymbolCount <= SMALL_CODEBASE_THRESHOLD &&
+    visited.size < totalSymbolCount * 0.5 &&
+    (intent === "broad" || intent === "task")
+  ) {
+    for (const id of symbols.getAllIds()) {
+      if (!visited.has(id)) {
+        visited.set(id, 3);
+      }
+    }
+    logger.debug("small-codebase expansion", { totalSymbols: totalSymbolCount, visitedAfter: visited.size });
+  }
+
   // Phase 3: Stage B reranking (intent + locality + hub dampening)
   const candidates: RankedCandidate[] = [];
   const centralityValues: number[] = [];
