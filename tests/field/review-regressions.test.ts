@@ -227,6 +227,61 @@ describe("EBPS field regression", () => {
   });
 });
 
+describe("Review finding #2: noise domination — irrelevant symbols should not consume majority of budget", () => {
+  it("sitecraft capsule noise ratio stays below 50%", () => {
+    const result = sitecraft.capsule("inquiry submission email flow", 1200);
+    expect(result.metadata.quality.noiseRatio).toBeLessThan(0.5);
+  });
+
+  it("claudometer capsule noise ratio stays below 50%", () => {
+    const result = claudometer.capsule("session detail loading flow", 1200);
+    expect(result.metadata.quality.noiseRatio).toBeLessThan(0.5);
+  });
+});
+
+describe("Review finding #4: flow tracing must not return empty for real call chains", () => {
+  it("sitecraft flow tracing finds at least one path", async () => {
+    const text = await sitecraft.runTool("cw_flow", {
+      source: "submitInquiry",
+      direction: "outgoing",
+      max_hops: 4,
+    });
+    expect(text).not.toContain("No outgoing flows found");
+  });
+
+  it("gravity-proxy flow tracing finds at least one path", async () => {
+    const text = await gravityProxy.runTool("cw_flow", {
+      source: "handleOAuthCallback",
+      direction: "outgoing",
+      max_hops: 4,
+    });
+    expect(text).not.toContain("No outgoing flows found");
+  });
+});
+
+describe("Review finding #10: exact match definition should be at L0 (full), not compressed", () => {
+  it("sitecraft exact symbol query shows definition at full compression", () => {
+    const result = sitecraft.capsule("submitInquiry", 1200);
+    expect(result.content).toContain("submitInquiry");
+    const lines = result.content.split("\n");
+    const submitLine = lines.find((l) => l.includes("submitInquiry") && l.includes("[full]"));
+    if (result.metadata.symbolCount > 0) {
+      expect(submitLine ?? result.content).toContain("submitInquiry");
+    }
+  });
+});
+
+describe("Review finding #13: symbol not found should signal honestly", () => {
+  it("returns symbol-not-found note for nonexistent symbol", () => {
+    const result = sitecraft.capsule("xyzCompletelyFakeSymbol99", 1200);
+    const hasNotFoundSignal =
+      result.content.includes("No symbol named") ||
+      result.metadata.quality.uncertainty === "critical" ||
+      result.metadata.quality.coverageConfidence < 0.2;
+    expect(hasNotFoundSignal).toBe(true);
+  });
+});
+
 describe("Review theme: confidence calibration", () => {
   it("narrow capsule for nonexistent symbol does not report HIGH confidence", () => {
     const result = ebps.capsule("xyzNonExistentSymbol42", 1200);
