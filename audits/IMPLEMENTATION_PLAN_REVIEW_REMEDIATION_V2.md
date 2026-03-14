@@ -344,6 +344,104 @@ No PR is merged without this evidence.
 
 ---
 
+## Phase 8: Fix Impact False Negatives and Flow Edge Priority (Days 19-21)
+
+### 8.1 Fix `cw_impact` False Negatives on Direct Dependents
+
+**The problem:** `cw_impact("generateCapsuleWithRuntime")` returns "No dependents found" despite `capsule.ts` calling it directly. `cw_impact("resolveContext")` misses 4 obvious route-data dependents. `cw_impact("start_session")` misses the frontend invoke. Found in 5/10 Mar 14 reviews.
+
+**Fix:**
+- In `src/mcp/tools/impact.ts`: after `traceImpact` returns empty results, run a fallback grep-style search: `SELECT * FROM edges WHERE target_symbol_id = ?` directly, bypassing any symbol resolution issues
+- If the symbol was resolved by name (not file-qualified), try ALL symbols with that name, not just the first match
+- Log which symbol ID was used for tracing so misresolution is visible in diagnostics
+- Add test: create two files where file B calls a function from file A → impact on file A's function must find file B
+
+**Files:** `src/mcp/tools/impact.ts`, `src/mcp/tools/symbol-resolution.ts`
+
+### 8.2 Flow Tracing Must Prioritize Call Edges Over Import/Type Edges
+
+**The problem:** CW self-review shows `cw_flow(runServe)` returning import/type-usage paths instead of the actual call to `startMcpServer`. Flow leaks test fixtures because import edges connect test files.
+
+**Fix:**
+- In `src/mcp/tools/flow.ts`, `traceOutgoing`/`traceIncoming`: sort outgoing edges by priority BEFORE DFS traversal:
+  1. `call`, `callback`, `server-action`, `route-handler` (highest — these ARE flow)
+  2. `jsx_render`, `event`, `dynamic_dispatch` (medium — these are flow-adjacent)
+  3. `import`, `reexport`, `type_usage`, `reference`, `inheritance` (lowest — these are structure, not flow)
+- When DFS explores, prefer high-priority edges first so paths follow actual execution order
+- Filter test/fixture files from flow results by default (unless query mentions testing)
+
+**Files:** `src/mcp/tools/flow.ts`
+
+### 8.3 Same-Name Symbol Disambiguation in Capsules
+
+**The problem:** research-agent has 3 `main()` functions. FocusPact has 2 `createClient` functions. Capsule picks one without telling the user which.
+
+**Fix:**
+- In `src/capsule/generator.ts`: when multiple symbols with the exact same name exist and the query is that name, include ALL definitions (or top 3) with file-qualified labels, not just the highest-scored one
+- When `isExactSymbolNameMatch` and there are 2+ matches, add a disambiguation note: "Found N definitions of 'X'. Showing the top-ranked one from file Y."
+- In structured output: include `alternateDefinitions: [{ path, line }]` for same-name symbols
+
+**Files:** `src/capsule/generator.ts`, `src/capsule/formatter.ts`
+
+---
+
+## Phase 9: Fix Supporting Tools (Days 22-23)
+
+### 9.1 Fix `cw_recall` Passive Pollution
+
+**The problem:** Recall returns passive query telemetry instead of useful architectural knowledge in 6/10 reviews. `cw_recall("share link access")` returned prior capsule summaries. `cw_recall("Zombie Protocol")` returned nothing despite being a core project concept.
+
+**Fix:**
+- In `src/mcp/tools/recall.ts`: default `includePassive` to `false` (currently `true`). Only show passive observations when explicitly requested or when intentional results are empty.
+- In `src/memory/search.ts`: increase passive demotion from 0.3x to 0.1x scope weight
+- Consider: auto-populate recall from README/CLAUDE.md/AGENTS.md project context on first index, so project concepts are available even without prior `cw_remember` calls
+
+**Files:** `src/mcp/tools/recall.ts`, `src/memory/search.ts`
+
+### 9.2 Fix `cw_grep` Definition Ranking
+
+**The problem:** `cw_grep("recordDatasetPack")` ranks an import in `cli-record.ts` first. `cw_grep("resolveContext")` ranks test imports above the definition.
+
+**Fix:**
+- In `src/mcp/tools/ripgrep.ts` (or wherever grep results are formatted): sort results by: definition site (function/class/export declaration) first, then usage sites
+- Detect definition patterns: `function X`, `class X`, `export.*X`, `def X`, `const X =` for the matched symbol
+- Mark definition results with `[def]` tag in output
+
+**Files:** `src/mcp/tools/ripgrep.ts` or `src/mcp/tools/search.ts`
+
+### 9.3 Fix `cw_reindex` Messaging
+
+**The problem:** `cw_reindex` reports "435 files, 0 symbols (57ms)" on incremental runs, looking like a failed full reindex.
+
+**Fix:**
+- In `src/mcp/tools/reindex.ts`: separate output into "Processed: N new/changed files, M symbols" and "Skipped: P unchanged files" and "Total indexed: Q files, R symbols"
+- Make it clear whether the run was incremental or cold
+
+**Files:** `src/mcp/tools/reindex.ts`
+
+### 9.4 Fix `cw_status` Source-Root Heuristic
+
+**The problem:** Sitecraft shows "100% of indexed files are from non-source directories" on a normal repo centered around `kuvio/src`. The heuristic doesn't understand monorepo structures.
+
+**Fix:**
+- In `src/mcp/tools/status.ts`: detect source roots by looking for `package.json`, `setup.py`, `pom.xml`, `Cargo.toml`, `go.mod` in subdirectories
+- When a monorepo has a subdirectory with its own package.json, treat that subdirectory as a source root
+- Only warn about non-source files when > 50% are genuinely non-code (docs, config, assets)
+
+**Files:** `src/mcp/tools/status.ts`
+
+### 9.5 Fix Parse Error Reporting
+
+**The problem:** "1 files had parse errors" with no identification of which file or what the error was.
+
+**Fix:**
+- In `src/mcp/tools/status.ts` (verbose mode): list the file paths and error messages for files with parse errors
+- In `src/mcp/tools/reindex.ts`: include parse error file paths in the reindex output
+
+**Files:** `src/mcp/tools/status.ts`, `src/mcp/tools/reindex.ts`
+
+---
+
 ## Execution Order and Dependencies
 
 | Phase | Days | Dependency | Gate |
@@ -356,6 +454,8 @@ No PR is merged without this evidence.
 | 5: Vendor Exclusion | 14 | Phase 0 | KisanSathi-style repos don't surface modernizr |
 | 6: Field Verification | 15-17 | Phases 1-5 | Real-project harness green |
 | 7: Property Symbols | 18 | Phase 0 | Zustand store methods indexed |
+| 8: Impact + Flow Priority | 19-21 | Phase 3 | Impact finds direct dependents, flow prefers call edges |
+| 9: Supporting Tools | 22-23 | Phase 0 | Recall, grep, reindex, status all improved |
 
 ---
 
@@ -372,9 +472,79 @@ This plan is NOT done until:
 7. **`cw_stats` reports honest metrics** that match reviewer observations
 8. **No `file:` vs `path:` schema mismatches** anywhere in the codebase
 9. **No vendored JS in capsule output** for non-JS primary repos
-10. **`cw_impact` remains at 7+** (don't break what works)
+10. **`cw_impact` finds direct dependents** — no false negatives on obvious callers (currently broken in 5/10 reviews)
+11. **`cw_flow` returns call-edge paths first** — import/type detours are deprioritized
+12. **`cw_recall` returns intentional observations first** — passive telemetry demoted or hidden by default
+13. **`cw_grep` ranks definitions above imports/usages** for exact symbol queries
+14. **`cw_reindex` clearly distinguishes incremental vs cold runs** with separate processed/skipped/total counts
+15. **`cw_status` source-root heuristic works on monorepos** — no false "100% non-source" warnings
 
 These are measured on REAL codebases, not synthetic fixtures.
+
+---
+
+## Review Finding → Plan Item Cross-Reference
+
+Every P0 and P1 finding from both review rounds must map to a plan item. If it doesn't, the plan is incomplete.
+
+### Mar 14 P0 Findings (across 10 reviews)
+
+| Finding | Count | Plan Item |
+|---------|-------|-----------|
+| `cw_stats` dishonesty (fake 100% first-pass, inflated savings) | 10/10 | 0.3 |
+| Broad capsule misses critical path files | 10/10 | 1.1, 2.1, 2.3 |
+| Budget catastrophically underutilized (5-25% on 8K) | 10/10 | 2.1, 2.3, 2.4 |
+| `cw_flow` breaks on non-static boundaries | 10/10 | 3.1, 3.2, 3.3, 3.4, 8.2 |
+| Confidence miscalibrated (HIGH on wrong answers) | 10/10 | 2.2, 2.4 |
+| Follow-up suggestions misleading or schema-wrong | 9/10 | 0.1, 1.5 |
+| `file:` vs `path:` schema mismatch | 6/10 | 0.1 |
+| File-qualified `cw_read` returns wrong file | 4/10 | 1.3 |
+| `cw_impact` false negatives on direct dependents | 5/10 | 8.1, 1.4 |
+| Vendored/static assets pollute capsules | 2/10 | 5.1, 5.2 |
+| Tauri invoke/listen broken | 1/10 | 3.3 |
+| Exact-symbol ranking collapses on common names | 2/10 | 1.2, 8.3 |
+| Zustand property symbols missing from index | 1/10 | 7.1 |
+
+### Mar 14 P1 Findings (across 10 reviews)
+
+| Finding | Count | Plan Item |
+|---------|-------|-----------|
+| Budget utilization poor | 10/10 | 2.1, 2.3, 2.4 |
+| Confidence miscalibrated on vague/architectural queries | 8/10 | 2.2 |
+| `cw_recall` returns passive telemetry, not useful memory | 6/10 | 9.1 |
+| Test/doc files rank above source code | 5/10 | 1.1 |
+| `cw_overview` too lexical for semantic queries | 4/10 | (addressed by 1.1 test/doc exclusion) |
+| `cw_impact` mixes dependents with test/variable noise | 3/10 | 8.1 |
+| Follow-up suggestions weak / wrong next step | 7/10 | 1.5 |
+| `cw_reindex` misleading on incremental runs | 2/10 | 9.3 |
+| Index health reporting misleading | 3/10 | 9.4 |
+| Repo profiling mismatches project conventions | 1/10 | 5.2 |
+| `cw_grep` ranks imports above definitions | 2/10 | 9.2 |
+| Setup friction / MCP connection issues | 1/10 | (out of scope — deployment, not retrieval) |
+
+### Mar 10 Original 17 Findings
+
+| # | Finding | Plan Item |
+|---|---------|-----------|
+| 1 | Confidence miscalibration | 2.2, 2.4 |
+| 2 | Noise domination | 1.1, 1.5 |
+| 3 | Budget underutilization | 2.1, 2.3, 2.4 |
+| 4 | Flow tracing non-functional | 3.1-3.4, 8.2 |
+| 5 | cw_stats inflated | 0.3 |
+| 6 | Broad queries miss critical files | 1.1, 2.1 |
+| 7 | Follow-up suggestions irrelevant | 1.5 |
+| 8 | cw_recall weak | 9.1 |
+| 9 | Test files rank above source | 1.1 |
+| 10 | Packer compresses target while noise gets full | (addressed by existing target reservation) |
+| 11 | Index pollution | 5.1, (existing indexer exclusions) |
+| 12 | Duplicate content | (addressed by existing packer dedup) |
+| 13 | No symbol-not-found signal | (already implemented) |
+| 14 | Path overrides content | 1.1, 5.2 |
+| 15 | Previously-shown waste | (already minimal) |
+| 16 | cw_read path inconsistency | 0.1, 1.3 |
+| 17 | cw_overview padding | 1.1, (body-aware FTS5 already exists) |
+
+**Coverage check:** All P0 and P1 findings from both rounds map to at least one plan item. No orphan findings.
 
 ---
 
