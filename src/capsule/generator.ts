@@ -62,6 +62,7 @@ import {
   toDisplayPath,
 } from "./generator-helpers.js";
 import { hybridSearch } from "../core/hybrid-ranker.js";
+import { isNaturalLanguageQuery, expandToHypothetical } from "./hyde.js";
 
 const logger = createLogger("generator");
 export { computeCoverageConfidence } from "./confidence.js";
@@ -2603,7 +2604,10 @@ export async function generateCapsuleWithRuntime(
         : classified.normalizedTerms.length > 0
           ? classified.normalizedTerms
           : params.query.split(/\s+/).filter((term) => term.length > 1);
-    const queryEmbedding = await embeddingRuntime.embedder.embed(params.query);
+    const hydeText = isNaturalLanguageQuery(params.query)
+      ? expandToHypothetical(params.query)
+      : params.query;
+    const queryEmbedding = await embeddingRuntime.embedder.embed(hydeText);
     const hybridSearchResults = await hybridSearch(db, embeddingRuntime, {
       query: params.query,
       queryTerms,
