@@ -71,7 +71,7 @@ describe("Sitecraft field regression", () => {
     expectTextIncludes(text, ["POST", "createInquiry"]);
   });
 
-  it("cw_recall returns durable architecture notes before passive query telemetry by default", async () => {
+  it("cw_recall returns durable architecture notes and excludes passive telemetry by default", async () => {
     const text = await sitecraft.runTool("cw_recall", {
       query: "inquiry flow",
       limit: 5,
@@ -81,10 +81,7 @@ describe("Sitecraft field regression", () => {
       "Intentional observations:",
       "POST /api/inquiries persists the inquiry",
     ]);
-    expectTextIncludes(text, ["Passive observations:"]);
-    const intentionalIdx = text.indexOf("Intentional observations:");
-    const passiveIdx = text.indexOf("Passive observations:");
-    expect(intentionalIdx).toBeLessThan(passiveIdx);
+    expectTextExcludes(text, ["Passive observations:"]);
   });
 });
 
