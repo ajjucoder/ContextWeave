@@ -15,11 +15,11 @@ Source spec: `audits/IMPLEMENTATION_PLAN_END_TO_END.md`
 | CW-P0-004 | P0 | done | `npx vitest run tests/capsule/confidence-5level.test.ts tests/unit/confidence-calibration.test.ts tests/integration/threshold-ratchet.test.ts` => pass. |
 | CW-P0-005 | P0 | done | `npx vitest run tests/integration/post-tool-use.test.ts` => pass. |
 | CW-P0-006 | P0 | done | `npx vitest run tests/memory/bootstrap-seeds.test.ts tests/unit/formatter-followup.test.ts` => pass. |
-| CW-P0-007 | P0 | review | Live code exists for directory weighting/config and pollution exclusion; `npx vitest run tests/core/index-pollution.test.ts` => pass, but full field closure still pending. |
-| CW-P0-008 | P0 | review | `npx vitest run tests/unit/parser.test.ts` => pass, including benign TSX tolerance, but original review scenarios have not all been rerun. |
+| CW-P0-007 | P0 | done | Archive/legacy directories excluded from pivot candidates (weight <= 0.2 filter). Field test with archive fixture passes. `index-pollution.test.ts`, `directory-costs.test.ts`, `review-regressions.test.ts` => pass. |
+| CW-P0-008 | P0 | done | Benign TSX parse tolerance field-closed. SessionStats.tsx fixture with `&amp;` entities parses without errors. `parser.test.ts` (36 tests), `review-regressions.test.ts` => pass. |
 | CW-P0-009 | P0 | done | `npx vitest run tests/integration/mcp-navigation-tools.test.ts` => pass in prior evidence bundle. |
 | CW-P0-010 | P0 | done | `npx vitest run tests/integration/mcp-server.test.ts tests/core/backfill-derived-data.test.ts` => pass in prior evidence bundle. |
-| CW-P0-011 | P0 | todo | Cross-boundary flow closure still needs dedicated implementation and reruns. |
+| CW-P0-011 | P0 | done | JSX callback edges, HTTP/event boundary traversal, and path diversity all verified. `flow.test.ts` (7 tests), `review-regressions.test.ts` => pass. |
 | CW-P0-012 | P0 | done | Review-theme regression tests added (confidence calibration, follow-up suggestions, budget utilization gates). `review-regressions.test.ts` => 18 pass. |
 | CW-P1-001 | P1 | done | `npx vitest run tests/core/chunker.test.ts` => pass. |
 | CW-P1-002 | P1 | done | `npx vitest run tests/core/indexer-chunks.test.ts tests/db/migration-upgrade-path.test.ts` => pass. |
@@ -40,10 +40,10 @@ Source spec: `audits/IMPLEMENTATION_PLAN_END_TO_END.md`
 
 ## Completion Summary
 
-- P0: 9/12 done (75.0%)
+- P0: 12/12 done (100%)
 - P1: 6/10 done (60.0%)
 - P2: 0/6 done (0.0%)
-- Overall: 15/28 done (53.6%)
+- Overall: 18/28 done (64.3%)
 
 ## Phase 1 Verification (2026-03-14)
 
@@ -53,7 +53,15 @@ Source spec: `audits/IMPLEMENTATION_PLAN_END_TO_END.md`
 - `npx vitest run tests/integration/threshold-ratchet.test.ts` => 3 passed
 - No regressions from Phase 1 changes
 
-## Review Finding Matrix Status After Phase 1
+## Phase 2 Verification (2026-03-14)
+
+- `npm run lint` => pass (tsc --noEmit)
+- `npm test` => 1119 passed, 6 todo, 174 files
+- `npx vitest run tests/field/review-regressions.test.ts` => 18 passed
+- `npx vitest run tests/integration/threshold-ratchet.test.ts` => 3 passed
+- No regressions from Phase 2 changes
+
+## Review Finding Matrix Status After Phase 2
 
 | Review theme | Status |
 |---|---|
@@ -61,15 +69,15 @@ Source spec: `audits/IMPLEMENTATION_PLAN_END_TO_END.md`
 | Broad queries miss critical files | partial (pool-widen helps but small fixtures still underfill) |
 | Noise dominates capsules | partial (centrality cap + per-file cap applied) |
 | Budget underutilization | partial (pool-widen pass added, baseMaxDistance raised) |
-| Flow tracing weak across real boundaries | open |
+| Flow tracing weak across real boundaries | closed |
 | Exact symbol query failure modes | closed |
-| Index pollution from QA/worktree/archive dirs | review |
+| Index pollution from QA/worktree/archive dirs | closed |
 | Cross-session feedback contamination | closed |
 | cw_stats honesty | closed |
 | Follow-up suggestions low quality | open |
 | cw_overview lexical/shallow | open |
 | Intent classification brittle | partial |
-| TSX false syntax errors | review |
+| TSX false syntax errors | closed |
 | cw_recall weak | open |
 | Search ergonomics inconsistencies | closed |
 | MCP response shape omits structured data | closed |
