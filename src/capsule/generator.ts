@@ -1408,12 +1408,24 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       .filter(Boolean);
   }
 
-  function computeQueryOverlap(symbolName: string): number {
-    const nameTokens = new Set(tokenizeSymbolName(symbolName));
+  function computeQueryOverlap(symbolName: string, signature?: string, filePath?: string): number {
     const queryTermSet = new Set(pivotQueryTerms.map((t) => t.toLowerCase()));
+    const nameTokens = new Set(tokenizeSymbolName(symbolName));
     let overlap = 0;
     for (const token of nameTokens) {
       if (queryTermSet.has(token)) overlap++;
+    }
+    if (overlap === 0 && signature) {
+      const sigLower = signature.toLowerCase();
+      for (const term of queryTermSet) {
+        if (sigLower.includes(term)) { overlap++; break; }
+      }
+    }
+    if (overlap === 0 && filePath) {
+      const pathTokens = filePath.toLowerCase().replace(/[_\-./\\]/g, " ").split(/\s+/);
+      for (const token of pathTokens) {
+        if (queryTermSet.has(token)) { overlap++; break; }
+      }
     }
     return overlap;
   }
@@ -1448,9 +1460,12 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       lexicalScore: number,
       filePath: string
     ): number => {
-      const queryOverlap = computeQueryOverlap(symbol.name);
+      const queryOverlap = computeQueryOverlap(symbol.name, symbol.signature, filePath);
       const centralityContrib = Math.min(symbol.centrality * 0.8, 0.5);
       let score = queryOverlap * 6 + lexicalScore * 1.5 + centralityContrib + 0.25;
+      if (queryOverlap === 0) {
+        score *= 0.5;
+      }
       if (applyTestFilePenalty && isTestFile(filePath)) {
         score *= 0.3;
       }
@@ -1466,7 +1481,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
     const extras: RankedCandidate[] = [];
     for (const candidate of rankedExtras) {
-      const queryOverlap = computeQueryOverlap(candidate.symbol.name);
+      const queryOverlap = computeQueryOverlap(candidate.symbol.name, candidate.symbol.signature, candidate.file.path);
       if (queryOverlap === 0 && !hasDirectEdgeToPivot(candidate.symbol.id)) continue;
       const filePath = candidate.file.path;
       const score = scoreBackfillCandidate(candidate.symbol, candidate.lexicalScore, filePath);
@@ -1485,7 +1500,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
           if (selectedIds.has(symbol.id) || extraIds.has(symbol.id)) {
             continue;
           }
-          const queryOverlap = computeQueryOverlap(symbol.name);
+          const queryOverlap = computeQueryOverlap(symbol.name, symbol.signature, fallbackFilePath);
           if (queryOverlap === 0 && !hasDirectEdgeToPivot(symbol.id)) continue;
           const lexicalScore = scorePivotRelevance(
             {
