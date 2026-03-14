@@ -1108,6 +1108,17 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     return lower.includes("/mock") || lower.includes("/fixture") || lower.includes("/__mocks__/") || lower.includes("/fixtures/");
   };
 
+  const DOC_QUERY_TERMS = new Set(["doc", "docs", "documentation", "readme", "guide", "tutorial", "manual", "changelog", "plan", "plans"]);
+  const queryLooksDocFocused = allQueryTerms.some((t) => DOC_QUERY_TERMS.has(t.toLowerCase()));
+  const DOC_FILE_RE = /\.(md|txt|rst|adoc)$/i;
+  const VENDOR_FILE_RE = /(^|\/)(vendor|static\/js|assets\/js|public\/js|dist|build|\.next|coverage)\//i;
+  const KNOWN_VENDOR_NAMES = /\b(jquery|modernizr|bootstrap|lodash|moment|popper|aos|plugins)\b/i;
+  const isVendoredOrMinified = (filePath: string): boolean => {
+    if (VENDOR_FILE_RE.test(filePath)) return true;
+    if (KNOWN_VENDOR_NAMES.test(filePath)) return true;
+    return false;
+  };
+
   const ARCHIVE_WEIGHT_THRESHOLD = 0.2;
   for (const candidate of candidates) {
     const sameFileAsPivot = pivotFileIds.has(candidate.file.id);
@@ -1116,6 +1127,17 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     const directoryWeight = getDirectoryWeight(normalizedPath, params.projectRoot);
     if (directoryWeight <= ARCHIVE_WEIGHT_THRESHOLD && !candidate.isPivot) {
       continue;
+    }
+    if (!candidate.isPivot && (intent === "broad" || intent === "task" || intent === "narrow")) {
+      if (!queryLooksTestFocused && mode !== "debug" && isNoisyTestFile(candidate.file.path)) {
+        continue;
+      }
+      if (!queryLooksDocFocused && DOC_FILE_RE.test(candidate.file.path)) {
+        continue;
+      }
+      if (isVendoredOrMinified(normalizedPath)) {
+        continue;
+      }
     }
     const laneWeight = activeLanes.length > 0 ? getLaneWeightForPath(activeLanes, candidate.file.path) : 1;
     const fileSearchBoost = candidateFileBoostById.get(candidate.file.id) ?? 1;
@@ -1688,6 +1710,36 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       )
     )
   );
+  if ((intent === "broad" || intent === "task") && selected.length > 0 && selected.length < baseCandidateLimit) {
+    const LAYER_PATTERNS: Array<{ name: string; re: RegExp }> = [
+      { name: "ui", re: /(^|\/)(?:components?|views?|pages?|app\/(?!api))[/\\]/i },
+      { name: "api", re: /(^|\/)(?:api|routes?|controllers?|app\/api)[/\\]/i },
+      { name: "service", re: /(^|\/)(?:services?|lib\/server|server|utils?|helpers?)[/\\]/i },
+      { name: "data", re: /(^|\/)(?:db|data|models?|repositories?|stores?|convex|supabase)[/\\]/i },
+    ];
+    const coveredLayers = new Set<string>();
+    for (const c of selected) {
+      for (const lp of LAYER_PATTERNS) {
+        if (lp.re.test(c.file.path)) coveredLayers.add(lp.name);
+      }
+    }
+    if (coveredLayers.size < 2) {
+      const selectedIds = new Set(selected.map((c) => c.symbol.id));
+      for (const lp of LAYER_PATTERNS) {
+        if (coveredLayers.has(lp.name)) continue;
+        const layerCandidate = ranked.find(
+          (c) => !selectedIds.has(c.symbol.id) && lp.re.test(c.file.path) && c.lexicalScore > 0
+        );
+        if (layerCandidate) {
+          selected.push(layerCandidate);
+          selectedIds.add(layerCandidate.symbol.id);
+          coveredLayers.add(lp.name);
+          logger.debug("layer-fill", { layer: lp.name, symbol: layerCandidate.symbol.name, file: layerCandidate.file.path });
+        }
+      }
+    }
+  }
+
   let scoredNodes = buildScoredNodes(selected);
 
   let layerCoverages: LayerCoverage[] = [];

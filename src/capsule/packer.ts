@@ -464,6 +464,29 @@ export function packNodesStoryMode(
     }
   }
 
+  const extraFileSummaries: string[] = [];
+  if (tokensUsed / codeBudget < 0.40) {
+    const storyPackedFileIds = new Set(packed.map((n) => n.file.id));
+    for (const fileId of storyPackedFileIds) {
+      if (tokensUsed / codeBudget >= 0.50) break;
+      const fileSymbols = scoredNodes.filter((n) => n.file.id === fileId && !packedIds.has(n.symbol.id));
+      if (fileSymbols.length === 0) continue;
+      const exportNames = fileSymbols
+        .filter((n) => n.symbol.isExported)
+        .map((n) => n.symbol.name)
+        .slice(0, 8);
+      if (exportNames.length > 0) {
+        const filePath = fileSymbols[0]!.file.path;
+        const summary = `// Other exports in ${filePath}: ${exportNames.join(", ")}`;
+        const summaryTokens = countTokens(summary);
+        if (tokensUsed + summaryTokens <= codeBudget) {
+          extraFileSummaries.push(summary);
+          tokensUsed += summaryTokens;
+        }
+      }
+    }
+  }
+
   // Dedup: remove symbols whose line range is contained within a fuller rendering of another symbol in the same file
   {
     const byFile = new Map<string, Array<{ node: ScoredNode; idx: number }>>();
@@ -532,6 +555,6 @@ export function packNodesStoryMode(
     packed,
     observationBudget,
     tokensUsed: summaryResult.tokensUsed,
-    fileSummaries: summaryResult.fileSummaries,
+    fileSummaries: [...extraFileSummaries, ...summaryResult.fileSummaries],
   };
 }
