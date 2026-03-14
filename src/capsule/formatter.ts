@@ -195,13 +195,15 @@ export function formatCapsule(
       const uncoveredHits = queryTerms.filter(
         (qt) => !coveredTerms.has(qt) && (nameLower.includes(qt) || nameTerms.includes(qt))
       ).length;
-      const hasQueryOverlap =
-        uncoveredHits > 0 ||
-        queryTerms.some((qt) => nameLower.includes(qt) || nameTerms.includes(qt));
+      const anyQueryOverlap = queryTerms.some((qt) => nameLower.includes(qt) || nameTerms.includes(qt));
       const meetsScoreThreshold = topScore === 0 || (n.score ?? 0) >= topScore * 0.6;
-      return { node: n, uncoveredHits, hasQueryOverlap, meetsScoreThreshold };
+      const hasEdgeToPivot = visibleNodes.some(
+        (pivot) => pivot.compressionLevel === 0 && pivot.distance === 0 &&
+          n.outgoingEdges?.some((edge) => edge.targetName === (pivot.symbol?.name ?? ""))
+      );
+      return { node: n, uncoveredHits, anyQueryOverlap, meetsScoreThreshold, hasEdgeToPivot };
     })
-    .filter((item) => item.uncoveredHits > 0 || (item.hasQueryOverlap && item.meetsScoreThreshold))
+    .filter((item) => item.uncoveredHits > 0 || (item.anyQueryOverlap && item.meetsScoreThreshold) || item.hasEdgeToPivot)
     .sort((a, b) => {
       if (b.uncoveredHits !== a.uncoveredHits) return b.uncoveredHits - a.uncoveredHits;
       return (b.node.score ?? 0) - (a.node.score ?? 0);
