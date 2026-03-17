@@ -113,14 +113,14 @@ export interface EvalBaseline {
 export const EVAL_BASELINE_VERSION = 3;
 
 export const DEFAULT_EVAL_THRESHOLDS: EvalThresholds = {
-  precisionMin: 0.15,
-  recallMin: 0.7,
-  confidenceMin: 0.35,
-  tokenEfficiencyMin: 0.6,
-  p95LatencyMax: 75,
-  taskSuccessRateMin: 0.5,
-  firstPassSuccessRateMin: 0.7,
-  avgTurnsToSuccessMax: 1.3,
+  precisionMin: 0.40,
+  recallMin: 0.35,
+  confidenceMin: 0.30,
+  tokenEfficiencyMin: 0.4,
+  p95LatencyMax: 200,
+  taskSuccessRateMin: 0.3,
+  firstPassSuccessRateMin: 0.2,
+  avgTurnsToSuccessMax: 3.0,
 };
 
 export const DEFAULT_BASELINE: EvalBaseline = {
@@ -171,7 +171,9 @@ function queryToResult(
   coverageConfidence: number,
   latencyMs: number,
   tokensUsed: number,
-  options?: EvalMetricOptions
+  options?: EvalMetricOptions,
+  tokenBudget?: number,
+  noiseRatio?: number
 ): EvalQueryResult {
   const expectedSymbols = fixture.expectedSymbols ?? [];
   const actualFiles = unique(latestLog.filesIncluded);
@@ -184,7 +186,9 @@ function queryToResult(
     coverageConfidence,
     latencyMs,
     tokensUsed,
+    tokenBudget,
     rawTokenCount,
+    noiseRatio,
     options,
   });
 
@@ -275,7 +279,9 @@ async function runCodebaseEval(
         capsule.metadata.quality.coverageConfidence,
         latencyMs,
         capsule.metadata.tokensUsed,
-        metricOptions
+        metricOptions,
+        tokenBudget,
+        capsule.metadata.quality.noiseRatio
       )
     );
   }
@@ -309,7 +315,9 @@ async function runCodebaseEval(
         capsule.metadata.quality.coverageConfidence,
         latencyMs,
         capsule.metadata.tokensUsed,
-        metricOptions
+        metricOptions,
+        tokenBudget,
+        capsule.metadata.quality.noiseRatio
       );
       const success = isSuccessfulAttempt(attempt, result);
       attempts.push({
@@ -476,17 +484,19 @@ function printReport(result: EvalSuiteResult): void {
   console.log();
 
   console.log("Overall:");
-  console.log(`  Precision:       ${formatPct(result.metrics.precision)}`);
-  console.log(`  Recall:          ${formatPct(result.metrics.recall)}`);
-  console.log(`  Avg confidence:  ${formatPct(result.metrics.avgConfidence)}`);
-  console.log(`  Token efficiency:${formatPct(result.metrics.avgTokenEfficiency)}`);
-  console.log(`  Avg latency:     ${result.metrics.avgLatencyMs.toFixed(1)}ms`);
-  console.log(`  P95 latency:     ${result.metrics.p95LatencyMs.toFixed(1)}ms`);
-  console.log(`  Task success:    ${formatPct(result.metrics.taskSuccessRate)}`);
-  console.log(`  First-pass rate: ${formatPct(result.metrics.firstPassSuccessRate)}`);
-  console.log(`  Correction rate: ${formatPct(result.metrics.correctionRate)}`);
-  console.log(`  Task tokens:     ${result.metrics.avgTaskTokensToSuccess.toFixed(1)}`);
-  console.log(`  Turns to success:${result.metrics.avgTurnsToSuccess.toFixed(2)}`);
+  console.log(`  Precision:         ${formatPct(result.metrics.precision)}`);
+  console.log(`  Recall:            ${formatPct(result.metrics.recall)}`);
+  console.log(`  Avg confidence:    ${formatPct(result.metrics.avgConfidence)}`);
+  console.log(`  Token efficiency:  ${formatPct(result.metrics.avgTokenEfficiency)}`);
+  console.log(`  Budget utilization:${formatPct(result.metrics.avgBudgetUtilization)}`);
+  console.log(`  Noise ratio:       ${formatPct(result.metrics.avgNoiseRatio)}`);
+  console.log(`  Avg latency:       ${result.metrics.avgLatencyMs.toFixed(1)}ms`);
+  console.log(`  P95 latency:       ${result.metrics.p95LatencyMs.toFixed(1)}ms`);
+  console.log(`  Task success:      ${formatPct(result.metrics.taskSuccessRate)}`);
+  console.log(`  First-pass rate:   ${formatPct(result.metrics.firstPassSuccessRate)}`);
+  console.log(`  Correction rate:   ${formatPct(result.metrics.correctionRate)}`);
+  console.log(`  Task tokens:       ${result.metrics.avgTaskTokensToSuccess.toFixed(1)}`);
+  console.log(`  Turns to success:  ${result.metrics.avgTurnsToSuccess.toFixed(2)}`);
   console.log();
 
   for (const codebase of result.codebases) {

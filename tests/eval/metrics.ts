@@ -10,8 +10,10 @@ export interface QueryMetricInput {
   actualSymbols: string[];
   latencyMs: number;
   tokensUsed: number;
+  tokenBudget?: number;
   rawTokenCount: number;
   coverageConfidence: number;
+  noiseRatio?: number;
   options?: EvalMetricOptions;
 }
 
@@ -23,6 +25,8 @@ export interface QueryMetricOutput {
   precision: number;
   recall: number;
   tokenEfficiency: number;
+  budgetUtilization: number;
+  noiseRatio: number;
   latencyMs: number;
   coverageConfidence: number;
   matchedFiles: string[];
@@ -37,6 +41,8 @@ export interface AggregateMetricOutput {
   recall: number;
   avgConfidence: number;
   avgTokenEfficiency: number;
+  avgBudgetUtilization: number;
+  avgNoiseRatio: number;
   avgLatencyMs: number;
   p95LatencyMs: number;
   taskCount: number;
@@ -172,6 +178,10 @@ export function computeQueryMetrics(input: QueryMetricInput): QueryMetricOutput 
   const precision = dimensions.length > 0 ? average(dimensions.map((d) => d.precision)) : 1;
   const recall = dimensions.length > 0 ? average(dimensions.map((d) => d.recall)) : 1;
 
+  const budgetUtilization = input.tokenBudget && input.tokenBudget > 0
+    ? clamp(input.tokensUsed / input.tokenBudget, 0, 1)
+    : 0;
+
   return {
     filePrecision: fileMetrics.precision,
     fileRecall: fileMetrics.recall,
@@ -180,6 +190,8 @@ export function computeQueryMetrics(input: QueryMetricInput): QueryMetricOutput 
     precision,
     recall,
     tokenEfficiency: computeTokenEfficiency(input.tokensUsed, input.rawTokenCount),
+    budgetUtilization,
+    noiseRatio: input.noiseRatio ?? 0,
     latencyMs: input.latencyMs,
     coverageConfidence: input.coverageConfidence,
     matchedFiles: fileMetrics.matchedExpected,
@@ -220,6 +232,8 @@ export function aggregateMetricsWithTasks(
     recall: average(queries.map((q) => q.recall)),
     avgConfidence: average(queries.map((q) => q.coverageConfidence)),
     avgTokenEfficiency: average(queries.map((q) => q.tokenEfficiency)),
+    avgBudgetUtilization: average(queries.map((q) => q.budgetUtilization)),
+    avgNoiseRatio: average(queries.map((q) => q.noiseRatio)),
     avgLatencyMs: average(queries.map((q) => q.latencyMs)),
     p95LatencyMs: percentile(queries.map((q) => q.latencyMs), 0.95),
     taskCount: tasks.length,
