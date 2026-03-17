@@ -2709,6 +2709,26 @@ export async function generateCapsuleWithRuntime(
       limit: 36,
     });
 
+    if (embeddingRuntime.reranker && hybridSearchResults.length > 5) {
+      try {
+        const documents = hybridSearchResults.map((r) =>
+          `${r.scopeChain.join(".")} ${r.kind} ${r.filePath}:${r.startLine}`
+        );
+        const reranked = await embeddingRuntime.reranker.rerank(params.query, documents);
+        const rerankedResults = reranked.map((rr) => hybridSearchResults[rr.index]!);
+        const rerankedSet = new Set(reranked.map((rr) => rr.index));
+        for (let i = 0; i < hybridSearchResults.length; i++) {
+          if (!rerankedSet.has(i)) rerankedResults.push(hybridSearchResults[i]!);
+        }
+        hybridSearchResults.length = 0;
+        hybridSearchResults.push(...rerankedResults);
+      } catch (err) {
+        logger.debug("cross-encoder reranking skipped", {
+          error: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
     return generateCapsule(db, {
       ...params,
       hybridSearchResults,
