@@ -5,10 +5,17 @@ import type { EmbeddingRuntime, HybridSearchResult, SymbolKind } from "./types.j
 import { symbolQueries } from "../db/queries/symbols.js";
 import { globToRegExp, toProjectRelativePath, withinPath } from "../mcp/tools/path-filters.js";
 
-const RRF_K = 60;
+const RRF_K_DEFAULT = 60;
+const RRF_K_IDENTIFIER = 10;
 const BM25_WEIGHT = 1;
 const VECTOR_WEIGHT = 1;
 const EXACT_WEIGHT = 2;
+
+const IDENTIFIER_RE = /^[a-zA-Z_]\w*(\.[a-zA-Z_]\w*)*$/;
+
+function adaptiveRrfK(query: string): number {
+  return IDENTIFIER_RE.test(query.trim()) ? RRF_K_IDENTIFIER : RRF_K_DEFAULT;
+}
 
 export interface HybridSearchOptions {
   query: string;
@@ -102,9 +109,9 @@ function computeRecencyScore(mtime: number, now: number): number {
   return 0;
 }
 
-function rrfTerm(rank: number | null, weight: number): number {
+function rrfTerm(rank: number | null, weight: number, k: number = RRF_K_DEFAULT): number {
   if (rank === null) return 0;
-  return weight * (1 / (RRF_K + rank));
+  return weight * (1 / (k + rank));
 }
 
 export async function hybridSearch(
@@ -306,10 +313,11 @@ export async function hybridSearch(
 
     const mtime = fileMtime.get(seed.fileId)?.mtime ?? 0;
     const recencyScore = options.recencyBoost === false ? 0 : computeRecencyScore(mtime, now);
+    const k = adaptiveRrfK(options.query);
     const rrfScore =
-      rrfTerm(bm25?.rank ?? null, BM25_WEIGHT) +
-      rrfTerm(vector?.rank ?? null, VECTOR_WEIGHT) +
-      rrfTerm(exact?.rank ?? null, EXACT_WEIGHT) +
+      rrfTerm(bm25?.rank ?? null, BM25_WEIGHT, k) +
+      rrfTerm(vector?.rank ?? null, VECTOR_WEIGHT, k) +
+      rrfTerm(exact?.rank ?? null, EXACT_WEIGHT, k) +
       recencyScore;
 
     const symbolIds = seed.symbolIds.length > 0
