@@ -1276,6 +1276,10 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         if (!hasLexical && !isNearby) continue;
         const overlap = computeQueryOverlap(candidate.symbol.name);
         if (overlap === 0 && !hasDirectEdgeToPivot(candidate.symbol.id)) continue;
+      } else if (intent === "broad") {
+        const topScore = ranked[0]?.score ?? 0;
+        const broadScoreFloor = topScore * 0.12;
+        if (candidate.score < broadScoreFloor && !hasLexical) continue;
       } else {
         const strongLocality = hasStrongLocality(candidate);
         if (!(strongLocality || (hasLexical && isNearby))) continue;
@@ -1298,9 +1302,9 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       return selectedCandidates;
     }
 
-    const maxFiles = isNarrowMultiTerm ? 4 : intent === "broad" ? (broadBudgetBoost ? 12 : 10) : 7;
-    const maxPerFile = isNarrowMultiTerm ? 4 : intent === "broad" ? (broadBudgetBoost ? 5 : 3) : 4;
-    const maxTotal = isNarrowMultiTerm ? 20 : intent === "broad" ? (broadBudgetBoost ? 56 : 35) : 24;
+    const maxFiles = isNarrowMultiTerm ? 4 : intent === "broad" ? (broadBudgetBoost ? 18 : 14) : 7;
+    const maxPerFile = isNarrowMultiTerm ? 4 : intent === "broad" ? (broadBudgetBoost ? 6 : 4) : 4;
+    const maxTotal = isNarrowMultiTerm ? 20 : intent === "broad" ? (broadBudgetBoost ? 80 : 50) : 24;
     const lexicalFloor = isNarrowMultiTerm ? 2 : intent === "broad" ? (broadBudgetBoost ? 0.9 : 1.5) : 1.2;
     const ordered = [...selectedCandidates].sort((a, b) => {
       if (a.isPivot !== b.isPivot) return a.isPivot ? -1 : 1;
