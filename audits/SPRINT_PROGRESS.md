@@ -1,6 +1,6 @@
 # Sprint Progress
 
-Date: 2026-03-15
+Date: 2026-03-17
 Branch: codex/review-closure-sprint
 Execution mode: single-agent
 Source spec: `audits/IMPLEMENTATION_PLAN_END_TO_END.md` + `audits/IMPLEMENTATION_PLAN_REVIEW_REMEDIATION_V2.md`
@@ -25,20 +25,20 @@ Source spec: `audits/IMPLEMENTATION_PLAN_END_TO_END.md` + `audits/IMPLEMENTATION
 
 ## Completion Summary
 
-- P0: 0 / 8 done = 0.0%; 8 / 8 in review
-- P1: 0 / 5 done = 0.0%; 4 / 5 in review, 1 / 5 in progress
-- P2: 0 / 0 done = 0.0%
-- Overall: 0 / 13 done = 0.0%; 12 / 13 locally verified and in review
+- P0: 8 / 8 in review (all code landed, all linked tests green)
+- P1: 4 / 5 in review, 1 / 5 in progress (CW-P1-015 — closure reporting)
+- Overall: 12 / 13 locally verified and in review, 1 in progress
+- Blocker to `done`: external field reruns on reviewed codebases not yet executed
 
 ## Session Evidence
 
-- Branch work since `origin/codex/review-closure-sprint` now includes:
+- All sprint commits landed on `codex/review-closure-sprint`:
   - `fix(capsule): hard-exclude noise, add layer-aware retrieval, deepen refill (CW-P0-014)`
   - `fix(impact): add fallback edge lookup for false-negative dependents (CW-P0-017)`
   - `fix(capsule): expand broad signals for concept queries like state management (CW-P1-011)`
   - `fix(capsule): diversify follow-up read hints (CW-P1-012)`
-  - the current uncommitted `CW-P0-019` + `CW-P1-014` work for file-qualified impact pinning and definition-first grep ranking
-- New regression fixtures were added under `tests/fixtures/` to make grep ordering and file-qualified impact pinning observable in integration coverage.
+  - `fix(mcp): rank grep definitions and pin file-qualified impacts (CW-P0-019, CW-P1-014)`
+- New regression fixtures added under `tests/fixtures/` for grep ordering and file-qualified impact pinning.
 - No ticket is marked `done` because the sprint still lacks external rerun artifacts against the reviewed codebases.
 
 ## Test Evidence
@@ -46,9 +46,7 @@ Source spec: `audits/IMPLEMENTATION_PLAN_END_TO_END.md` + `audits/IMPLEMENTATION
 | Check | State | Evidence |
 |---|---|---|
 | Closure verification bundle | pass | `npx vitest run tests/capsule/story-packing.test.ts tests/integration/threshold-ratchet.test.ts tests/core/file-summaries.test.ts tests/unit/flow.test.ts tests/unit/formatter-followup.test.ts tests/integration/mcp-navigation-tools.test.ts tests/field/review-regressions.test.ts` -> 7 files, 80 tests passed on 2026-03-15 |
-| Focused formatter regression | pass | `npx vitest run tests/unit/formatter-followup.test.ts` -> 1 file, 11 tests passed on 2026-03-15 |
-| Focused navigation regression | pass | `npx vitest run tests/integration/mcp-navigation-tools.test.ts` -> 1 file, 15 tests passed on 2026-03-15 |
-| Focused field regression | pass | `npx vitest run tests/field/review-regressions.test.ts` -> 1 file, 24 tests passed on 2026-03-15 |
+| Final verification (2026-03-17) | pass | `npx vitest run tests/integration/mcp-navigation-tools.test.ts tests/field/review-regressions.test.ts tests/unit/formatter-followup.test.ts` -> 3 files, 50 tests passed |
 | Prior batch verification | pass | 9 files, 142 tests passed, 0 failures on 2026-03-14 |
 | Product baseline | fail | `npm test` remains red outside sprint scope with a pre-existing baseline of 27 failing files / 105 failing tests |
 | External field reruns | not run | required before any ticket can move from `review` to `done` |
@@ -60,6 +58,6 @@ Source spec: `audits/IMPLEMENTATION_PLAN_END_TO_END.md` + `audits/IMPLEMENTATION
 
 ## Next Actions
 
-1. Commit the remaining `CW-P0-019` and `CW-P1-014` code + audit updates.
-2. Push `codex/review-closure-sprint` to `origin`.
-3. Open the PR with explicit note that all remediation tickets are locally verified but still blocked on external rerun evidence for `done`.
+1. Push `codex/review-closure-sprint` to `origin`.
+2. Open PR with note that all 12 remediation tickets are locally verified but blocked on external rerun evidence for `done`.
+3. Run external field reruns against reviewed codebases to close remaining tickets.
