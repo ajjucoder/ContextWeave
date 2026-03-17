@@ -92,7 +92,7 @@ interface RankedCandidate {
 const DEFAULT_TOKEN_BUDGET = 4000;
 const DEFAULT_MAX_QUERY_TIME_MS = 500;
 const NARROW_MIN_UTILIZATION = 0.45;
-const BROAD_TASK_MIN_UTILIZATION = 0.6;
+const BROAD_TASK_MIN_UTILIZATION = 0.85;
 const BROAD_TASK_TARGET_UTILIZATION = 0.85;
 const OBSERVATION_BUDGET_FRACTION = 0.2;
 const MAX_BFS_VISITED_DIVISOR = 12;
@@ -1680,7 +1680,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         : 1;
   const broadLargeBudget = intent === "broad" && tokenBudget >= 8000;
   const candidateLimitMultiplier =
-    intent === "narrow" ? 0.85 : intent === "broad" ? (broadLargeBudget ? 0.6 : 0.45) : 0.55;
+    intent === "narrow" ? 0.85 : intent === "broad" ? (broadLargeBudget ? 0.8 : 0.6) : 0.55;
   const dynamicLimit = Math.max(
     40,
     Math.floor((retrievalBudget / 10) * candidateLimitMultiplier)
@@ -1690,8 +1690,8 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     intent === "narrow"
       ? narrowHardCap
       : intent === "broad"
-        ? Math.max(broadLargeBudget ? 300 : 200, Math.floor(tokenBudget / (broadLargeBudget ? 24 : 35)))
-        : 120;
+        ? Math.max(broadLargeBudget ? 400 : 280, Math.floor(tokenBudget / (broadLargeBudget ? 18 : 28)))
+        : 150;
   const baseCandidateLimit = Math.min(dynamicLimit, hardCap);
 
   const recentSymbolIds: Set<number> = hasExplicitSession && sessionCtx

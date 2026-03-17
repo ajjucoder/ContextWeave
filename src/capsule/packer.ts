@@ -301,13 +301,13 @@ export function packNodesStoryMode(
     }))
     .sort((a, b) => b.score - a.score);
 
-  const maxPrimaryGroups = Math.max(1, Math.min(rankedGroups.length, Math.max(2, Math.floor(tokenBudget / 1000))));
+  const maxPrimaryGroups = Math.max(1, Math.min(rankedGroups.length, Math.max(3, Math.floor(tokenBudget / 800))));
   const primaryGroups = rankedGroups.slice(0, maxPrimaryGroups);
 
   const packed: ScoredNode[] = [];
   const packedIds = new Set<number>();
   let tokensUsed = 0;
-  const maxL0Nodes = Math.max(1, Math.min(3, Math.floor(codeBudget / 1800) + 1));
+  const maxL0Nodes = Math.max(2, Math.min(5, Math.floor(codeBudget / 1200) + 1));
   let usedL0Nodes = 0;
 
   for (let index = 0; index < primaryGroups.length; index++) {
@@ -333,9 +333,8 @@ export function packNodesStoryMode(
 
       let preferredLevel: CompressionLevel;
       if (node.distance === 0) {
-        const actionSignal = hasActionSignal(node.symbol.name, node.symbol.signature);
         preferredLevel =
-          usedL0Nodes === 0 || (actionSignal && usedL0Nodes < maxL0Nodes && node.score >= topScore * 0.85)
+          usedL0Nodes < maxL0Nodes && node.score >= topScore * 0.5
             ? 0
             : 1;
       } else if (node.score >= topScore * 0.65) {
