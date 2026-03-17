@@ -1111,7 +1111,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const DOC_QUERY_TERMS = new Set(["doc", "docs", "documentation", "readme", "guide", "tutorial", "manual", "changelog", "plan", "plans"]);
   const queryLooksDocFocused = allQueryTerms.some((t) => DOC_QUERY_TERMS.has(t.toLowerCase()));
   const DOC_FILE_RE = /\.(md|txt|rst|adoc)$/i;
-  const VENDOR_FILE_RE = /(^|\/)(vendor|static\/js|assets\/js|public\/js|dist|build|\.next|coverage)\//i;
+  const VENDOR_FILE_RE = /(^|\/)(vendor|static\/js|assets\/js|public\/js|dist|build|\.next|coverage|\.worktrees?|\.claude|\.qa-temp|__pycache__|\.git)\//i;
   const KNOWN_VENDOR_NAMES = /\b(jquery|modernizr|bootstrap|lodash|moment|popper|aos|plugins)\b/i;
   const isVendoredOrMinified = (filePath: string): boolean => {
     if (VENDOR_FILE_RE.test(filePath)) return true;
@@ -1128,9 +1128,14 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     if (directoryWeight <= ARCHIVE_WEIGHT_THRESHOLD && !candidate.isPivot) {
       continue;
     }
-    if (!candidate.isPivot && (intent === "broad" || intent === "task" || intent === "narrow")) {
+    if ((intent === "broad" || intent === "task" || intent === "narrow")) {
       if (!queryLooksTestFocused && mode !== "debug" && isNoisyTestFile(candidate.file.path)) {
-        continue;
+        if (!candidate.isPivot) {
+          continue;
+        }
+        if (candidate.lexicalScore === 0) {
+          continue;
+        }
       }
       if (!queryLooksDocFocused && DOC_FILE_RE.test(candidate.file.path)) {
         continue;
@@ -1506,13 +1511,14 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       filePath: string
     ): number => {
       const queryOverlap = computeQueryOverlap(symbol.name, symbol.signature, filePath);
-      const centralityContrib = Math.min(symbol.centrality * 0.8, 0.5);
-      let score = queryOverlap * 6 + lexicalScore * 1.5 + centralityContrib + 0.25;
+      if (queryOverlap === 0 && lexicalScore < 0.3) return 0;
+      const centralityContrib = Math.min(symbol.centrality * 0.3, 0.2);
+      let score = queryOverlap * 8 + lexicalScore * 2 + centralityContrib;
       if (queryOverlap === 0) {
-        score *= 0.5;
+        score *= 0.3;
       }
       if (applyTestFilePenalty && isTestFile(filePath)) {
-        score *= 0.3;
+        score *= 0.2;
       }
       return score;
     };
@@ -1530,6 +1536,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       if (queryOverlap === 0 && !hasDirectEdgeToPivot(candidate.symbol.id)) continue;
       const filePath = candidate.file.path;
       const score = scoreBackfillCandidate(candidate.symbol, candidate.lexicalScore, filePath);
+      if (score <= 0) continue;
       extras.push({ ...candidate, score });
     }
 
@@ -1557,6 +1564,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
             pivotQueryTerms
           );
           const score = scoreBackfillCandidate(symbol, lexicalScore, fallbackFilePath);
+          if (score <= 0) continue;
           extras.push({
             symbol,
             file,

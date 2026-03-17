@@ -79,10 +79,10 @@ describe("buildUncertainty 5-level calibration", () => {
       },
     });
 
-    expect(result).toBeGreaterThanOrEqual(0.6);
+    expect(result).toBeGreaterThanOrEqual(0.55);
   });
 
-  it("caps confidence at 0.4 when retrieval is thin and token utilization is below 30%", () => {
+  it("caps confidence at 0.45 when retrieval is thin and token utilization is below 35%", () => {
     const result = computeCoverageConfidence({
       intent: "broad",
       pivotCount: 10,
@@ -103,7 +103,7 @@ describe("buildUncertainty 5-level calibration", () => {
       },
     });
 
-    expect(result).toBeLessThanOrEqual(0.4);
+    expect(result).toBeLessThanOrEqual(0.45);
   });
 
   it("caps compact high-precision broad results at 0.4 when utilization is below 30%", () => {

@@ -156,49 +156,49 @@ describe("computeCoverageConfidence — escape hatch removal", () => {
 });
 
 describe("computeCoverageConfidence — graduated utilization caps", () => {
-  it("15% utilization caps at 0.30 (tier 1: < 0.20)", () => {
+  it("10% utilization caps at 0.25 (tier 1: < 0.15)", () => {
     const conf = computeCoverageConfidence({
       ...BASE_PARAMS,
       intent: "narrow",
-      tokenUtilization: 0.15,
+      tokenUtilization: 0.10,
     });
-    expect(conf).toBeLessThanOrEqual(0.30);
+    expect(conf).toBeLessThanOrEqual(0.25);
   });
 
-  it("25% utilization caps at 0.40 (tier 2: < 0.30)", () => {
+  it("20% utilization caps at 0.35 (tier 2: < 0.25)", () => {
     const conf = computeCoverageConfidence({
       ...BASE_PARAMS,
       intent: "narrow",
-      tokenUtilization: 0.25,
+      tokenUtilization: 0.20,
       pivotCount: 5,
       pivotsIncluded: 5,
     });
-    expect(conf).toBeLessThanOrEqual(0.40);
+    expect(conf).toBeLessThanOrEqual(0.35);
   });
 
-  it("35% utilization caps at 0.50 (tier 3: < 0.40)", () => {
+  it("30% utilization caps at 0.45 (tier 3: < 0.35)", () => {
     const conf = computeCoverageConfidence({
       ...BASE_PARAMS,
       intent: "narrow",
-      tokenUtilization: 0.35,
+      tokenUtilization: 0.30,
       pivotCount: 5,
       pivotsIncluded: 5,
     });
-    expect(conf).toBeLessThanOrEqual(0.50);
+    expect(conf).toBeLessThanOrEqual(0.45);
   });
 
-  it("45% utilization caps at 0.60 (tier 4: < 0.50)", () => {
+  it("40% utilization caps at 0.55 (tier 4: < 0.50)", () => {
     const conf = computeCoverageConfidence({
       ...BASE_PARAMS,
       intent: "narrow",
-      tokenUtilization: 0.45,
+      tokenUtilization: 0.40,
       pivotCount: 5,
       pivotsIncluded: 5,
     });
-    expect(conf).toBeLessThanOrEqual(0.60);
+    expect(conf).toBeLessThanOrEqual(0.55);
   });
 
-  it("55% utilization caps at 0.70 (tier 5: < 0.60)", () => {
+  it("55% utilization caps at 0.65 (tier 5: < 0.60)", () => {
     const conf = computeCoverageConfidence({
       ...BASE_PARAMS,
       intent: "narrow",
@@ -206,25 +206,60 @@ describe("computeCoverageConfidence — graduated utilization caps", () => {
       pivotCount: 5,
       pivotsIncluded: 5,
     });
-    expect(conf).toBeLessThanOrEqual(0.70);
+    expect(conf).toBeLessThanOrEqual(0.65);
+  });
+
+  it("65% utilization caps at 0.72 (tier 6: < 0.70)", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "narrow",
+      tokenUtilization: 0.65,
+      pivotCount: 5,
+      pivotsIncluded: 5,
+    });
+    expect(conf).toBeLessThanOrEqual(0.72);
   });
 
   it("graduated caps apply to broad intent (no intent-gated bypass)", () => {
     const conf = computeCoverageConfidence({
       ...BASE_PARAMS,
       intent: "broad",
-      tokenUtilization: 0.25,
+      tokenUtilization: 0.20,
       pivotCount: 5,
       pivotsIncluded: 5,
     });
-    expect(conf).toBeLessThanOrEqual(0.40);
+    expect(conf).toBeLessThanOrEqual(0.35);
   });
 
   it("graduated caps apply to task intent (no intent-gated bypass)", () => {
     const conf = computeCoverageConfidence({
       ...BASE_PARAMS,
       intent: "task",
-      tokenUtilization: 0.35,
+      tokenUtilization: 0.30,
+      pivotCount: 5,
+      pivotsIncluded: 5,
+    });
+    expect(conf).toBeLessThanOrEqual(0.45);
+  });
+
+  it("high noise ratio hard caps confidence", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "narrow",
+      tokenUtilization: 0.90,
+      noiseRatio: 0.65,
+      pivotCount: 5,
+      pivotsIncluded: 5,
+    });
+    expect(conf).toBeLessThanOrEqual(0.35);
+  });
+
+  it("moderate noise ratio caps confidence at 0.50", () => {
+    const conf = computeCoverageConfidence({
+      ...BASE_PARAMS,
+      intent: "broad",
+      tokenUtilization: 0.80,
+      noiseRatio: 0.50,
       pivotCount: 5,
       pivotsIncluded: 5,
     });

@@ -96,7 +96,7 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
       dependencyCoverage * 0.2 +
       (1 - noiseRatio) * 0.15 +
       summaryBoost +
-      0.182
+      0.05
   );
   if (intent === "broad") {
     confidence = clamp(
@@ -104,7 +104,7 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
         relevantCoverage * 0.25 +
         (1 - noiseRatio) * 0.15 +
         summaryBoost +
-        0.282
+        0.10
     );
     const structuralHealth = clamp(
       moduleCoverage * 0.45 +
@@ -116,16 +116,13 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
         ? Math.max(lexicalSurface, structuralHealth * 0.52)
         : lexicalSurface;
     confidence = clamp(confidence * (0.35 + 0.65 * breadthFactor));
-    if (structurallyGrounded && moduleCoverage >= 0.75) {
-      confidence = Math.max(confidence, 0.72);
-    }
   } else if (intent === "task") {
     confidence = clamp(
       storyCompleteness * 0.3 +
         moduleCoverage * 0.25 +
         relevantCoverage * 0.2 +
         (1 - noiseRatio) * 0.1 +
-        0.362
+        0.15
     );
     const structuralHealth = clamp(
       storyCompleteness * 0.35 +
@@ -138,21 +135,28 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
         ? Math.max(lexicalSurface, structuralHealth * 0.5)
         : lexicalSurface;
     confidence = clamp(confidence * (0.45 + 0.55 * breadthFactor));
-    if (structurallyGrounded && storyCompleteness >= 0.25) {
-      confidence = Math.max(confidence, 0.78);
-    }
   }
 
-  if (tokenUtilization < 0.20) {
-    confidence = Math.min(confidence, 0.30);
-  } else if (tokenUtilization < 0.30) {
-    confidence = Math.min(confidence, 0.40);
-  } else if (tokenUtilization < 0.40) {
-    confidence = Math.min(confidence, 0.50);
+  if (tokenUtilization < 0.15) {
+    confidence = Math.min(confidence, 0.25);
+  } else if (tokenUtilization < 0.25) {
+    confidence = Math.min(confidence, 0.35);
+  } else if (tokenUtilization < 0.35) {
+    confidence = Math.min(confidence, 0.45);
   } else if (tokenUtilization < 0.50) {
-    confidence = Math.min(confidence, 0.60);
+    confidence = Math.min(confidence, 0.55);
   } else if (tokenUtilization < 0.60) {
-    confidence = Math.min(confidence, 0.70);
+    confidence = Math.min(confidence, 0.65);
+  } else if (tokenUtilization < 0.70) {
+    confidence = Math.min(confidence, 0.72);
+  }
+
+  if (noiseRatio > 0.60) {
+    confidence = Math.min(confidence, 0.35);
+  } else if (noiseRatio > 0.45) {
+    confidence = Math.min(confidence, 0.50);
+  } else if (noiseRatio > 0.30) {
+    confidence = Math.min(confidence, 0.65);
   }
 
   if (pivotCoverage < 0.30) {

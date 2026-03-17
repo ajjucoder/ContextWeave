@@ -206,7 +206,7 @@ describe("EBPS field regression", () => {
       "config/program-rules.yaml",
       "docs/partner-policy.md",
     ]);
-    expect(result.metadata.quality.coverageConfidence).toBeGreaterThan(0.35);
+    expect(result.metadata.quality.coverageConfidence).toBeGreaterThanOrEqual(0.30);
   });
 
   it("cw_overview can surface the policy docs that drive eligibility behavior", async () => {
