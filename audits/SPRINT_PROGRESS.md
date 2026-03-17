@@ -41,23 +41,46 @@ Source spec: `audits/IMPLEMENTATION_PLAN_END_TO_END.md` + `audits/IMPLEMENTATION
 - New regression fixtures added under `tests/fixtures/` for grep ordering and file-qualified impact pinning.
 - No ticket is marked `done` because the sprint still lacks external rerun artifacts against the reviewed codebases.
 
+## Overhaul Waves (2026-03-17)
+
+Based on 45-angle research from 3 agent teams, implementing systematic overhaul:
+
+| Wave | Focus | Status | Key Changes |
+|---|---|---|---|
+| Wave 1 | Confidence + noise | done | Removed escape hatches, noise ratio hard caps, tightened utilization caps, reduced centrality weight in backfill |
+| Wave 2 | Budget utilization | done | Raised BFS caps, aligned refill target 0.6->0.85, multi-pivot L0 packing, expanded maxPrimaryGroups |
+| Wave 3 | Broad query supply | done | Score-floor filter for broad (replaces locality requirement), raised file diversity limits |
+| Wave 4 | Eval infrastructure | done | Added budgetUtilization and noiseRatio to eval metrics, tightened thresholds |
+| Wave 5 | Intelligence layer | planned | Cross-encoder reranking, multi-hop retrieval, HyDE improvements |
+| Wave 6 | Polish | planned | Honest cw_stats, body-aware summaries, observation auto-promotion |
+
+### Eval Baseline (2026-03-17, post-Wave 3)
+
+| Metric | Fixture Eval | Target |
+|---|---|---|
+| Precision | 39.2% | 60%+ |
+| Recall | 74.2% | 70%+ (MET) |
+| Confidence | 33.3% | 40%+ |
+| Budget utilization | 24.0% | 50%+ |
+| Noise ratio | 0.3% | <35% (MET) |
+| Task success | 100% | 80%+ (MET) |
+
 ## Test Evidence
 
 | Check | State | Evidence |
 |---|---|---|
-| Closure verification bundle | pass | `npx vitest run tests/capsule/story-packing.test.ts tests/integration/threshold-ratchet.test.ts tests/core/file-summaries.test.ts tests/unit/flow.test.ts tests/unit/formatter-followup.test.ts tests/integration/mcp-navigation-tools.test.ts tests/field/review-regressions.test.ts` -> 7 files, 80 tests passed on 2026-03-15 |
-| Final verification (2026-03-17) | pass | `npx vitest run tests/integration/mcp-navigation-tools.test.ts tests/field/review-regressions.test.ts tests/unit/formatter-followup.test.ts` -> 3 files, 50 tests passed |
-| Prior batch verification | pass | 9 files, 142 tests passed, 0 failures on 2026-03-14 |
-| Product baseline | fail | `npm test` remains red outside sprint scope with a pre-existing baseline of 27 failing files / 105 failing tests |
-| External field reruns | not run | required before any ticket can move from `review` to `done` |
+| Overhaul verification (2026-03-17) | pass | 10 files, 134 tests passed: confidence, story-packing, formatter, review-regressions, navigation, threshold-ratchet, eval |
+| Eval suite (2026-03-17) | pass | 3 codebases, 20 queries, 7 tasks — precision 39.2%, recall 74.2%, 100% task success |
+| Prior batch verification | pass | 9 files, 142 tests passed on 2026-03-14 |
+| Product baseline | fail | `npm test` remains red outside sprint scope |
 
 ## Blockers
 
-- The reviewed external repositories are not present in this workspace, so the sprint still lacks the field-evidence artifacts required for `done`.
-- `npm test` remains red for unrelated pre-existing failures, so repo-wide green cannot be used as sprint closure evidence.
+- External field reruns against reviewed codebases still needed for final ticket closure.
+- Budget utilization on eval fixtures is 24% — needs Wave 5 cross-encoder + multi-hop to improve on real broad queries.
 
 ## Next Actions
 
-1. Push `codex/review-closure-sprint` to `origin`.
-2. Open PR with note that all 12 remediation tickets are locally verified but blocked on external rerun evidence for `done`.
-3. Run external field reruns against reviewed codebases to close remaining tickets.
+1. Continue Wave 5: cross-encoder reranking integration
+2. Add more diverse eval fixtures (broad queries, architectural queries)
+3. Run external field reruns against reviewed codebases
