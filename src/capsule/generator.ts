@@ -1111,11 +1111,15 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const DOC_QUERY_TERMS = new Set(["doc", "docs", "documentation", "readme", "guide", "tutorial", "manual", "changelog", "plan", "plans"]);
   const queryLooksDocFocused = allQueryTerms.some((t) => DOC_QUERY_TERMS.has(t.toLowerCase()));
   const DOC_FILE_RE = /\.(md|txt|rst|adoc)$/i;
-  const VENDOR_FILE_RE = /(^|\/)(vendor|static\/js|assets\/js|public\/js|dist|build|\.next|coverage|\.worktrees?|\.claude|\.qa-temp|__pycache__|\.git)\//i;
-  const KNOWN_VENDOR_NAMES = /\b(jquery|modernizr|bootstrap|lodash|moment|popper|aos|plugins)\b/i;
+  const VENDOR_FILE_RE = /(^|\/)(vendor|static\/js|assets\/js|public\/js|dist|build|\.next|coverage|\.worktrees?|\.claude|\.qa-temp|__pycache__|\.git|node_modules)\//i;
+  const KNOWN_VENDOR_NAMES = /\b(jquery|modernizr|bootstrap|lodash|moment|popper|aos|plugins|polyfill|bundle)\b/i;
+  const VENDORED_TEMPLATE_RE = /\/(?:template|theme|starter|boilerplate)s?[/-]/i;
+  const MINIFIED_FILE_RE = /\.min\.(js|css)$/i;
   const isVendoredOrMinified = (filePath: string): boolean => {
     if (VENDOR_FILE_RE.test(filePath)) return true;
     if (KNOWN_VENDOR_NAMES.test(filePath)) return true;
+    if (VENDORED_TEMPLATE_RE.test(filePath)) return true;
+    if (MINIFIED_FILE_RE.test(filePath)) return true;
     return false;
   };
 

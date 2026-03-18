@@ -1589,11 +1589,50 @@ function parseVariableBindings(
 ): import("./types.js").VariableTypeBinding[] {
   const bindings: import("./types.js").VariableTypeBinding[] = [];
 
-  if (!["typescript", "tsx", "javascript", "jsx"].includes(language)) return bindings;
+  if (!["typescript", "tsx", "javascript", "jsx", "java"].includes(language)) return bindings;
 
   const langModule = languageModules[language];
   if (!langModule) return bindings;
   const lang = langModule();
+
+  if (language === "java") {
+    const javaBindingQuery = `
+(local_variable_declaration
+  type: (type_identifier) @type
+  (variable_declarator
+    name: (identifier) @var)) @binding
+
+(field_declaration
+  type: (type_identifier) @type
+  (variable_declarator
+    name: (identifier) @var)) @binding
+
+(formal_parameter
+  type: (type_identifier) @type
+  name: (identifier) @var) @binding
+`;
+    try {
+      const query = new Parser.Query(lang, javaBindingQuery);
+      const matches = query.matches(tree.rootNode);
+      for (const match of matches) {
+        const varCapture = match.captures.find((c) => c.name === "var");
+        const typeCapture = match.captures.find((c) => c.name === "type");
+        if (!varCapture || !typeCapture) continue;
+        const line = varCapture.node.startPosition.row + 1;
+        const containingSymbol = symbols.find(
+          (s) => s.startLine <= line && s.endLine >= line
+        );
+        bindings.push({
+          variableName: varCapture.node.text,
+          typeName: typeCapture.node.text,
+          scope: containingSymbol?.name ?? "module",
+        });
+      }
+    } catch {
+      // query errors are non-fatal
+    }
+    return bindings;
+  }
 
   // Extract: const x = new Foo() → x → Foo
   // Extract: const x: Foo = ... → x → Foo (type annotation)
