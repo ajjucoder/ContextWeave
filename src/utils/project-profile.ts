@@ -46,8 +46,7 @@ function extractRootPattern(pattern: string): string | null {
   const normalized = pattern.replace(/^!/, "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
   if (!normalized || normalized.includes("*") || normalized.includes("?")) return null;
   if (normalized.includes("/")) {
-    const [head] = normalized.split("/");
-    return head && !head.includes(".") ? head : null;
+    return null;
   }
   return normalized;
 }

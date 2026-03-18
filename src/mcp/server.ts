@@ -18,6 +18,9 @@ import { registerReadTool } from "./tools/read.js";
 import { registerStatsTool } from "./tools/stats.js";
 import { startWatcher, stopWatcher } from "../core/watcher.js";
 import { createEmbeddingRuntime, disposeEmbeddingRuntime } from "../core/embedding-runtime.js";
+import { indexProject } from "../core/indexer.js";
+import { updateCentralityScores } from "../core/graph.js";
+import { fileQueries } from "../db/queries/files.js";
 import { backfillSummariesIfNeeded } from "../core/file-summaries.js";
 import { backfillClustersIfNeeded } from "../core/clusters.js";
 import { createLogger } from "../utils/logger.js";
@@ -78,6 +81,21 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
   const embeddingRuntime = await createEmbeddingRuntime(db, {
     modelName: config?.embeddingModel,
   });
+  const indexedFileCount = fileQueries(db).count();
+  if (indexedFileCount === 0) {
+    log.info("empty index detected — running auto-index", { projectRoot });
+    try {
+      await indexProject(db, projectRoot);
+      updateCentralityScores(db);
+      log.info("auto-index complete", { projectRoot });
+    } catch (error) {
+      log.error("auto-index failed", {
+        projectRoot,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
   scheduleDerivedDataBackfill(db, projectRoot);
   syncBootstrapObservations(db, projectRoot);
 
@@ -94,11 +112,11 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
   registerReadTool(server, db, projectRoot);
   registerStatsTool(server, db, projectRoot, serverSessionId);
 
+  registerReindexTool(server, db, projectRoot, config, embeddingRuntime);
   if (isPrimary) {
     registerRememberTool(server, db, serverSessionId, projectRoot);
-    registerReindexTool(server, db, projectRoot, config, embeddingRuntime);
   } else {
-    log.info("secondary mode: skipping write-heavy tools", { projectRoot });
+    log.info("secondary mode: skipping cw_remember", { projectRoot });
   }
 
   const transport = new StdioServerTransport();
