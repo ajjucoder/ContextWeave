@@ -437,7 +437,7 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   let candidateFileIds = candidateFiles.length > 0
     ? new Set(candidateFiles.map((f) => f.fileId))
     : null;
-  if ((intent === "broad" || intent === "task") && candidateFileIds && candidateFileIds.size < 12) {
+  if (intent === "broad" || intent === "task" || intent === "debug") {
     candidateFileIds = null;
   }
   const preferRuntimeKinds = intent === "task" && candidateFiles.length > 0 && candidateFiles.length <= 6 && !typeFocusedQuery;
