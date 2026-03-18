@@ -14,6 +14,7 @@ import type {
 } from "../core/types.js";
 import { symbolQueries } from "../db/queries/symbols.js";
 import { fileQueries } from "../db/queries/files.js";
+import { edgeQueries } from "../db/queries/edges.js";
 import { getBatchSymbolDegrees, getDepthForBudget } from "../core/graph.js";
 import { weightedBfsTraversal } from "../core/weighted-bfs.js";
 import { fuzzyMatch } from "../utils/fuzzy.js";
@@ -698,6 +699,29 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
         rawPivotIds.add(symbol.id);
         if (rawPivotIds.size >= maxStageARaw) break;
       }
+    }
+  }
+
+  if ((intent === "broad" || intent === "task") && rawPivotIds.size > 0 && rawPivotIds.size < maxStageARaw) {
+    const edges = edgeQueries(db);
+    const GRAPH_EXPAND_LIMIT = Math.min(30, maxStageARaw - rawPivotIds.size);
+    const CALL_EDGE_KINDS = new Set(["call", "callback", "server-action", "route-handler", "framework_entry", "event"]);
+    const graphSeeds = [...rawPivotIds].slice(0, 10);
+    const graphCandidates: Array<{ id: number; edgeKind: string }> = [];
+    for (const seedId of graphSeeds) {
+      for (const edge of edges.getBySource(seedId)) {
+        if (CALL_EDGE_KINDS.has(edge.kind) && !rawPivotIds.has(edge.targetSymbolId)) {
+          graphCandidates.push({ id: edge.targetSymbolId, edgeKind: edge.kind });
+        }
+      }
+      for (const edge of edges.getByTarget(seedId)) {
+        if (CALL_EDGE_KINDS.has(edge.kind) && !rawPivotIds.has(edge.sourceSymbolId)) {
+          graphCandidates.push({ id: edge.sourceSymbolId, edgeKind: edge.kind });
+        }
+      }
+    }
+    for (const candidate of graphCandidates.slice(0, GRAPH_EXPAND_LIMIT)) {
+      rawPivotIds.add(candidate.id);
     }
   }
 

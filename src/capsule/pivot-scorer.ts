@@ -266,12 +266,16 @@ function describePivotRelevance(
     score *= runtimeFocusedQuery ? 0.05 : 0.22;
   }
 
+  const nameIdf = idfWeights?.get(nameLower) ?? idfWeights?.get(candidate.name) ?? 3;
+  const isCommonName = nameIdf < 1.5;
+  const commonNameDampener = isCommonName ? 0.15 : 1;
+
   if (exactCaseInsensitiveMatch) {
     const isSingleTermWholeQuery = normalizedQueryTerms.length === 1;
-    score += isSingleTermWholeQuery ? 100 : 50;
+    score += (isSingleTermWholeQuery ? 100 : 50) * commonNameDampener;
   }
   if (camelCaseMatch) {
-    score += 25;
+    score += 25 * commonNameDampener;
   }
   if (pathSegmentMatch) {
     score += 10;
