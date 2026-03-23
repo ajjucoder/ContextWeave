@@ -1,0 +1,32 @@
+from research_agent.collect_web_x import count_term_matches, resolve_query_config
+from research_agent.query_classifier import QueryType
+
+
+def test_count_term_matches_threshold_logic():
+    text = "gpt-5.3 codex beat opus in one run"
+    assert count_term_matches(text, ["gpt-5.3", "codex", "opus", "claude"]) == 3
+
+
+def test_resolve_query_config_uses_dynamic_terms_for_opinion():
+    raw_query, parsed, terms, threshold, web_queries, x_queries = resolve_query_config(
+        topic="",
+        query="Is Anker 737 power bank worth it?",
+        require_terms=None,
+    )
+    assert raw_query == "Is Anker 737 power bank worth it?"
+    assert parsed.query_type == QueryType.OPINION
+    assert threshold == 1
+    assert any(term.lower() == "anker" for term in terms)
+    assert any("anker" in query.lower() for query in web_queries)
+    assert any("site:x.com" in query for query in x_queries)
+
+
+def test_resolve_query_config_keeps_threshold_two_for_comparison():
+    _, parsed, terms, threshold, _, _ = resolve_query_config(
+        topic="",
+        query="Cursor vs Copilot",
+        require_terms=None,
+    )
+    assert parsed.query_type == QueryType.COMPARISON
+    assert threshold == 2
+    assert "Cursor" in terms

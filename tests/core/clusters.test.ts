@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach } from "vitest";
 import Database from "better-sqlite3";
 import { createSchema } from "../../src/db/schema.js";
 import { fileQueries } from "../../src/db/queries/files.js";
@@ -101,5 +101,122 @@ describe("computeClusters", () => {
     expect(utilsRow).toBeDefined();
     // The two directories should be in different sub-clusters after the split
     expect(authRow!.cluster_id).not.toBe(utilsRow!.cluster_id);
+  });
+});
+
+describe("computeClusters SQL injection protection", () => {
+  let db: Database.Database;
+
+  beforeEach(() => {
+    db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    createSchema(db);
+  });
+
+  it("safely handles malicious kind values with SQL injection attempts", () => {
+    const files = fileQueries(db);
+    const syms = symbolQueries(db);
+    const edges = edgeQueries(db);
+    const now = Date.now();
+
+    // Create files and symbols
+    const f1 = files.insert({ path: "src/a.ts", hash: "a", lastIndexed: now, mtime: now, language: "typescript", symbolCount: 1, error: null });
+    const f2 = files.insert({ path: "src/b.ts", hash: "b", lastIndexed: now, mtime: now, language: "typescript", symbolCount: 1, error: null });
+    const s1 = syms.insert({ fileId: f1, name: "fn1", kind: "function", startLine: 1, endLine: 5, signature: "fn1()", bodyHash: "h1", fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now });
+    const s2 = syms.insert({ fileId: f2, name: "fn2", kind: "function", startLine: 1, endLine: 5, signature: "fn2()", bodyHash: "h2", fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now });
+
+    // Insert malicious edge with SQL injection attempt in kind
+    const maliciousKind = "foo'); DROP TABLE edges; --";
+    edges.insert({ sourceSymbolId: s1, targetSymbolId: s2, kind: maliciousKind, createdAt: now });
+
+    // Verify the edges table exists before running computeClusters
+    const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='edges'").get() as { name: string } | undefined;
+    expect(tableExists).toBeDefined();
+    expect(tableExists!.name).toBe("edges");
+
+    // Run computeClusters - this should NOT throw and should NOT drop the table
+    expect(() => computeClusters(db)).not.toThrow();
+
+    // Verify edges table still exists (not dropped by injection)
+    const tableStillExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='edges'").get() as { name: string } | undefined;
+    expect(tableStillExists).toBeDefined();
+    expect(tableStillExists!.name).toBe("edges");
+
+    // Verify data integrity - malicious edge should still be there
+    const edgeCount = db.prepare("SELECT COUNT(*) as c FROM edges WHERE kind = ?").get(maliciousKind) as { c: number };
+    expect(edgeCount.c).toBe(1);
+  });
+
+  it("handles multiple malicious kind patterns safely", () => {
+    const files = fileQueries(db);
+    const syms = symbolQueries(db);
+    const edges = edgeQueries(db);
+    const now = Date.now();
+
+    const f1 = files.insert({ path: "src/a.ts", hash: "a", lastIndexed: now, mtime: now, language: "typescript", symbolCount: 1, error: null });
+    const f2 = files.insert({ path: "src/b.ts", hash: "b", lastIndexed: now, mtime: now, language: "typescript", symbolCount: 1, error: null });
+    const s1 = syms.insert({ fileId: f1, name: "fn1", kind: "function", startLine: 1, endLine: 5, signature: "fn1()", bodyHash: "h1", fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now });
+    const s2 = syms.insert({ fileId: f2, name: "fn2", kind: "function", startLine: 1, endLine: 5, signature: "fn2()", bodyHash: "h2", fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now });
+
+    // Insert multiple malicious edges
+    const maliciousKinds = [
+      "import'; DELETE FROM edges; --",
+      'call" OR "1"="1',
+      "type_usage'); SELECT * FROM sqlite_master; --",
+      "inheritance; UPDATE files SET path = 'hacked'; --",
+    ];
+
+    for (const kind of maliciousKinds) {
+      edges.insert({ sourceSymbolId: s1, targetSymbolId: s2, kind, createdAt: now });
+    }
+
+    // Verify initial edge count
+    const initialCount = db.prepare("SELECT COUNT(*) as c FROM edges").get() as { c: number };
+    expect(initialCount.c).toBe(maliciousKinds.length);
+
+    // Run computeClusters
+    expect(() => computeClusters(db)).not.toThrow();
+
+    // Verify all edges still exist (no injection executed)
+    const finalCount = db.prepare("SELECT COUNT(*) as c FROM edges").get() as { c: number };
+    expect(finalCount.c).toBe(maliciousKinds.length);
+  });
+
+  it("correctly processes valid kinds while rejecting injection attempts", () => {
+    const files = fileQueries(db);
+    const syms = symbolQueries(db);
+    const edges = edgeQueries(db);
+    const now = Date.now();
+
+    // Create 3 files that should form a cluster via import edges
+    const f1 = files.insert({ path: "src/capsule/generator.ts", hash: "a", lastIndexed: now, mtime: now, language: "typescript", symbolCount: 1, error: null });
+    const f2 = files.insert({ path: "src/capsule/scorer.ts", hash: "b", lastIndexed: now, mtime: now, language: "typescript", symbolCount: 1, error: null });
+    const f3 = files.insert({ path: "src/utils/hash.ts", hash: "c", lastIndexed: now, mtime: now, language: "typescript", symbolCount: 1, error: null });
+
+    const s1 = syms.insert({ fileId: f1, name: "generate", kind: "function", startLine: 1, endLine: 10, signature: "generate()", bodyHash: "x1", fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now });
+    const s2 = syms.insert({ fileId: f2, name: "score", kind: "function", startLine: 1, endLine: 10, signature: "score()", bodyHash: "x2", fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now });
+    const s3 = syms.insert({ fileId: f3, name: "hash", kind: "function", startLine: 1, endLine: 10, signature: "hash()", bodyHash: "x3", fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now });
+
+    // Valid import edges that should create clusters
+    edges.insert({ sourceSymbolId: s1, targetSymbolId: s2, kind: "import", createdAt: now });
+    edges.insert({ sourceSymbolId: s2, targetSymbolId: s1, kind: "import", createdAt: now });
+
+    // Malicious edge that should NOT affect clustering
+    const maliciousKind = "call'); DROP TABLE file_clusters; --";
+    edges.insert({ sourceSymbolId: s2, targetSymbolId: s3, kind: maliciousKind, createdAt: now });
+
+    // Run computeClusters
+    computeClusters(db);
+
+    // Verify file_clusters table exists and has entries
+    const clusterCount = db.prepare("SELECT COUNT(*) as c FROM file_clusters").get() as { c: number };
+    expect(clusterCount.c).toBeGreaterThan(0);
+
+    // Verify generator.ts and scorer.ts are in same cluster (via import edges)
+    const row1 = db.prepare("SELECT cluster_id FROM file_clusters WHERE file_id = ?").get(f1) as { cluster_id: number } | undefined;
+    const row2 = db.prepare("SELECT cluster_id FROM file_clusters WHERE file_id = ?").get(f2) as { cluster_id: number } | undefined;
+    expect(row1).toBeDefined();
+    expect(row2).toBeDefined();
+    expect(row1!.cluster_id).toBe(row2!.cluster_id);
   });
 });

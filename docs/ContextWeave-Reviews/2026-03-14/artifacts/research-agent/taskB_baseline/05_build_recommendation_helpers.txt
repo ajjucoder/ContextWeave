@@ -1,0 +1,100 @@
+def find_latest(input_dir: Path, prefix: str, suffix: str):
+    files = sorted(input_dir.glob(f"{prefix}*{suffix}"))
+    if not files:
+        return None
+    return files[-1]
+
+
+def load_json_or_empty(path: Path):
+    if not path or not path.exists():
+        return []
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return []
+
+
+def collect_texts(posts, comments, web_links, x_links):
+    post_texts = [(p.get("title", "") + "\n" + p.get("selftext", "")) for p in posts]
+    comment_texts = [c.get("body", "") for c in comments]
+    link_texts = [
+        (r.get("title", "") + "\n" + r.get("description", ""))
+        for r in (web_links + x_links)
+    ]
+    return post_texts + comment_texts + link_texts
+
+
+def build_dataset_summary(reddit_summary, web_summary, posts, comments, web_links, x_links):
+    return {
+        "reddit_posts": reddit_summary.get("posts_collected", len(posts)),
+        "reddit_comments": reddit_summary.get("comments_collected", len(comments)),
+        "web_links": web_summary.get("web_links_collected", len(web_links)) if web_summary else len(web_links),
+        "x_links": web_summary.get("x_links_collected", len(x_links)) if web_summary else len(x_links),
+        "window_start_utc": reddit_summary.get("window_start_utc"),
+        "window_end_utc": reddit_summary.get("window_end_utc"),
+    }
+
+
+def build_confidence(posts, comments):
+    if len(posts) >= 150 and len(comments) >= 1000:
+        return "medium-high"
+    return "medium"
+
+
+def build_limitations(web_links, x_links):
+    limitations = [
+        "Reddit and web sentiment are directional signals, not controlled benchmarks.",
+        "Community data can have selection bias and prompt-style bias.",
+    ]
+    if not web_links:
+        limitations.append("No web links were collected or matched filters.")
+    if not x_links:
+        limitations.append("No X links were collected or indexed for the query window.")
+    return limitations
+
+
+def build_citations(posts, web_links, x_links):
+    top_posts = sorted(posts, key=lambda x: (x.get("num_comments") or 0), reverse=True)[:10]
+    top_web = web_links[:8]
+    top_x = x_links[:8]
+    return {
+        "reddit": [
+            {
+                "link": post.get("permalink"),
+                "num_comments": post.get("num_comments", 0),
+            }
+            for post in top_posts
+        ],
+        "web": [row.get("link") for row in top_web],
+        "x": [row.get("link") for row in top_x],
+    }
+
+
+def build_report_payload(
+    question,
+    model_a,
+    model_b,
+    winner,
+    a_score,
+    b_score,
+    reddit_summary,
+    posts,
+    comments,
+    web_summary,
+    web_links,
+    x_links,
+):
+    return {
+        "question": question,
+        "query_type": QueryType.COMPARISON.value,
+        "recommendation": winner,
+        "scores": {
+            model_a: a_score,
+            model_b: b_score,
+        },
+        "dataset": build_dataset_summary(reddit_summary, web_summary, posts, comments, web_links, x_links),
+        "citations": build_citations(posts, web_links, x_links),
+        "confidence": build_confidence(posts, comments),
+        "limitations": build_limitations(web_links, x_links),
+        "inference_note": "Recommendation reflects observed community signal, not ground-truth benchmark performance.",
+    }

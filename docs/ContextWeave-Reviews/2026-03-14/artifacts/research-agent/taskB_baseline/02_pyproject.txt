@@ -1,0 +1,4 @@
+[project.scripts]
+research-agent-reddit = "research_agent.collect_reddit:main"
+research-agent-web-x = "research_agent.collect_web_x:main"
+research-agent-report = "research_agent.build_recommendation:main"

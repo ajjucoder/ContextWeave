@@ -3,6 +3,11 @@ import { splitIdentifier } from "../utils/camel-split.js";
 import { getDirectoryWeight } from "../utils/directory-weights.js";
 import { expandQueryWithSynonyms } from "../utils/synonyms.js";
 import { normalizeRetrievalPath } from "../utils/path-retrieval.js";
+// SEC-005: Use shared FTS5 sanitization to prevent injection
+import {
+  sanitizeFTS5Term,
+  buildFTS5ORPattern,
+} from "../utils/fts5-sanitize.js";
 
 interface SymbolRow {
   name: string;
@@ -352,9 +357,10 @@ export function searchFilesByQuery(
   limit: number,
   projectRoot?: string
 ): Array<{ fileId: number; path: string }> {
-  const terms = query.toLowerCase().replace(/[^a-z0-9\s]/g, " ").trim();
-  if (!terms) return [];
-  const rawWords = terms.split(/\s+/).filter((w) => w.length >= 2);
+  // SEC-005: Use shared FTS5 sanitization to prevent injection
+  const sanitizedQuery = sanitizeFTS5Term(query);
+  if (!sanitizedQuery) return [];
+  const rawWords = sanitizedQuery.split(/\s+/).filter((w) => w.length >= 2);
   const expandedWords = expandQueryWithSynonyms(rawWords).filter((w) => w.length >= 2);
   const exactWordSet = new Set(rawWords);
   const testFocusedQuery = rawWords.some((word) => TEST_QUERY_TERMS.has(word));
@@ -437,7 +443,7 @@ export function searchFilesByQuery(
       .slice(0, limit);
   };
 
-  const andResults = doSearch(terms);
+  const andResults = doSearch(sanitizedQuery);
   for (const row of andResults) {
     scored.set(row.file_id, row);
     hitCounts.set(row.file_id, {
@@ -449,7 +455,8 @@ export function searchFilesByQuery(
   if (rawWords.length <= 1) {
     return rankResults([...scored.values()], hitCounts).map(({ fileId, path }) => ({ fileId, path }));
   }
-  const orPattern = expandedWords.map((w) => `"${w}"`).join(" OR ");
+  // SEC-005: Use shared OR pattern builder for safe FTS5 construction
+  const orPattern = buildFTS5ORPattern(expandedWords);
   const orResults = doSearch(orPattern);
   for (const row of orResults) {
     scored.set(row.file_id, row);
@@ -457,7 +464,9 @@ export function searchFilesByQuery(
     hitCounts.set(row.file_id, existing);
   }
   for (const word of expandedWords) {
-    const wordResults = doSearch(`"${word}"`);
+    const sanitizedWord = sanitizeFTS5Term(word);
+    if (!sanitizedWord || sanitizedWord.length < 2) continue;
+    const wordResults = doSearch(`"${sanitizedWord}"`);
     for (const result of wordResults) {
       scored.set(result.file_id, result);
       const existing = hitCounts.get(result.file_id) ?? { exactHits: 0, expandedHits: 0 };

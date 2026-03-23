@@ -1,0 +1,77 @@
+from research_agent.build_recommendation import (
+    build_dynamic_report_payload,
+    build_report_payload,
+    compute_scores,
+    compute_scores_dynamic,
+)
+from research_agent.query_classifier import parse_query
+
+
+def test_compute_scores_prefers_model_a_given_mentions():
+    posts = [{"title": "gpt-5.3 codex wins", "selftext": ""}]
+    comments = [{"body": "codex worked better for me"}]
+    web = [{"title": "codex review", "description": "gpt-5.3 coding"}]
+    x = [{"title": "claude opus 4.6 thread", "description": ""}]
+
+    a, b = compute_scores(posts, comments, web, x)
+    assert a > b
+
+
+def test_build_report_payload_counts_and_recommendation():
+    payload = build_report_payload(
+        question="Which model?",
+        model_a="GPT-5.3-Codex",
+        model_b="Claude Opus 4.6",
+        winner="GPT-5.3-Codex",
+        a_score=10,
+        b_score=8,
+        reddit_summary={"posts_collected": 5, "comments_collected": 20, "window_start_utc": "a", "window_end_utc": "b"},
+        posts=[{"permalink": "https://reddit.com/p/1", "num_comments": 4}],
+        comments=[{"body": "x"}],
+        web_summary={"web_links_collected": 2, "x_links_collected": 1},
+        web_links=[{"link": "https://example.com"}],
+        x_links=[{"link": "https://x.com/post"}],
+    )
+    assert payload["recommendation"] == "GPT-5.3-Codex"
+    assert payload["dataset"]["reddit_posts"] == 5
+    assert payload["dataset"]["web_links"] == 2
+    assert payload["citations"]["reddit"][0]["link"] == "https://reddit.com/p/1"
+
+
+def test_compute_scores_dynamic_opinion_sentiment():
+    parsed = parse_query("Is Anker 737 power bank worth it?")
+    texts = [
+        "Anker 737 is great and I recommend it.",
+        "I love this Anker battery.",
+        "Anker 737 is expensive and I regret buying it.",
+    ]
+    scores = compute_scores_dynamic(texts, parsed)
+    assert scores["mode"] == "opinion"
+    assert scores["positive_hits"] > scores["negative_hits"]
+    assert scores["sentiment"] == "positive"
+
+
+def test_compute_scores_dynamic_comparison_and_payload():
+    parsed = parse_query("Cursor vs Copilot")
+    texts = [
+        "Cursor is fast.",
+        "Cursor worked well.",
+        "Copilot is useful too.",
+    ]
+    scores = compute_scores_dynamic(texts, parsed)
+    assert scores["mode"] == "comparison"
+    assert scores["mention_counts"]["Cursor"] > scores["mention_counts"]["Copilot"]
+
+    payload = build_dynamic_report_payload(
+        question="Cursor vs Copilot",
+        parsed_query=parsed,
+        dynamic_scores=scores,
+        reddit_summary={"posts_collected": 1, "comments_collected": 1, "window_start_utc": "a", "window_end_utc": "b"},
+        posts=[{"permalink": "https://reddit.com/p/1", "num_comments": 2}],
+        comments=[{"body": "Cursor is better"}],
+        web_summary={"web_links_collected": 1, "x_links_collected": 0},
+        web_links=[{"link": "https://example.com"}],
+        x_links=[],
+    )
+    assert payload["query_type"] == "comparison"
+    assert payload["recommendation"] == "Cursor"

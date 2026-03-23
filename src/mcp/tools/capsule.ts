@@ -6,6 +6,32 @@ import type { CapsuleMode, EmbeddingRuntime } from "../../core/types.js";
 import type { ProjectConfig } from "../../utils/config.js";
 import { getRegisterTool } from "./register-helper.js";
 
+// Security: Path traversal prevention helper
+const containsTraversal = (value: string): boolean => {
+  // Check for .. path segments that could escape project root
+  // Matches: ../, ..\, /../, \..\, .. at end, etc.
+  const traversalPattern = /(\.\.\/|\.\.\\|^\.\.$|\.\.$)/;
+  return traversalPattern.test(value);
+};
+
+// Security-hardened path schema: no traversal, max 4096 chars
+const pathSchema = z.string()
+  .max(4096, "Path exceeds maximum length of 4096 characters")
+  .refine(
+    (val) => !containsTraversal(val),
+    { message: "Path traversal not allowed: path contains '..' segments" }
+  )
+  .optional();
+
+// Security-hardened glob schema: no traversal, max 4096 chars  
+const globSchema = z.string()
+  .max(4096, "Glob pattern exceeds maximum length of 4096 characters")
+  .refine(
+    (val) => !containsTraversal(val),
+    { message: "Path traversal not allowed: glob contains '..' segments" }
+  )
+  .optional();
+
 export function registerCapsuleTool(
   server: McpServer,
   db: Database.Database,
@@ -21,8 +47,8 @@ export function registerCapsuleTool(
     query: z.string().min(1).max(2000).describe("What you're working on or looking for"),
     token_budget: z.number().min(100).max(100000).optional().describe(`Max tokens for the capsule (default: ${defaultBudget})`),
     mode: z.enum(["debug", "refactor", "feature", "review"]).optional().describe(`Task mode affecting scoring weights (default: ${defaultMode})`),
-    path: z.string().optional().describe("Restrict results to files within this directory (relative to project root)"),
-    glob: z.string().optional().describe("Restrict results to files matching this glob pattern, e.g. **/*.ts"),
+    path: pathSchema.describe("Restrict results to files within this directory (relative to project root)"),
+    glob: globSchema.describe("Restrict results to files matching this glob pattern, e.g. **/*.ts"),
   };
 
   registerTool(

@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import type { LightSymbolRecord, SymbolRecord } from "../../core/types.js";
+import { sanitizeFTS5Term } from "../../utils/fts5-sanitize.js";
 
 type SymbolQueriesResult = ReturnType<typeof symbolQueriesImpl>;
 const symbolQueriesCache = new WeakMap<Database.Database, SymbolQueriesResult>();
@@ -191,9 +192,9 @@ function symbolQueriesImpl(db: Database.Database) {
     },
 
     searchFTS(term: string, limit: number): SymbolRecord[] {
-      const escaped = term.replace(/[^a-zA-Z0-9_.\-\s]/g, "");
-      if (!escaped.trim()) return [];
-      const pattern = `"${escaped.trim()}"`;
+      const sanitized = sanitizeFTS5Term(term);
+      if (!sanitized) return [];
+      const pattern = `"${sanitized}"`;
       try {
         return searchFTS.all(pattern, limit).map(mapRow).filter(Boolean) as SymbolRecord[];
       } catch {

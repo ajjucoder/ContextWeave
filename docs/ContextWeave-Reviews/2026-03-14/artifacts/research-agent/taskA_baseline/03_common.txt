@@ -1,0 +1,5 @@
+def resolve_query_text(topic: str | None, query: str | None) -> str:
+    candidate = (query or topic or "").strip()
+    if not candidate:
+        raise ValueError("Provide either --query or --topic.")
+    return candidate

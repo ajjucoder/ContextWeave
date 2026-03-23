@@ -1,0 +1,314 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Iterable, List, Sequence, Tuple
+
+
+class QueryType(str, Enum):
+    COMPARISON = "comparison"
+    OPINION = "opinion"
+    BEST_OF = "best_of"
+    FACT_FINDING = "fact_finding"
+
+
+@dataclass(frozen=True)
+class ParsedQuery:
+    raw_query: str
+    query_type: QueryType
+    entities: List[str]
+    search_terms: List[str]
+    subreddit_hints: List[str]
+
+
+DEFAULT_SUBREDDITS = [
+    "ClaudeCode",
+    "ClaudeAI",
+    "codex",
+    "OpenAI",
+    "ChatGPT",
+    "cursor",
+    "GithubCopilot",
+]
+
+_COMPARISON_PATTERNS = [
+    re.compile(r"^\s*(?P<a>.+?)\s+vs\.?\s+(?P<b>.+?)\s*$", flags=re.IGNORECASE),
+    re.compile(r"^\s*(?P<a>.+?)\s+or\s+(?P<b>.+?)\s*$", flags=re.IGNORECASE),
+    re.compile(r"^\s*(?P<a>.+?)\s+compared to\s+(?P<b>.+?)\s*$", flags=re.IGNORECASE),
+]
+
+_OPINION_HINTS = [
+    "is ",
+    "should i buy",
+    "worth it",
+    "good?",
+    "recommend",
+    "anyone using",
+]
+_BEST_OF_HINTS = ["best ", "top ", "recommendations for ", "what is the best"]
+
+_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "for",
+    "from",
+    "good",
+    "how",
+    "i",
+    "in",
+    "is",
+    "it",
+    "of",
+    "on",
+    "or",
+    "should",
+    "that",
+    "the",
+    "this",
+    "to",
+    "vs",
+    "what",
+    "which",
+    "with",
+    "worth",
+}
+
+_LEADING_ENTITY_WORDS = {"is", "are", "was", "were", "should", "can", "could", "do", "does", "did", "what", "which", "who", "why", "how", "best", "top", "i"}
+
+_CATEGORY_SUBREDDITS: Sequence[Tuple[Sequence[str], Sequence[str]]] = [
+    (
+        ["ai", "llm", "model", "chatgpt", "claude", "codex", "copilot", "cursor"],
+        ["ClaudeAI", "ClaudeCode", "OpenAI", "ChatGPT", "LocalLLaMA", "cursor", "GithubCopilot"],
+    ),
+    (
+        ["power bank", "anker", "battery", "charger", "laptop", "gpu", "cpu", "hardware", "pc"],
+        ["buildapc", "hardware", "laptops", "batteries", "BuyItForLife"],
+    ),
+    (
+        ["note", "notes", "notion", "obsidian", "roam", "evernote", "productivity"],
+        ["productivity", "PKMS", "Notion", "ObsidianMD", "apps"],
+    ),
+    (
+        ["phone", "android", "iphone", "pixel", "samsung", "ios", "mobile"],
+        ["Android", "iphone", "GooglePixel", "samsung", "smartphones"],
+    ),
+]
+
+
+def _normalize_spaces(value: str) -> str:
+    return re.sub(r"\s+", " ", (value or "")).strip()
+
+
+def _unique_keep_order(values: Iterable[str]) -> List[str]:
+    out: List[str] = []
+    seen = set()
+    for value in values:
+        v = _normalize_spaces(value)
+        if not v:
+            continue
+        key = v.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(v)
+    return out
+
+
+def _clean_entity(value: str) -> str:
+    tokens = re.findall(r"[A-Za-z0-9.+-]+", value or "")
+    while tokens and tokens[0].lower() in _LEADING_ENTITY_WORDS:
+        tokens = tokens[1:]
+    return " ".join(tokens).strip()
+
+
+def _extract_quoted_phrases(raw: str) -> List[str]:
+    phrases = re.findall(r"\"([^\"]+)\"|'([^']+)'", raw)
+    out = []
+    for left, right in phrases:
+        phrase = left or right
+        if phrase:
+            out.append(phrase)
+    return _unique_keep_order(out)
+
+
+def _extract_capitalized_phrases(raw: str) -> List[str]:
+    matches = re.findall(
+        r"\b[A-Z0-9][A-Za-z0-9.+-]*(?:\s+[A-Z0-9][A-Za-z0-9.+-]*){0,3}\b", raw
+    )
+    return _unique_keep_order(matches)
+
+
+def _extract_keyword_phrases(raw: str) -> List[str]:
+    cleaned = re.sub(r"[^a-zA-Z0-9\s+-]", " ", raw).lower()
+    words = [w for w in cleaned.split() if w]
+    out: List[str] = []
+    for size in (3, 2):
+        for i in range(0, len(words) - size + 1):
+            chunk = words[i : i + size]
+            if chunk[0] in _STOPWORDS or chunk[-1] in _STOPWORDS:
+                continue
+            if any(len(w) <= 2 for w in chunk):
+                continue
+            out.append(" ".join(chunk))
+    return _unique_keep_order(out)
+
+
+def _classify(raw: str) -> Tuple[QueryType, List[str]]:
+    text = _normalize_spaces(raw)
+    low = text.lower()
+
+    for pattern in _COMPARISON_PATTERNS:
+        m = pattern.match(text)
+        if not m:
+            continue
+        return QueryType.COMPARISON, [m.group("a"), m.group("b")]
+
+    if any(low.startswith(prefix) for prefix in _BEST_OF_HINTS):
+        return QueryType.BEST_OF, []
+    if any(hint in low for hint in _BEST_OF_HINTS):
+        return QueryType.BEST_OF, []
+    if any(low.startswith(prefix) for prefix in _OPINION_HINTS):
+        return QueryType.OPINION, []
+    if " should i " in f" {low} " or " is " in f" {low} ":
+        if "good" in low or "worth" in low or "buy" in low:
+            return QueryType.OPINION, []
+    return QueryType.FACT_FINDING, []
+
+
+def _extract_entities(raw: str, classified_entities: Sequence[str]) -> List[str]:
+    entities: List[str] = []
+    entities.extend(classified_entities)
+    entities.extend(_extract_quoted_phrases(raw))
+    entities.extend(_extract_capitalized_phrases(raw))
+
+    if not entities:
+        entities.extend(_extract_keyword_phrases(raw)[:2])
+
+    cleaned = [_clean_entity(entity) for entity in entities]
+    return _unique_keep_order(cleaned)
+
+
+def _search_terms_from_entities(raw: str, entities: Sequence[str]) -> List[str]:
+    terms: List[str] = []
+    for entity in entities:
+        terms.append(entity)
+        parts = re.findall(r"[A-Za-z0-9.+-]{2,}", entity)
+        for part in parts:
+            if part.lower() not in _STOPWORDS:
+                terms.append(part)
+
+    if not terms:
+        parts = re.findall(r"[A-Za-z0-9.+-]{3,}", raw)
+        for part in parts:
+            if part.lower() not in _STOPWORDS:
+                terms.append(part)
+    return _unique_keep_order(terms)[:12]
+
+
+def suggest_subreddits(parsed_query: ParsedQuery) -> List[str]:
+    haystacks = [parsed_query.raw_query, " ".join(parsed_query.entities), " ".join(parsed_query.search_terms)]
+    haystack = " ".join(haystacks).lower()
+
+    suggestions: List[str] = []
+    for keywords, subreddits in _CATEGORY_SUBREDDITS:
+        if any(keyword in haystack for keyword in keywords):
+            suggestions.extend(subreddits)
+
+    if not suggestions:
+        suggestions.extend(DEFAULT_SUBREDDITS)
+    return _unique_keep_order(suggestions)
+
+
+def parse_query(raw: str) -> ParsedQuery:
+    normalized = _normalize_spaces(raw)
+    if not normalized:
+        raise ValueError("query must not be empty")
+
+    query_type, classified_entities = _classify(normalized)
+    entities = _extract_entities(normalized, classified_entities)
+    search_terms = _search_terms_from_entities(normalized, entities)
+    provisional = ParsedQuery(
+        raw_query=normalized,
+        query_type=query_type,
+        entities=entities,
+        search_terms=search_terms,
+        subreddit_hints=[],
+    )
+    hints = suggest_subreddits(provisional)
+    return ParsedQuery(
+        raw_query=normalized,
+        query_type=query_type,
+        entities=entities,
+        search_terms=search_terms,
+        subreddit_hints=hints,
+    )
+
+
+def minimum_term_matches(query_type: QueryType) -> int:
+    if query_type == QueryType.COMPARISON:
+        return 2
+    return 1
+
+
+def build_reddit_query_variants(parsed_query: ParsedQuery, year: int | None = None) -> List[str]:
+    current_year = year or datetime.now(tz=timezone.utc).year
+
+    if parsed_query.query_type == QueryType.COMPARISON and len(parsed_query.entities) >= 2:
+        left, right = parsed_query.entities[0], parsed_query.entities[1]
+        variants = [
+            parsed_query.raw_query,
+            f"{left} vs {right}",
+            f"{left} or {right}",
+            f"{left} {right} comparison",
+            f"{left} {right} review",
+        ]
+        return _unique_keep_order(variants)
+
+    if parsed_query.query_type == QueryType.OPINION:
+        item = parsed_query.entities[0] if parsed_query.entities else parsed_query.raw_query
+        variants = [
+            parsed_query.raw_query,
+            f"{item} review",
+            f"{item} experience",
+            f"{item} worth it",
+            f"{item} recommendation",
+        ]
+        return _unique_keep_order(variants)
+
+    if parsed_query.query_type == QueryType.BEST_OF:
+        item = parsed_query.entities[0] if parsed_query.entities else parsed_query.raw_query
+        variants = [
+            parsed_query.raw_query,
+            f"best {item} {current_year}",
+            f"{item} recommendations",
+            f"top {item}",
+        ]
+        return _unique_keep_order(variants)
+
+    return _unique_keep_order(
+        [
+            parsed_query.raw_query,
+            f"{parsed_query.raw_query} review",
+            f"{parsed_query.raw_query} recommendations",
+        ]
+    )
+
+
+def build_web_query_variants(parsed_query: ParsedQuery, year: int | None = None) -> Tuple[List[str], List[str]]:
+    base = build_reddit_query_variants(parsed_query, year=year)
+    web_queries = _unique_keep_order(base + [f"{parsed_query.raw_query} reddit", f"{parsed_query.raw_query} forum"])
+    x_queries = _unique_keep_order(
+        [
+            f"site:x.com {parsed_query.raw_query}",
+            f"site:twitter.com {parsed_query.raw_query}",
+        ]
+    )
+    return web_queries, x_queries

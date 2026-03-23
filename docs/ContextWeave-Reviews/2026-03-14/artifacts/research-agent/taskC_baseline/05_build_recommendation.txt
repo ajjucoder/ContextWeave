@@ -1,0 +1,370 @@
+def find_latest(input_dir: Path, prefix: str, suffix: str):
+    files = sorted(input_dir.glob(f"{prefix}*{suffix}"))
+    if not files:
+        return None
+    return files[-1]
+
+
+def load_json_or_empty(path: Path):
+    if not path or not path.exists():
+        return []
+    try:
+        return json.loads(path.read_text())
+    except Exception:
+        return []
+
+
+def collect_texts(posts, comments, web_links, x_links):
+    post_texts = [(p.get("title", "") + "\n" + p.get("selftext", "")) for p in posts]
+    comment_texts = [c.get("body", "") for c in comments]
+    link_texts = [
+        (r.get("title", "") + "\n" + r.get("description", ""))
+        for r in (web_links + x_links)
+    ]
+    return post_texts + comment_texts + link_texts
+
+
+def build_dataset_summary(reddit_summary, web_summary, posts, comments, web_links, x_links):
+    return {
+        "reddit_posts": reddit_summary.get("posts_collected", len(posts)),
+        "reddit_comments": reddit_summary.get("comments_collected", len(comments)),
+        "web_links": web_summary.get("web_links_collected", len(web_links)) if web_summary else len(web_links),
+        "x_links": web_summary.get("x_links_collected", len(x_links)) if web_summary else len(x_links),
+        "window_start_utc": reddit_summary.get("window_start_utc"),
+        "window_end_utc": reddit_summary.get("window_end_utc"),
+    }
+
+
+def build_confidence(posts, comments):
+    if len(posts) >= 150 and len(comments) >= 1000:
+        return "medium-high"
+    return "medium"
+
+
+def build_limitations(web_links, x_links):
+    limitations = [
+        "Reddit and web sentiment are directional signals, not controlled benchmarks.",
+        "Community data can have selection bias and prompt-style bias.",
+    ]
+    if not web_links:
+        limitations.append("No web links were collected or matched filters.")
+    if not x_links:
+        limitations.append("No X links were collected or indexed for the query window.")
+    return limitations
+
+
+def build_citations(posts, web_links, x_links):
+    top_posts = sorted(posts, key=lambda x: (x.get("num_comments") or 0), reverse=True)[:10]
+    top_web = web_links[:8]
+    top_x = x_links[:8]
+    return {
+        "reddit": [
+            {
+                "link": post.get("permalink"),
+                "num_comments": post.get("num_comments", 0),
+            }
+            for post in top_posts
+        ],
+        "web": [row.get("link") for row in top_web],
+        "x": [row.get("link") for row in top_x],
+    }
+
+
+def build_report_payload(
+    question,
+    model_a,
+    model_b,
+    winner,
+    a_score,
+    b_score,
+    reddit_summary,
+    posts,
+    comments,
+    web_summary,
+    web_links,
+    x_links,
+):
+    return {
+        "question": question,
+        "query_type": QueryType.COMPARISON.value,
+        "recommendation": winner,
+        "scores": {
+            model_a: a_score,
+            model_b: b_score,
+        },
+        "dataset": build_dataset_summary(reddit_summary, web_summary, posts, comments, web_links, x_links),
+        "citations": build_citations(posts, web_links, x_links),
+        "confidence": build_confidence(posts, comments),
+        "limitations": build_limitations(web_links, x_links),
+        "inference_note": "Recommendation reflects observed community signal, not ground-truth benchmark performance.",
+    }
+
+
+def compute_scores(posts, comments, web_links, x_links):
+    post_texts = [(p.get("title", "") + "\n" + p.get("selftext", "")) for p in posts]
+    comment_texts = [c.get("body", "") for c in comments]
+    link_texts = [
+        (r.get("title", "") + "\n" + r.get("description", ""))
+        for r in (web_links + x_links)
+    ]
+
+    p_a, p_b = mention_scores(post_texts, LEGACY_MODEL_A_TOKENS, LEGACY_MODEL_B_TOKENS)
+    c_a, c_b = mention_scores(comment_texts, LEGACY_MODEL_A_TOKENS, LEGACY_MODEL_B_TOKENS)
+    w_a, w_b = mention_scores(link_texts, LEGACY_MODEL_A_TOKENS, LEGACY_MODEL_B_TOKENS)
+    return (p_a + c_a + w_a), (p_b + c_b + w_b)
+
+
+def _count_term_hits(text: str, terms):
+    low = (text or "").lower()
+    return sum(1 for term in terms if term.lower() in low)
+
+
+def _first_or_fallback(values, fallback: str):
+    if values:
+        return values[0]
+    return fallback
+
+
+def compute_scores_dynamic(texts, parsed_query: ParsedQuery):
+    if parsed_query.query_type == QueryType.COMPARISON:
+        entities = list(parsed_query.entities[:2])
+        if len(entities) < 2:
+            entities = list(parsed_query.search_terms[:2])
+        if len(entities) < 2:
+            entities = [parsed_query.raw_query, "alternative"]
+
+        mention_counts = {entity: 0 for entity in entities}
+        for text in texts:
+            low = (text or "").lower()
+            for entity in entities:
+                if entity.lower() in low:
+                    mention_counts[entity] += 1
+        winner = max(mention_counts, key=mention_counts.get)
+        return {
+            "query_type": parsed_query.query_type.value,
+            "mode": "comparison",
+            "entities": entities,
+            "mention_counts": mention_counts,
+            "winner": winner,
+            "recommendation": winner,
+        }
+
+    if parsed_query.query_type == QueryType.OPINION:
+        entity = _first_or_fallback(parsed_query.entities, parsed_query.raw_query)
+        entity_tokens = [entity] + re.findall(r"[A-Za-z0-9.+-]{3,}", entity)
+        focused_texts = [
+            text
+            for text in texts
+            if _count_term_hits(text, entity_tokens) > 0
+        ]
+        if not focused_texts:
+            focused_texts = list(texts)
+
+        positive_hits = 0
+        negative_hits = 0
+        for text in focused_texts:
+            low = (text or "").lower()
+            positive_hits += sum(low.count(word) for word in POSITIVE_WORDS)
+            negative_hits += sum(low.count(word) for word in NEGATIVE_WORDS)
+
+        sentiment = "mixed"
+        if positive_hits > negative_hits:
+            sentiment = "positive"
+        elif negative_hits > positive_hits:
+            sentiment = "negative"
+
+        recommendation = {
+            "positive": f"Signal leans positive for {entity}.",
+            "negative": f"Signal leans negative for {entity}.",
+            "mixed": f"Signal is mixed for {entity}.",
+        }[sentiment]
+        return {
+            "query_type": parsed_query.query_type.value,
+            "mode": "opinion",
+            "entity": entity,
+            "positive_hits": positive_hits,
+            "negative_hits": negative_hits,
+            "net_score": positive_hits - negative_hits,
+            "sentiment": sentiment,
+            "recommendation": recommendation,
+        }
+
+    if parsed_query.query_type == QueryType.BEST_OF:
+        candidates = []
+        for term in parsed_query.entities + parsed_query.search_terms:
+            t = (term or "").strip()
+            if len(t) >= 3:
+                candidates.append(t)
+        if not candidates:
+            candidates = [parsed_query.raw_query]
+
+        counts = {candidate: 0 for candidate in candidates}
+        for text in texts:
+            low = (text or "").lower()
+            for candidate in candidates:
+                if candidate.lower() in low:
+                    counts[candidate] += 1
+        ranked = sorted(counts.items(), key=lambda item: item[1], reverse=True)
+        top = [name for name, count in ranked if count > 0][:5]
+        recommendation = top[0] if top else "No clear best candidate."
+        return {
+            "query_type": parsed_query.query_type.value,
+            "mode": "best_of",
+            "ranked_candidates": ranked[:10],
+            "top_candidates": top,
+            "recommendation": recommendation,
+        }
+
+    term_hits = 0
+    for text in texts:
+        term_hits += _count_term_hits(text, parsed_query.search_terms)
+    return {
+        "query_type": parsed_query.query_type.value,
+        "mode": "fact_finding",
+        "search_terms": parsed_query.search_terms,
+        "term_hits": term_hits,
+        "recommendation": "Evidence gathered; inspect citations for factual validation.",
+    }
+
+
+def build_dynamic_report_payload(
+    question,
+    parsed_query: ParsedQuery,
+    dynamic_scores,
+    reddit_summary,
+    posts,
+    comments,
+    web_summary,
+    web_links,
+    x_links,
+):
+    payload = {
+        "question": question,
+        "query_type": parsed_query.query_type.value,
+        "recommendation": dynamic_scores.get("recommendation"),
+        "analysis": dynamic_scores,
+        "dataset": build_dataset_summary(reddit_summary, web_summary, posts, comments, web_links, x_links),
+        "citations": build_citations(posts, web_links, x_links),
+        "confidence": build_confidence(posts, comments),
+        "limitations": build_limitations(web_links, x_links),
+        "inference_note": "Recommendation reflects observed community signal, not ground-truth benchmark performance.",
+    }
+    if parsed_query.query_type == QueryType.COMPARISON:
+        payload["scores"] = dynamic_scores.get("mention_counts", {})
+    return payload
+
+
+def main():
+    p = argparse.ArgumentParser(description="Build recommendation memo from collected research artifacts")
+    p.add_argument("--input-dir", required=True)
+    p.add_argument("--question", required=True)
+    p.add_argument("--model-a", default="", help="Legacy comparison mode label A.")
+    p.add_argument("--model-b", default="", help="Legacy comparison mode label B.")
+    p.add_argument("--json-output", default="", help="Optional path to write machine-readable JSON report.")
+    p.add_argument("--print-json", action="store_true", help="Print machine-readable JSON payload to stdout.")
+    args = p.parse_args()
+
+    if bool(args.model_a) != bool(args.model_b):
+        raise SystemExit("Provide both --model-a and --model-b together for legacy comparison mode.")
+
+    d = Path(args.input_dir)
+    summary_path = find_latest(d, "reddit_dataset_summary_", ".json")
+    posts_path = find_latest(d, "reddit_posts_", "_raw.json")
+    comments_path = find_latest(d, "reddit_comments_", "_raw.json")
+
+    if not summary_path or not posts_path or not comments_path:
+        raise SystemExit("Missing Reddit dataset files. Run collect_reddit.py first.")
+
+    reddit_summary = json.loads(summary_path.read_text())
+    posts = json.loads(posts_path.read_text())
+    comments = json.loads(comments_path.read_text())
+
+    web_summary_path = find_latest(d, "web_x_dataset_summary_", ".json")
+    web_links_path = find_latest(d, "web_links_", ".json")
+    x_links_path = find_latest(d, "x_links_", ".json")
+
+    web_summary = json.loads(web_summary_path.read_text()) if web_summary_path and web_summary_path.exists() else {}
+    web_links = load_json_or_empty(web_links_path)
+    x_links = load_json_or_empty(x_links_path)
+
+    legacy_mode = bool(args.model_a and args.model_b)
+    if legacy_mode:
+        a_score, b_score = compute_scores(posts, comments, web_links, x_links)
+        winner = args.model_a if a_score >= b_score else args.model_b
+        payload = build_report_payload(
+            question=args.question,
+            model_a=args.model_a,
+            model_b=args.model_b,
+            winner=winner,
+            a_score=a_score,
+            b_score=b_score,
+            reddit_summary=reddit_summary,
+            posts=posts,
+            comments=comments,
+            web_summary=web_summary,
+            web_links=web_links,
+            x_links=x_links,
+        )
+    else:
+        parsed_query = parse_query(args.question)
+        texts = collect_texts(posts, comments, web_links, x_links)
+        dynamic_scores = compute_scores_dynamic(texts, parsed_query)
+        payload = build_dynamic_report_payload(
+            question=args.question,
+            parsed_query=parsed_query,
+            dynamic_scores=dynamic_scores,
+            reddit_summary=reddit_summary,
+            posts=posts,
+            comments=comments,
+            web_summary=web_summary,
+            web_links=web_links,
+            x_links=x_links,
+        )
+
+    now = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    report_path = d / f"research_report_{now}.md"
+
+    lines = []
+    lines.append("# Research Recommendation")
+    lines.append("")
+    lines.append(f"Question: {payload['question']}")
+    lines.append(f"Recommendation: **{payload['recommendation']}**")
+    lines.append("")
+    lines.append("## Dataset")
+    lines.append(f"- Reddit posts: {payload['dataset']['reddit_posts']}")
+    lines.append(f"- Reddit comments: {payload['dataset']['reddit_comments']}")
+    lines.append(f"- Web links: {payload['dataset']['web_links']}")
+    lines.append(f"- X links: {payload['dataset']['x_links']}")
+    lines.append(f"- Window: {payload['dataset']['window_start_utc']} to {payload['dataset']['window_end_utc']}")
+    lines.append("")
+    lines.append("## Signal Summary")
+    lines.append(f"- Query type: {payload.get('query_type', QueryType.FACT_FINDING.value)}")
+    if payload.get("scores"):
+        for label, score in payload["scores"].items():
+            lines.append(f"- {label} heuristic score: {score}")
+        lines.append("- Score = keyword/entity mentions across Reddit posts/comments and web/X metadata.")
+    if payload.get("analysis", {}).get("mode") == "opinion":
+        analysis = payload["analysis"]
+        lines.append(f"- Entity: {analysis.get('entity')}")
+        lines.append(f"- Sentiment: {analysis.get('sentiment')}")
+        lines.append(f"- Positive hits: {analysis.get('positive_hits')}")
+        lines.append(f"- Negative hits: {analysis.get('negative_hits')}")
+    if payload.get("analysis", {}).get("mode") == "best_of":
+        analysis = payload["analysis"]
+        lines.append(f"- Top candidates: {', '.join(analysis.get('top_candidates', [])) or 'none'}")
+    lines.append("")
+    lines.append("## Primary Citations")
+    lines.append("### Reddit")
+    for post in payload["citations"]["reddit"]:
+        lines.append(f"- {post.get('link')} (num_comments={post.get('num_comments', 0)})")
+    if payload["citations"]["web"]:
+        lines.append("### Web")
+        for link in payload["citations"]["web"]:
+            lines.append(f"- {link}")
+    if payload["citations"]["x"]:
+        lines.append("### X")
+        for link in payload["citations"]["x"]:
+            lines.append(f"- {link}")
+
+    lines.append("")
+    lines.append("## Confidence")

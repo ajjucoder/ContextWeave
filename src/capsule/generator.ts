@@ -1123,6 +1123,23 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
     });
   }
 
+  // Compute symbol name frequency across candidate pool for common-name dampening.
+  // Symbols with very common names (POST, config, State, handler, Route) that appear
+  // in many files but don't match query terms are almost certainly noise from BFS expansion.
+  const nameFileCounts = new Map<string, number>();
+  {
+    const nameFileIds = new Map<string, Set<number>>();
+    for (const candidate of candidates) {
+      const name = candidate.symbol.name.toLowerCase();
+      let s = nameFileIds.get(name);
+      if (!s) { s = new Set(); nameFileIds.set(name, s); }
+      s.add(candidate.file.id);
+    }
+    for (const [name, fileIds] of nameFileIds) {
+      nameFileCounts.set(name, fileIds.size);
+    }
+  }
+
   const centralityHubThreshold = quantile(centralityValues, 0.9);
   const degreeHubThreshold = quantile(degreeValues, 0.9);
 
@@ -1236,6 +1253,17 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
 
     if (mode !== "debug" && candidate.lexicalScore === 0 && candidate.distance > 1) {
       candidate.score *= 0.4;
+    }
+
+    // Dampen symbols with very common names (appear in many files) that don't match
+    // query terms. E.g., POST in 15 route files, State in 10 components, config everywhere.
+    // Only applies to non-pivots with no lexical overlap — pivots were already selected
+    // for relevance, and lexical matches indicate genuine query connection.
+    if (!candidate.isPivot && candidate.lexicalScore === 0) {
+      const nameFreq = nameFileCounts.get(candidate.symbol.name.toLowerCase()) ?? 1;
+      if (nameFreq > 5) {
+        candidate.score *= Math.min(1.0, 5.0 / nameFreq);
+      }
     }
 
     if (mode !== "debug" && candidate.distance > 0 && !queryLooksTestFocused && isNoisyTestFile(candidate.file.path)) {

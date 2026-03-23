@@ -1,0 +1,138 @@
+README.md:12:- Produces a final recommendation report with sample counts, citations, confidence, and limitations.
+tests/test_query_classifier.py:2:    QueryType,
+tests/test_query_classifier.py:3:    build_reddit_query_variants,
+tests/test_query_classifier.py:4:    build_web_query_variants,
+tests/test_query_classifier.py:5:    minimum_term_matches,
+tests/test_query_classifier.py:11:    parsed = parse_query("Cursor vs Copilot")
+tests/test_query_classifier.py:12:    assert parsed.query_type == QueryType.COMPARISON
+tests/test_query_classifier.py:14:    assert "Cursor" in parsed.search_terms
+tests/test_query_classifier.py:15:    assert "Copilot" in parsed.search_terms
+tests/test_query_classifier.py:19:    parsed = parse_query("Is Anker 737 power bank worth it?")
+tests/test_query_classifier.py:20:    assert parsed.query_type == QueryType.OPINION
+tests/test_query_classifier.py:22:    assert "Anker" in parsed.search_terms
+tests/test_query_classifier.py:26:    parsed = parse_query("Best note taking app for students")
+tests/test_query_classifier.py:27:    assert parsed.query_type == QueryType.BEST_OF
+tests/test_query_classifier.py:28:    assert "productivity" in {x.lower() for x in parsed.subreddit_hints}
+tests/test_query_classifier.py:32:    parsed = parse_query("release date for model xyz")
+tests/test_query_classifier.py:33:    assert parsed.query_type == QueryType.FACT_FINDING
+tests/test_query_classifier.py:37:    parsed = parse_query("Notion vs Obsidian")
+tests/test_query_classifier.py:38:    reddit_variants = build_reddit_query_variants(parsed, year=2026)
+tests/test_query_classifier.py:39:    web_variants, x_variants = build_web_query_variants(parsed, year=2026)
+tests/test_query_classifier.py:43:    assert minimum_term_matches(QueryType.COMPARISON) == 2
+tests/test_query_classifier.py:44:    assert minimum_term_matches(QueryType.OPINION) == 1
+tests/test_build_recommendation.py:5:    compute_scores_dynamic,
+tests/test_build_recommendation.py:28:        reddit_summary={"posts_collected": 5, "comments_collected": 20, "window_start_utc": "a", "window_end_utc": "b"},
+tests/test_build_recommendation.py:38:    assert payload["citations"]["reddit"][0]["link"] == "https://reddit.com/p/1"
+tests/test_build_recommendation.py:41:def test_compute_scores_dynamic_opinion_sentiment():
+tests/test_build_recommendation.py:42:    parsed = parse_query("Is Anker 737 power bank worth it?")
+tests/test_build_recommendation.py:48:    scores = compute_scores_dynamic(texts, parsed)
+tests/test_build_recommendation.py:54:def test_compute_scores_dynamic_comparison_and_payload():
+tests/test_build_recommendation.py:55:    parsed = parse_query("Cursor vs Copilot")
+tests/test_build_recommendation.py:61:    scores = compute_scores_dynamic(texts, parsed)
+tests/test_build_recommendation.py:69:        reddit_summary={"posts_collected": 1, "comments_collected": 1, "window_start_utc": "a", "window_end_utc": "b"},
+tests/test_build_recommendation.py:76:    assert payload["query_type"] == "comparison"
+src/research_agent/build_recommendation.py:11:from .query_classifier import ParsedQuery, QueryType, parse_query
+src/research_agent/build_recommendation.py:19:def find_latest(input_dir: Path, prefix: str, suffix: str):
+src/research_agent/build_recommendation.py:26:def load_json_or_empty(path: Path):
+src/research_agent/build_recommendation.py:51:        "window_start_utc": reddit_summary.get("window_start_utc"),
+src/research_agent/build_recommendation.py:52:        "window_end_utc": reddit_summary.get("window_end_utc"),
+src/research_agent/build_recommendation.py:56:def build_confidence(posts, comments):
+src/research_agent/build_recommendation.py:62:def build_limitations(web_links, x_links):
+src/research_agent/build_recommendation.py:63:    limitations = [
+src/research_agent/build_recommendation.py:68:        limitations.append("No web links were collected or matched filters.")
+src/research_agent/build_recommendation.py:70:        limitations.append("No X links were collected or indexed for the query window.")
+src/research_agent/build_recommendation.py:71:    return limitations
+src/research_agent/build_recommendation.py:74:def build_citations(posts, web_links, x_links):
+src/research_agent/build_recommendation.py:107:        "query_type": QueryType.COMPARISON.value,
+src/research_agent/build_recommendation.py:114:        "citations": build_citations(posts, web_links, x_links),
+src/research_agent/build_recommendation.py:115:        "confidence": build_confidence(posts, comments),
+src/research_agent/build_recommendation.py:116:        "limitations": build_limitations(web_links, x_links),
+src/research_agent/build_recommendation.py:146:def compute_scores_dynamic(texts, parsed_query: ParsedQuery):
+src/research_agent/build_recommendation.py:147:    if parsed_query.query_type == QueryType.COMPARISON:
+src/research_agent/build_recommendation.py:150:            entities = list(parsed_query.search_terms[:2])
+src/research_agent/build_recommendation.py:162:            "query_type": parsed_query.query_type.value,
+src/research_agent/build_recommendation.py:170:    if parsed_query.query_type == QueryType.OPINION:
+src/research_agent/build_recommendation.py:200:            "query_type": parsed_query.query_type.value,
+src/research_agent/build_recommendation.py:210:    if parsed_query.query_type == QueryType.BEST_OF:
+src/research_agent/build_recommendation.py:212:        for term in parsed_query.entities + parsed_query.search_terms:
+src/research_agent/build_recommendation.py:229:            "query_type": parsed_query.query_type.value,
+src/research_agent/build_recommendation.py:238:        term_hits += _count_term_hits(text, parsed_query.search_terms)
+src/research_agent/build_recommendation.py:240:        "query_type": parsed_query.query_type.value,
+src/research_agent/build_recommendation.py:242:        "search_terms": parsed_query.search_terms,
+src/research_agent/build_recommendation.py:244:        "recommendation": "Evidence gathered; inspect citations for factual validation.",
+src/research_agent/build_recommendation.py:261:        "query_type": parsed_query.query_type.value,
+src/research_agent/build_recommendation.py:265:        "citations": build_citations(posts, web_links, x_links),
+src/research_agent/build_recommendation.py:266:        "confidence": build_confidence(posts, comments),
+src/research_agent/build_recommendation.py:267:        "limitations": build_limitations(web_links, x_links),
+src/research_agent/build_recommendation.py:270:    if parsed_query.query_type == QueryType.COMPARISON:
+src/research_agent/build_recommendation.py:289:    summary_path = find_latest(d, "reddit_dataset_summary_", ".json")
+src/research_agent/build_recommendation.py:290:    posts_path = find_latest(d, "reddit_posts_", "_raw.json")
+src/research_agent/build_recommendation.py:291:    comments_path = find_latest(d, "reddit_comments_", "_raw.json")
+src/research_agent/build_recommendation.py:300:    web_summary_path = find_latest(d, "web_x_dataset_summary_", ".json")
+src/research_agent/build_recommendation.py:301:    web_links_path = find_latest(d, "web_links_", ".json")
+src/research_agent/build_recommendation.py:302:    x_links_path = find_latest(d, "x_links_", ".json")
+src/research_agent/build_recommendation.py:305:    web_links = load_json_or_empty(web_links_path)
+src/research_agent/build_recommendation.py:306:    x_links = load_json_or_empty(x_links_path)
+src/research_agent/build_recommendation.py:327:        parsed_query = parse_query(args.question)
+src/research_agent/build_recommendation.py:329:        dynamic_scores = compute_scores_dynamic(texts, parsed_query)
+src/research_agent/build_recommendation.py:356:    lines.append(f"- Window: {payload['dataset']['window_start_utc']} to {payload['dataset']['window_end_utc']}")
+src/research_agent/build_recommendation.py:359:    lines.append(f"- Query type: {payload.get('query_type', QueryType.FACT_FINDING.value)}")
+src/research_agent/build_recommendation.py:376:    for post in payload["citations"]["reddit"]:
+src/research_agent/build_recommendation.py:378:    if payload["citations"]["web"]:
+src/research_agent/build_recommendation.py:380:        for link in payload["citations"]["web"]:
+src/research_agent/build_recommendation.py:382:    if payload["citations"]["x"]:
+src/research_agent/build_recommendation.py:384:        for link in payload["citations"]["x"]:
+src/research_agent/build_recommendation.py:389:    lines.append(f"- Confidence: {payload['confidence']}")
+src/research_agent/build_recommendation.py:393:    for lim in payload["limitations"]:
+tests/test_collect_web_x.py:2:from research_agent.query_classifier import QueryType
+tests/test_collect_web_x.py:17:    assert parsed.query_type == QueryType.OPINION
+tests/test_collect_web_x.py:30:    assert parsed.query_type == QueryType.COMPARISON
+src/research_agent/collect_reddit.py:14:    build_reddit_query_variants,
+src/research_agent/collect_reddit.py:94:    parsed_query = parse_query(raw_query)
+src/research_agent/collect_reddit.py:101:    query_variants = build_reddit_query_variants(parsed_query)
+src/research_agent/collect_reddit.py:105:        else _unique_keep_order(parsed_query.subreddit_hints or DEFAULT_SUBREDDITS)
+src/research_agent/collect_reddit.py:205:        "query_type": parsed_query.query_type.value,
+src/research_agent/collect_reddit.py:206:        "window_start_utc": f"{args.start}T00:00:00+00:00",
+src/research_agent/collect_reddit.py:207:        "window_end_utc": f"{args.end}T23:59:59+00:00",
+src/research_agent/collect_reddit.py:210:        "search_terms": parsed_query.search_terms,
+src/research_agent/collect_reddit.py:214:        "generated_files": [
+src/research_agent/collect_web_x.py:13:from .query_classifier import build_web_query_variants, minimum_term_matches, parse_query
+src/research_agent/collect_web_x.py:58:    parsed_query = parse_query(raw_query)
+src/research_agent/collect_web_x.py:59:    required = require_terms or parsed_query.search_terms or [raw_query]
+src/research_agent/collect_web_x.py:60:    threshold = minimum_term_matches(parsed_query.query_type)
+src/research_agent/collect_web_x.py:61:    web_queries, x_queries = build_web_query_variants(parsed_query)
+src/research_agent/collect_web_x.py:176:        "query_type": parsed_query.query_type.value,
+src/research_agent/collect_web_x.py:178:        "term_match_threshold": match_threshold,
+src/research_agent/collect_web_x.py:179:        "window_start_utc": start_dt.isoformat(),
+src/research_agent/collect_web_x.py:180:        "window_end_utc": end_dt.isoformat(),
+src/research_agent/collect_web_x.py:184:        "generated_files": [
+src/research_agent/query_classifier.py:10:class QueryType(str, Enum):
+src/research_agent/query_classifier.py:20:    query_type: QueryType
+src/research_agent/query_classifier.py:22:    search_terms: List[str]
+src/research_agent/query_classifier.py:23:    subreddit_hints: List[str]
+src/research_agent/query_classifier.py:164:def _classify(raw: str) -> Tuple[QueryType, List[str]]:
+src/research_agent/query_classifier.py:172:        return QueryType.COMPARISON, [m.group("a"), m.group("b")]
+src/research_agent/query_classifier.py:175:        return QueryType.BEST_OF, []
+src/research_agent/query_classifier.py:177:        return QueryType.BEST_OF, []
+src/research_agent/query_classifier.py:179:        return QueryType.OPINION, []
+src/research_agent/query_classifier.py:182:            return QueryType.OPINION, []
+src/research_agent/query_classifier.py:183:    return QueryType.FACT_FINDING, []
+src/research_agent/query_classifier.py:199:def _search_terms_from_entities(raw: str, entities: Sequence[str]) -> List[str]:
+src/research_agent/query_classifier.py:217:    haystacks = [parsed_query.raw_query, " ".join(parsed_query.entities), " ".join(parsed_query.search_terms)]
+src/research_agent/query_classifier.py:230:def parse_query(raw: str) -> ParsedQuery:
+src/research_agent/query_classifier.py:235:    query_type, classified_entities = _classify(normalized)
+src/research_agent/query_classifier.py:237:    search_terms = _search_terms_from_entities(normalized, entities)
+src/research_agent/query_classifier.py:240:        query_type=query_type,
+src/research_agent/query_classifier.py:242:        search_terms=search_terms,
+src/research_agent/query_classifier.py:243:        subreddit_hints=[],
+src/research_agent/query_classifier.py:248:        query_type=query_type,
+src/research_agent/query_classifier.py:250:        search_terms=search_terms,
+src/research_agent/query_classifier.py:251:        subreddit_hints=hints,
+src/research_agent/query_classifier.py:255:def minimum_term_matches(query_type: QueryType) -> int:
+src/research_agent/query_classifier.py:256:    if query_type == QueryType.COMPARISON:
+src/research_agent/query_classifier.py:261:def build_reddit_query_variants(parsed_query: ParsedQuery, year: int | None = None) -> List[str]:
+src/research_agent/query_classifier.py:264:    if parsed_query.query_type == QueryType.COMPARISON and len(parsed_query.entities) >= 2:
+src/research_agent/query_classifier.py:275:    if parsed_query.query_type == QueryType.OPINION:
+src/research_agent/query_classifier.py:286:    if parsed_query.query_type == QueryType.BEST_OF:
+src/research_agent/query_classifier.py:305:def build_web_query_variants(parsed_query: ParsedQuery, year: int | None = None) -> Tuple[List[str], List[str]]:
+src/research_agent/query_classifier.py:306:    base = build_reddit_query_variants(parsed_query, year=year)

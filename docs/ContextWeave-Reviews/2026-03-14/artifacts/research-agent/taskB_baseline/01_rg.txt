@@ -1,0 +1,79 @@
+pyproject.toml:21:research-agent-reddit = "research_agent.collect_reddit:main"
+pyproject.toml:22:research-agent-web-x = "research_agent.collect_web_x:main"
+pyproject.toml:23:research-agent-report = "research_agent.build_recommendation:main"
+README.md:49:- `research-agent-reddit`
+README.md:50:- `research-agent-web-x`
+README.md:51:- `research-agent-report`
+README.md:56:research-agent-reddit \
+README.md:61:research-agent-web-x \
+README.md:66:research-agent-report \
+README.md:74:research-agent-report \
+README.md:92:- `reddit_posts_<start>_to_<end>_raw.json`
+README.md:93:- `reddit_comments_<start>_to_<end>_raw.json`
+README.md:94:- `reddit_posts_<start>_to_<end>.csv`
+README.md:95:- `reddit_comments_<start>_to_<end>.csv`
+README.md:96:- `reddit_dataset_summary_<start>_to_<end>.json`
+README.md:97:- `web_links_<start>_to_<end>.json`
+README.md:98:- `x_links_<start>_to_<end>.json`
+README.md:99:- `web_x_dataset_summary_<start>_to_<end>.json`
+README.md:100:- `research_report_<timestamp>.md`
+tests/test_query_classifier.py:3:    build_reddit_query_variants,
+tests/test_query_classifier.py:4:    build_web_query_variants,
+tests/test_query_classifier.py:11:    parsed = parse_query("Cursor vs Copilot")
+tests/test_query_classifier.py:19:    parsed = parse_query("Is Anker 737 power bank worth it?")
+tests/test_query_classifier.py:26:    parsed = parse_query("Best note taking app for students")
+tests/test_query_classifier.py:32:    parsed = parse_query("release date for model xyz")
+tests/test_query_classifier.py:37:    parsed = parse_query("Notion vs Obsidian")
+tests/test_query_classifier.py:38:    reddit_variants = build_reddit_query_variants(parsed, year=2026)
+tests/test_query_classifier.py:39:    web_variants, x_variants = build_web_query_variants(parsed, year=2026)
+tests/test_build_recommendation.py:31:        web_summary={"web_links_collected": 2, "x_links_collected": 1},
+tests/test_build_recommendation.py:42:    parsed = parse_query("Is Anker 737 power bank worth it?")
+tests/test_build_recommendation.py:55:    parsed = parse_query("Cursor vs Copilot")
+tests/test_build_recommendation.py:72:        web_summary={"web_links_collected": 1, "x_links_collected": 0},
+tests/test_collect_web_x.py:1:from research_agent.collect_web_x import count_term_matches, resolve_query_config
+tests/test_collect_web_x.py:10:def test_resolve_query_config_uses_dynamic_terms_for_opinion():
+tests/test_collect_web_x.py:11:    raw_query, parsed, terms, threshold, web_queries, x_queries = resolve_query_config(
+tests/test_collect_web_x.py:24:def test_resolve_query_config_keeps_threshold_two_for_comparison():
+tests/test_collect_web_x.py:25:    _, parsed, terms, threshold, _, _ = resolve_query_config(
+src/research_agent/build_recommendation.py:19:def find_latest(input_dir: Path, prefix: str, suffix: str):
+src/research_agent/build_recommendation.py:49:        "web_links": web_summary.get("web_links_collected", len(web_links)) if web_summary else len(web_links),
+src/research_agent/build_recommendation.py:50:        "x_links": web_summary.get("x_links_collected", len(x_links)) if web_summary else len(x_links),
+src/research_agent/build_recommendation.py:275:def main():
+src/research_agent/build_recommendation.py:289:    summary_path = find_latest(d, "reddit_dataset_summary_", ".json")
+src/research_agent/build_recommendation.py:290:    posts_path = find_latest(d, "reddit_posts_", "_raw.json")
+src/research_agent/build_recommendation.py:291:    comments_path = find_latest(d, "reddit_comments_", "_raw.json")
+src/research_agent/build_recommendation.py:300:    web_summary_path = find_latest(d, "web_x_dataset_summary_", ".json")
+src/research_agent/build_recommendation.py:301:    web_links_path = find_latest(d, "web_links_", ".json")
+src/research_agent/build_recommendation.py:302:    x_links_path = find_latest(d, "x_links_", ".json")
+src/research_agent/build_recommendation.py:305:    web_links = load_json_or_empty(web_links_path)
+src/research_agent/build_recommendation.py:306:    x_links = load_json_or_empty(x_links_path)
+src/research_agent/build_recommendation.py:327:        parsed_query = parse_query(args.question)
+src/research_agent/build_recommendation.py:343:    report_path = d / f"research_report_{now}.md"
+src/research_agent/collect_reddit.py:14:    build_reddit_query_variants,
+src/research_agent/collect_reddit.py:77:def main():
+src/research_agent/collect_reddit.py:94:    parsed_query = parse_query(raw_query)
+src/research_agent/collect_reddit.py:101:    query_variants = build_reddit_query_variants(parsed_query)
+src/research_agent/collect_reddit.py:174:    posts_json = out_dir / f"reddit_posts_{stamp}_raw.json"
+src/research_agent/collect_reddit.py:175:    comments_json = out_dir / f"reddit_comments_{stamp}_raw.json"
+src/research_agent/collect_reddit.py:176:    posts_csv = out_dir / f"reddit_posts_{stamp}.csv"
+src/research_agent/collect_reddit.py:177:    comments_csv = out_dir / f"reddit_comments_{stamp}.csv"
+src/research_agent/collect_reddit.py:178:    summary_json = out_dir / f"reddit_dataset_summary_{stamp}.json"
+src/research_agent/collect_reddit.py:214:        "generated_files": [
+src/research_agent/collect_web_x.py:13:from .query_classifier import build_web_query_variants, minimum_term_matches, parse_query
+src/research_agent/collect_web_x.py:56:def resolve_query_config(topic: str, query: str, require_terms):
+src/research_agent/collect_web_x.py:58:    parsed_query = parse_query(raw_query)
+src/research_agent/collect_web_x.py:61:    web_queries, x_queries = build_web_query_variants(parsed_query)
+src/research_agent/collect_web_x.py:65:def main():
+src/research_agent/collect_web_x.py:82:    raw_query, parsed_query, required_terms, match_threshold, web_queries, x_queries = resolve_query_config(
+src/research_agent/collect_web_x.py:148:    web_json = out_dir / f"web_links_{stamp}.json"
+src/research_agent/collect_web_x.py:149:    x_json = out_dir / f"x_links_{stamp}.json"
+src/research_agent/collect_web_x.py:150:    web_csv = out_dir / f"web_links_{stamp}.csv"
+src/research_agent/collect_web_x.py:151:    x_csv = out_dir / f"x_links_{stamp}.csv"
+src/research_agent/collect_web_x.py:152:    summary_json = out_dir / f"web_x_dataset_summary_{stamp}.json"
+src/research_agent/collect_web_x.py:181:        "web_links_collected": len(web_rows),
+src/research_agent/collect_web_x.py:182:        "x_links_collected": len(x_rows),
+src/research_agent/collect_web_x.py:184:        "generated_files": [
+src/research_agent/query_classifier.py:230:def parse_query(raw: str) -> ParsedQuery:
+src/research_agent/query_classifier.py:261:def build_reddit_query_variants(parsed_query: ParsedQuery, year: int | None = None) -> List[str]:
+src/research_agent/query_classifier.py:305:def build_web_query_variants(parsed_query: ParsedQuery, year: int | None = None) -> Tuple[List[str], List[str]]:
+src/research_agent/query_classifier.py:306:    base = build_reddit_query_variants(parsed_query, year=year)

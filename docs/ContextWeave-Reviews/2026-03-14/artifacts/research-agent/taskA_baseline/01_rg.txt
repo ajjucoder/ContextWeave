@@ -1,0 +1,44 @@
+tests/test_query_classifier.py:4:    build_web_query_variants,
+tests/test_query_classifier.py:5:    minimum_term_matches,
+tests/test_query_classifier.py:6:    parse_query,
+tests/test_query_classifier.py:10:def test_parse_query_classifies_comparison_and_entities():
+tests/test_query_classifier.py:11:    parsed = parse_query("Cursor vs Copilot")
+tests/test_query_classifier.py:18:def test_parse_query_classifies_opinion():
+tests/test_query_classifier.py:19:    parsed = parse_query("Is Anker 737 power bank worth it?")
+tests/test_query_classifier.py:25:def test_parse_query_classifies_best_of():
+tests/test_query_classifier.py:26:    parsed = parse_query("Best note taking app for students")
+tests/test_query_classifier.py:31:def test_parse_query_falls_back_to_fact_finding():
+tests/test_query_classifier.py:32:    parsed = parse_query("release date for model xyz")
+tests/test_query_classifier.py:37:    parsed = parse_query("Notion vs Obsidian")
+tests/test_query_classifier.py:39:    web_variants, x_variants = build_web_query_variants(parsed, year=2026)
+tests/test_query_classifier.py:43:    assert minimum_term_matches(QueryType.COMPARISON) == 2
+tests/test_query_classifier.py:44:    assert minimum_term_matches(QueryType.OPINION) == 1
+src/research_agent/build_recommendation.py:11:from .query_classifier import ParsedQuery, QueryType, parse_query
+src/research_agent/build_recommendation.py:327:        parsed_query = parse_query(args.question)
+tests/test_build_recommendation.py:7:from research_agent.query_classifier import parse_query
+tests/test_build_recommendation.py:42:    parsed = parse_query("Is Anker 737 power bank worth it?")
+tests/test_build_recommendation.py:55:    parsed = parse_query("Cursor vs Copilot")
+src/research_agent/common.py:84:def resolve_query_text(topic: str | None, query: str | None) -> str:
+tests/test_collect_web_x.py:1:from research_agent.collect_web_x import count_term_matches, resolve_query_config
+tests/test_collect_web_x.py:10:def test_resolve_query_config_uses_dynamic_terms_for_opinion():
+tests/test_collect_web_x.py:11:    raw_query, parsed, terms, threshold, web_queries, x_queries = resolve_query_config(
+tests/test_collect_web_x.py:18:    assert threshold == 1
+tests/test_collect_web_x.py:24:def test_resolve_query_config_keeps_threshold_two_for_comparison():
+tests/test_collect_web_x.py:25:    _, parsed, terms, threshold, _, _ = resolve_query_config(
+tests/test_collect_web_x.py:31:    assert threshold == 2
+src/research_agent/query_classifier.py:230:def parse_query(raw: str) -> ParsedQuery:
+src/research_agent/query_classifier.py:255:def minimum_term_matches(query_type: QueryType) -> int:
+src/research_agent/query_classifier.py:305:def build_web_query_variants(parsed_query: ParsedQuery, year: int | None = None) -> Tuple[List[str], List[str]]:
+src/research_agent/collect_web_x.py:12:from .common import parse_pubdate, resolve_query_text, to_utc_dt, write_csv, write_json
+src/research_agent/collect_web_x.py:13:from .query_classifier import build_web_query_variants, minimum_term_matches, parse_query
+src/research_agent/collect_web_x.py:56:def resolve_query_config(topic: str, query: str, require_terms):
+src/research_agent/collect_web_x.py:57:    raw_query = resolve_query_text(topic, query)
+src/research_agent/collect_web_x.py:58:    parsed_query = parse_query(raw_query)
+src/research_agent/collect_web_x.py:59:    required = require_terms or parsed_query.search_terms or [raw_query]
+src/research_agent/collect_web_x.py:60:    threshold = minimum_term_matches(parsed_query.query_type)
+src/research_agent/collect_web_x.py:61:    web_queries, x_queries = build_web_query_variants(parsed_query)
+src/research_agent/collect_web_x.py:82:    raw_query, parsed_query, required_terms, match_threshold, web_queries, x_queries = resolve_query_config(
+src/research_agent/collect_reddit.py:11:from .common import fetch_json, resolve_query_text, to_utc_ts, write_csv, write_json
+src/research_agent/collect_reddit.py:15:    parse_query,
+src/research_agent/collect_reddit.py:93:    raw_query = resolve_query_text(args.topic, args.query)
+src/research_agent/collect_reddit.py:94:    parsed_query = parse_query(raw_query)

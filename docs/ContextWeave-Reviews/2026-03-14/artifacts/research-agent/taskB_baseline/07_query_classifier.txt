@@ -1,0 +1,85 @@
+def parse_query(raw: str) -> ParsedQuery:
+    normalized = _normalize_spaces(raw)
+    if not normalized:
+        raise ValueError("query must not be empty")
+
+    query_type, classified_entities = _classify(normalized)
+    entities = _extract_entities(normalized, classified_entities)
+    search_terms = _search_terms_from_entities(normalized, entities)
+    provisional = ParsedQuery(
+        raw_query=normalized,
+        query_type=query_type,
+        entities=entities,
+        search_terms=search_terms,
+        subreddit_hints=[],
+    )
+    hints = suggest_subreddits(provisional)
+    return ParsedQuery(
+        raw_query=normalized,
+        query_type=query_type,
+        entities=entities,
+        search_terms=search_terms,
+        subreddit_hints=hints,
+    )
+
+
+def minimum_term_matches(query_type: QueryType) -> int:
+    if query_type == QueryType.COMPARISON:
+        return 2
+    return 1
+
+
+def build_reddit_query_variants(parsed_query: ParsedQuery, year: int | None = None) -> List[str]:
+    current_year = year or datetime.now(tz=timezone.utc).year
+
+    if parsed_query.query_type == QueryType.COMPARISON and len(parsed_query.entities) >= 2:
+        left, right = parsed_query.entities[0], parsed_query.entities[1]
+        variants = [
+            parsed_query.raw_query,
+            f"{left} vs {right}",
+            f"{left} or {right}",
+            f"{left} {right} comparison",
+            f"{left} {right} review",
+        ]
+        return _unique_keep_order(variants)
+
+    if parsed_query.query_type == QueryType.OPINION:
+        item = parsed_query.entities[0] if parsed_query.entities else parsed_query.raw_query
+        variants = [
+            parsed_query.raw_query,
+            f"{item} review",
+            f"{item} experience",
+            f"{item} worth it",
+            f"{item} recommendation",
+        ]
+        return _unique_keep_order(variants)
+
+    if parsed_query.query_type == QueryType.BEST_OF:
+        item = parsed_query.entities[0] if parsed_query.entities else parsed_query.raw_query
+        variants = [
+            parsed_query.raw_query,
+            f"best {item} {current_year}",
+            f"{item} recommendations",
+            f"top {item}",
+        ]
+        return _unique_keep_order(variants)
+
+    return _unique_keep_order(
+        [
+            parsed_query.raw_query,
+            f"{parsed_query.raw_query} review",
+            f"{parsed_query.raw_query} recommendations",
+        ]
+    )
+
+
+def build_web_query_variants(parsed_query: ParsedQuery, year: int | None = None) -> Tuple[List[str], List[str]]:
+    base = build_reddit_query_variants(parsed_query, year=year)
+    web_queries = _unique_keep_order(base + [f"{parsed_query.raw_query} reddit", f"{parsed_query.raw_query} forum"])
+    x_queries = _unique_keep_order(
+        [
+            f"site:x.com {parsed_query.raw_query}",
+            f"site:twitter.com {parsed_query.raw_query}",
+        ]
+    )
+    return web_queries, x_queries

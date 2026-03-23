@@ -1,0 +1,339 @@
+{
+  "totalMs": 447,
+  "results": [
+    {
+      "label": "rank_parse_query",
+      "name": "cw_capsule",
+      "args": {
+        "query": "parse_query",
+        "token_budget": 1200,
+        "mode": "review"
+      },
+      "ms": 21,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "--- ContextWeave Capsule ---\nQuery: parse_query\nMode: review | Strategy: single-pass (1 sub-queries)\nTokens: 1188/1200\nSymbols: 11 across 3 files\nConfidence: HIGH | Uncertainty: LOW\nCoverage confidence: 96%\nUncertainty flag: false\nRetrieval: stageA 17 -> stageB 13\nCoverage: pivots 11/13 (85%), dependencies 100%, L3 noise 0%\n---\n\n// === src/research_agent/query_classifier.py ===\n// [full]\n// src/research_agent/query_classifier.py:230-252\ndef parse_query(raw: str) -> ParsedQuery:\n    normalized = _normalize_spaces(raw)\n    if not normalized:\n        raise ValueError(\"query must not be empty\")\n\n    query_type, classified_entities = _classify(normalized)\n    entities = _extract_entities(normalized, classified_entities)\n    search_terms = _search_terms_from_entities(normalized, entities)\n    provisional = ParsedQuery(\n        raw_query=normalized,\n        query_type=query_type,\n        entities=entities,\n        search_terms=search_terms,\n        subreddit_hints=[],\n    )\n    hints = suggest_subreddits(provisional)\n    return ParsedQuery(\n        raw_query=normalized,\n        query_type=query_type,\n        entities=entities,\n        search_terms=search_terms,\n        subreddit_hints=hints,\n    )\n// [full]\n// src/research_agent/query_classifier.py:18-23\nclass ParsedQuery:\n    raw_query: str\n    query_type: QueryType\n    entities: List[str]\n    search_terms: List[str]\n    subreddit_hints: List[str]\n// [full]\n// src/research_agent/query_classifier.py:216-227\ndef suggest_subreddits(parsed_query: ParsedQuery) -> List[str]:\n    haystacks = [parsed_query.raw_query, \" \".join(parsed_query.entities), \" \".join(parsed_query.search_terms)]\n    haystack = \" \".join(haystacks).lower()\n\n    suggestions: List[str] = []\n    for keywords, subreddits in _CATEGORY_SUBREDDITS:\n        if any(keyword in haystack for keyword in keywords):\n            suggestions.extend(subreddits)\n\n    if not suggestions:\n        suggestions.extend(DEFAULT_SUBREDDITS)\n    return _unique_keep_order(suggestions)\n// [full]\n// src/research_agent/query_classifier.py:106-107\ndef _normalize_spaces(value: str) -> str:\n    return re.sub(r\"\\s+\", \" \", (value or \"\")).strip()\n// [full]\n// src/research_agent/query_classifier.py:164-183\ndef _classify(raw: str) -> Tuple[QueryType, List[str]]:\n    text = _normalize_spaces(raw)\n    low = text.lower()\n\n    for pattern in _COMPARISON_PATTERNS:\n        m = pattern.match(text)\n        if not m:\n            continue\n        return QueryType.COMPARISON, [m.group(\"a\"), m.group(\"b\")]\n\n    if any(low.startswith(prefix) for prefix in _BEST_OF_HINTS):\n        return QueryType.BEST_OF, []\n    if any(hint in low for hint in _BEST_OF_HINTS):\n        return QueryType.BEST_OF, []\n    if any(low.startswith(prefix) for prefix in _OPINION_HINTS):\n        return QueryType.OPINION, []\n    if \" should i \" in f\" {low} \" or \" is \" in f\" {low} \":\n        if \"good\" in low or \"worth\" in low or \"buy\" in low:\n            return QueryType.OPINION, []\n    return QueryType.FACT_FINDING, []\n// [full]\n// src/research_agent/query_classifier.py:186-196\ndef _extract_entities(raw: str, classified_entities: Sequence[str]) -> List[str]:\n    entities: List[str] = []\n    entities.extend(classified_entities)\n    entities.extend(_extract_quoted_phrases(raw))\n    entities.extend(_extract_capitalized_phrases(raw))\n\n    if not entities:\n        entities.extend(_extract_keyword_phrases(raw)[:2])\n\n    cleaned = [_clean_entity(entity) for entity in entities]\n    return _unique_keep_order(cleaned)\n// [full]\n// src/research_agent/query_classifier.py:199-213\ndef _search_terms_from_entities(raw: str, entities: Sequence[str]) -> List[str]:\n    terms: List[str] = []\n    for entity in entities:\n        terms.append(entity)\n        parts = re.findall(r\"[A-Za-z0-9.+-]{2,}\", entity)\n        for part in parts:\n            if part.lower() not in _STOPWORDS:\n                terms.append(part)\n\n    if not terms:\n        parts = re.findall(r\"[A-Za-z0-9.+-]{3,}\", raw)\n        for part in parts:\n            if part.lower() not in _STOPWORDS:\n                terms.append(part)\n    return _unique_keep_order(terms)[:12]\n\n// === src/research_agent/collect_web_x.py ===\n// [full]\n// src/research_agent/collect_web_x.py:56-62\ndef resolve_query_config(topic: str, query: str, require_terms):\n    raw_query = resolve_query_text(topic, query)\n    parsed_query = parse_query(raw_query)\n    required = require_terms or parsed_query.search_terms or [raw_query]\n    threshold = minimum_term_matches(parsed_query.query_type)\n    web_queries, x_queries = build_web_query_variants(parsed_query)\n    return raw_query, parsed_query, required, threshold, web_queries, x_queries\n\n// === tests/test_query_classifier.py ===\n// [full]\n// tests/test_query_classifier.py:18-22\ndef test_parse_query_classifies_opinion():\n    parsed = parse_query(\"Is Anker 737 power bank worth it?\")\n    assert parsed.query_type == QueryType.OPINION\n    assert any(\"Anker\" in entity for entity in parsed.entities)\n    assert \"Anker\" in parsed.search_terms\n// [full]\n// tests/test_query_classifier.py:25-28\ndef test_parse_query_classifies_best_of():\n    parsed = parse_query(\"Best note taking app for students\")\n    assert parsed.query_type == QueryType.BEST_OF\n    assert \"productivity\" in {x.lower() for x in parsed.subreddit_hints}\n// [full]\n// tests/test_query_classifier.py:31-33\ndef test_parse_query_falls_back_to_fact_finding():\n    parsed = parse_query(\"release date for model xyz\")\n    assert parsed.query_type == QueryType.FACT_FINDING"
+          }
+        ]
+      }
+    },
+    {
+      "label": "grep_parse_query",
+      "name": "cw_grep",
+      "args": {
+        "query": "parse_query",
+        "path": "src/research_agent",
+        "context_lines": 1,
+        "max_results": 10
+      },
+      "ms": 11,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Search results for \"parse_query\" (4 matches):\n\n1. src/research_agent/build_recommendation.py:11\n  10 | from .common import mention_scores\n> 11 | from .query_classifier import ParsedQuery, QueryType, parse_query\n  12 | \n\n2. src/research_agent/query_classifier.py:230\n  229 | \n> 230 | def parse_query(raw: str) -> ParsedQuery:\n  231 |     normalized = _normalize_spaces(raw)\n\n3. src/research_agent/collect_reddit.py:15\n  14 |     build_reddit_query_variants,\n> 15 |     parse_query,\n  16 | )\n\n4. src/research_agent/collect_web_x.py:13\n  12 | from .common import parse_pubdate, resolve_query_text, to_utc_dt, write_csv, write_json\n> 13 | from .query_classifier import build_web_query_variants, minimum_term_matches, parse_query\n  14 |"
+          }
+        ]
+      }
+    },
+    {
+      "label": "rank_resolve_query_config",
+      "name": "cw_capsule",
+      "args": {
+        "query": "resolve_query_config",
+        "token_budget": 1200,
+        "mode": "review"
+      },
+      "ms": 6,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "--- ContextWeave Capsule ---\nQuery: resolve_query_config\nMode: review | Strategy: single-pass (1 sub-queries)\nTokens: 1182/1200\nSymbols: 8 across 4 files\nConfidence: HIGH | Uncertainty: LOW\nCoverage confidence: 100%\nUncertainty flag: false\nRetrieval: stageA 8 -> stageB 8\nCoverage: pivots 8/8 (100%), dependencies 100%, L3 noise 0%\n---\n\n// === src/research_agent/collect_web_x.py ===\n// [full]\n// src/research_agent/collect_web_x.py:56-62\ndef resolve_query_config(topic: str, query: str, require_terms):\n    raw_query = resolve_query_text(topic, query)\n    parsed_query = parse_query(raw_query)\n    required = require_terms or parsed_query.search_terms or [raw_query]\n    threshold = minimum_term_matches(parsed_query.query_type)\n    web_queries, x_queries = build_web_query_variants(parsed_query)\n    return raw_query, parsed_query, required, threshold, web_queries, x_queries\n// [full]\n// src/research_agent/collect_web_x.py:65-194\ndef main():\n    p = argparse.ArgumentParser(description=\"Collect web and X.com links for research runs\")\n    p.add_argument(\"--topic\", default=\"\", help=\"Legacy topic input. Prefer --query.\")\n    p.add_argument(\"--query\", default=\"\", help=\"General research query.\")\n    p.add_argument(\"--start\", required=True, help=\"YYYY-MM-DD UTC\")\n    p.add_argument(\"--end\", required=True, help=\"YYYY-MM-DD UTC\")\n    p.add_argument(\"--out\", required=True)\n    p.add_argument(\"--max-items\", type=int, default=200)\n    p.add_argument(\"--sleep\", type=float, default=0.8)\n    p.add_argument(\n        \"--require-terms\",\n        nargs=\"*\",\n        default=None,\n        help=\"Override term filter terms. Defaults to terms extracted from --query/--topic.\",\n    )\n    args = p.parse_args()\n\n    raw_query, parsed_query, required_terms, match_threshold, web_queries, x_queries = resolve_query_config(\n        args.topic, args.query, args.require_terms\n    )\n\n    start_dt = to_utc_dt(args.start, end_of_day=False)\n    end_dt = to_utc_dt(args.end, end_of_day=True)\n    out_dir = Path(args.out)\n    out_dir.mkdir(parents=True, exist_ok=True)\n\n    web_rows = []\n    x_rows = []\n    errors = []\n    seen = set()\n\n    def add_rows(items, query):\n        for item in items:\n            link = item.get(\"link\", \"\")\n            if not link or link in seen:\n                continue\n            seen.add(link)\n\n            blob = (\n                (item.get(\"title\", \"\") + \" \" + item.get(\"description\", \"\") + \" \" + link).lower()\n            )\n            matches = count_term_matches(blob, required_terms)\n// ... 85 more lines — use cw_read(symbol: \"main\") for full source\n    }\n    write_json(summary_json, summary)\n    print(json.dumps(summary, indent=2))\n\n// === src/research_agent/query_classifier.py ===\n// [full]\n// src/research_agent/query_classifier.py:230-252\ndef parse_query(raw: str) -> ParsedQuery:\n    normalized = _normalize_spaces(raw)\n    if not normalized:\n        raise ValueError(\"query must not be empty\")\n\n    query_type, classified_entities = _classify(normalized)\n    entities = _extract_entities(normalized, classified_entities)\n    search_terms = _search_terms_from_entities(normalized, entities)\n    provisional = ParsedQuery(\n        raw_query=normalized,\n        query_type=query_type,\n        entities=entities,\n        search_terms=search_terms,\n        subreddit_hints=[],\n    )\n    hints = suggest_subreddits(provisional)\n    return ParsedQuery(\n        raw_query=normalized,\n        query_type=query_type,\n        entities=entities,\n        search_terms=search_terms,\n        subreddit_hints=hints,\n    )\n// [full]\n// src/research_agent/query_classifier.py:305-314\ndef build_web_query_variants(parsed_query: ParsedQuery, year: int | None = None) -> Tuple[List[str], List[str]]:\n    base = build_reddit_query_variants(parsed_query, year=year)\n    web_queries = _unique_keep_order(base + [f\"{parsed_query.raw_query} reddit\", f\"{parsed_query.raw_query} forum\"])\n    x_queries = _unique_keep_order(\n        [\n            f\"site:x.com {parsed_query.raw_query}\",\n            f\"site:twitter.com {parsed_query.raw_query}\",\n        ]\n    )\n    return web_queries, x_queries\n// [full]\n// src/research_agent/query_classifier.py:255-258\ndef minimum_term_matches(query_type: QueryType) -> int:\n    if query_type == QueryType.COMPARISON:\n        return 2\n    return 1\n\n// === src/research_agent/common.py ===\n// [full]\n// src/research_agent/common.py:84-88\ndef resolve_query_text(topic: str | None, query: str | None) -> str:\n    candidate = (query or topic or \"\").strip()\n    if not candidate:\n        raise ValueError(\"Provide either --query or --topic.\")\n    return candidate\n\n// === tests/test_collect_web_x.py ===\n// [full]\n// tests/test_collect_web_x.py:10-21\ndef test_resolve_query_config_uses_dynamic_terms_for_opinion():\n    raw_query, parsed, terms, threshold, web_queries, x_queries = resolve_query_config(\n        topic=\"\",\n        query=\"Is Anker 737 power bank worth it?\",\n        require_terms=None,\n    )\n    assert raw_query == \"Is Anker 737 power bank worth it?\"\n    assert parsed.query_type == QueryType.OPINION\n    assert threshold == 1\n    assert any(term.lower() == \"anker\" for term in terms)\n    assert any(\"anker\" in query.lower() for query in web_queries)\n    assert any(\"site:x.com\" in query for query in x_queries)\n// [full]\n// tests/test_collect_web_x.py:24-32\ndef test_resolve_query_config_keeps_threshold_two_for_comparison():\n    _, parsed, terms, threshold, _, _ = resolve_query_config(\n        topic=\"\",\n        query=\"Cursor vs Copilot\",\n        require_terms=None,\n    )\n    assert parsed.query_type == QueryType.COMPARISON\n    assert threshold == 2\n    assert \"Cursor\" in terms"
+          }
+        ]
+      }
+    },
+    {
+      "label": "grep_resolve_query_config",
+      "name": "cw_grep",
+      "args": {
+        "query": "resolve_query_config",
+        "path": "src/research_agent",
+        "context_lines": 1,
+        "max_results": 10
+      },
+      "ms": 10,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Search results for \"resolve_query_config\" (1 match):\n\n1. src/research_agent/collect_web_x.py:56\n  55 | \n> 56 | def resolve_query_config(topic: str, query: str, require_terms):\n  57 |     raw_query = resolve_query_text(topic, query)"
+          }
+        ]
+      }
+    },
+    {
+      "label": "rank_main",
+      "name": "cw_capsule",
+      "args": {
+        "query": "main",
+        "token_budget": 1200,
+        "mode": "review"
+      },
+      "ms": 10,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "--- ContextWeave Capsule ---\nQuery: main\nMode: review | Strategy: single-pass (1 sub-queries)\nTokens: 1199/1200\nSymbols: 13 across 5 files\nConfidence: HIGH | Uncertainty: LOW\nCoverage confidence: 86%\nUncertainty flag: false\nRetrieval: stageA 30 -> stageB 20\nCoverage: pivots 13/20 (65%), dependencies 100%, L3 noise 0%\n---\n\n// === src/research_agent/build_recommendation.py ===\n// [full]\n// src/research_agent/build_recommendation.py:275-401\ndef main():\n    p = argparse.ArgumentParser(description=\"Build recommendation memo from collected research artifacts\")\n    p.add_argument(\"--input-dir\", required=True)\n    p.add_argument(\"--question\", required=True)\n    p.add_argument(\"--model-a\", default=\"\", help=\"Legacy comparison mode label A.\")\n    p.add_argument(\"--model-b\", default=\"\", help=\"Legacy comparison mode label B.\")\n    p.add_argument(\"--json-output\", default=\"\", help=\"Optional path to write machine-readable JSON report.\")\n    p.add_argument(\"--print-json\", action=\"store_true\", help=\"Print machine-readable JSON payload to stdout.\")\n    args = p.parse_args()\n\n    if bool(args.model_a) != bool(args.model_b):\n        raise SystemExit(\"Provide both --model-a and --model-b together for legacy comparison mode.\")\n\n    d = Path(args.input_dir)\n    summary_path = find_latest(d, \"reddit_dataset_summary_\", \".json\")\n    posts_path = find_latest(d, \"reddit_posts_\", \"_raw.json\")\n    comments_path = find_latest(d, \"reddit_comments_\", \"_raw.json\")\n\n    if not summary_path or not posts_path or not comments_path:\n        raise SystemExit(\"Missing Reddit dataset files. Run collect_reddit.py first.\")\n\n    reddit_summary = json.loads(summary_path.read_text())\n    posts = json.loads(posts_path.read_text())\n    comments = json.loads(comments_path.read_text())\n\n    web_summary_path = find_latest(d, \"web_x_dataset_summary_\", \".json\")\n    web_links_path = find_latest(d, \"web_links_\", \".json\")\n    x_links_path = find_latest(d, \"x_links_\", \".json\")\n\n    web_summary = json.loads(web_summary_path.read_text()) if web_summary_path and web_summary_path.exists() else {}\n// ... 94 more lines — use cw_read(symbol: \"main\") for full source\n    if args.print_json:\n        print(json.dumps(payload, ensure_ascii=False, indent=2))\n    print(str(report_path))\n// [full]\n// src/research_agent/build_recommendation.py:404-406\nif __name__ == \"__main__\":\n    main()\n\n\n// === src/research_agent/collect_web_x.py ===\n// [full]\n// src/research_agent/collect_web_x.py:65-194\ndef main():\n    p = argparse.ArgumentParser(description=\"Collect web and X.com links for research runs\")\n    p.add_argument(\"--topic\", default=\"\", help=\"Legacy topic input. Prefer --query.\")\n    p.add_argument(\"--query\", default=\"\", help=\"General research query.\")\n    p.add_argument(\"--start\", required=True, help=\"YYYY-MM-DD UTC\")\n    p.add_argument(\"--end\", required=True, help=\"YYYY-MM-DD UTC\")\n    p.add_argument(\"--out\", required=True)\n    p.add_argument(\"--max-items\", type=int, default=200)\n    p.add_argument(\"--sleep\", type=float, default=0.8)\n    p.add_argument(\n        \"--require-terms\",\n        nargs=\"*\",\n        default=None,\n        help=\"Override term filter terms. Defaults to terms extracted from --query/--topic.\",\n    )\n    args = p.parse_args()\n\n    raw_query, parsed_query, required_terms, match_threshold, web_queries, x_queries = resolve_query_config(\n        args.topic, args.query, args.require_terms\n    )\n\n    start_dt = to_utc_dt(args.start, end_of_day=False)\n    end_dt = to_utc_dt(args.end, end_of_day=True)\n    out_dir = Path(args.out)\n    out_dir.mkdir(parents=True, exist_ok=True)\n\n    web_rows = []\n    x_rows = []\n    errors = []\n    seen = set()\n\n    def add_rows(items, query):\n        for item in items:\n            link = item.get(\"link\", \"\")\n            if not link or link in seen:\n                continue\n            seen.add(link)\n\n            blob = (\n                (item.get(\"title\", \"\") + \" \" + item.get(\"description\", \"\") + \" \" + link).lower()\n            )\n            matches = count_term_matches(blob, required_terms)\n// ... 85 more lines — use cw_read(symbol: \"main\") for full source\n    }\n    write_json(summary_json, summary)\n    print(json.dumps(summary, indent=2))\n// [full]\n// src/research_agent/collect_web_x.py:197-199\nif __name__ == \"__main__\":\n    main()\n\n// [full]\n// src/research_agent/collect_web_x.py:56-62\ndef resolve_query_config(topic: str, query: str, require_terms):\n    raw_query = resolve_query_text(topic, query)\n    parsed_query = parse_query(raw_query)\n    required = require_terms or parsed_query.search_terms or [raw_query]\n    threshold = minimum_term_matches(parsed_query.query_type)\n    web_queries, x_queries = build_web_query_variants(parsed_query)\n    return raw_query, parsed_query, required, threshold, web_queries, x_queries\n// [skeleton]\n// src/research_agent/collect_web_x.py:30 [function] export def fetch_rss_items(query: str, retries: int = 5):\n\n// === src/research_agent/collect_reddit.py ===\n// [skeleton]\n// src/research_agent/collect_reddit.py:77 [function] export def main():\n// [full]\n// src/research_agent/collect_reddit.py:227-229\nif __name__ == \"__main__\":\n    main()\n\n\n// === src/research_agent/query_classifier.py ===\n// [skeleton]\n// src/research_agent/query_classifier.py:230 [function] export def parse_query(raw: str) -> ParsedQuery:\n// [skeleton]\n// src/research_agent/query_classifier.py:261 [function] export def build_reddit_query_variants(parsed_query: ParsedQuery, year: int | None = None) -> List[str]:\n\n// === src/research_agent/common.py ===\n// [skeleton]\n// src/research_agent/common.py:41 [function] export def fetch_json(url: str, user_agent: str, retries: int = 6, timeout: int = 40):\n// [reference]\nfunction resolve_query_text @ src/research_agent/common.py:84\n// [reference]\nfunction write_csv @ src/research_agent/common.py:65\n\n--- Follow-Up Reads ---\nThese symbols were compressed. Use cw_read for full source:\n  cw_read(symbol: \"main\")  — 148 lines, scored 87.43\n  cw_read(symbol: \"fetch_rss_items\")  — 24 lines, scored 51.44\n  cw_read(symbol: \"parse_query\")  — 23 lines, scored 47.25\n  cw_read(symbol: \"build_reddit_query_variants\")  — 42 lines, scored 41.77\n  cw_read(symbol: \"fetch_json\")  — 18 lines, scored 41.70"
+          }
+        ]
+      }
+    },
+    {
+      "label": "grep_main",
+      "name": "cw_grep",
+      "args": {
+        "query": "def main",
+        "path": "src/research_agent",
+        "context_lines": 0,
+        "max_results": 20
+      },
+      "ms": 10,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Search results for \"def main\" (3 matches):\n\n1. src/research_agent/build_recommendation.py:275\n> 275 | def main():\n\n2. src/research_agent/collect_reddit.py:77\n> 77 | def main():\n\n3. src/research_agent/collect_web_x.py:65\n> 65 | def main():"
+          }
+        ]
+      }
+    },
+    {
+      "label": "confidence_architecture",
+      "name": "cw_capsule",
+      "args": {
+        "query": "architecture",
+        "token_budget": 2000,
+        "mode": "review"
+      },
+      "ms": 3,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "--- ContextWeave Capsule ---\nQuery: architecture\nMode: review | Strategy: single-pass (1 sub-queries)\nTokens: 425/2000\nSymbols: 1 across 1 files\nConfidence: LOW | Uncertainty: MEDIUM\nCoverage confidence: 40%\nUncertainty flag: true\nRetrieval: stageA 5 -> stageB 1\nCoverage: pivots 1/1 (100%), dependencies 100%, L3 noise 0%\n---\n\n// === IMPLEMENTATION_PLAN_END_TO_END.md ===\n// [full]\n// IMPLEMENTATION_PLAN_END_TO_END.md:1-399\n# RAGENT End-to-End Implementation Plan\n\nDate: 2026-02-13\nPrepared from: Claude v2.0 architecture plan + repository baseline audit\nObjective: Deliver a private, open-core-ready, MCP-first opinion research agent that supports general-topic queries while preserving backward compatibility.\n\n## 0) Execution Strategy (Required)\n\n1. Execution mode: single-agent\n2. Lead model: GPT-5 Codex\n3. Worker model policy: same as lead\n4. Teaming rule:\n   - Use `parallel-agent-team` when work spans multiple files/workstreams and can run concurrently.\n   - Use `single-agent` for scoped changes where coordination overhead exceeds gain.\n5. Order rule: always execute by priority `P0 -> P1 -> P2`.\n6. Gate rule: steps 3/4/5 (open-core split, ToS/compliance, ICP/pricing) are hard prerequisites; `RAGENT-P0-004..008` remain `blocked` until `RAGENT-P0-001..003` are `done` with evidence.\n\n## 1) Target Outcome\n\n1. Research CLI supports any-topic queries (`--query`) across Reddit/Web/X with dynamic term extraction.\n2. Recommendation stage supports comparison and non-comparison opinion flows.\n3. Architecture is staged for open-core split, compliance-safe provider policy, and MCP exposure.\n\n## 1A) Non-Skippable Strategic Gate (Steps 3/4/5)\n\n1. Step 3: open-core split (`RAGENT-P0-001`) decides OSS vs hosted boundaries before provider abstractions (Phase 2).\n2. Step 4: ToS/compliance (`RAGENT-P0-002`) defines what collection/storage/redistribution is legal before synthesis/provider expansion (Phase 4).\n// ... 135 more lines — use cw_read(symbol: \"implementation plan end to ragent date 2026 02 13 prepared\") for full source\n\n##\n... document truncated for indexing\n\n--- Quality Notes ---\n- overall coverage confidence below 55%\n\n--- Diagnostics ---\nClass: narrow\nBottleneck: none\nNo obvious bottleneck detected in the current pipeline stages.\nSuggestion: No immediate action needed. Keep monitoring this query class over time.\n\n--- Next Actions ---\n- Expand the search surface first: cw_overview(query: \"architecture\")\n- If you need exact text matches, run: cw_grep(query: \"architecture\")\n- Narrow the capsule to the most relevant directory: cw_capsule(query: \"architecture\", path: \"IMPLEMENTATION_PLAN_END_TO_END.md\")"
+          }
+        ]
+      }
+    },
+    {
+      "label": "confidence_quality_guarantees",
+      "name": "cw_capsule",
+      "args": {
+        "query": "quality guarantees",
+        "token_budget": 2000,
+        "mode": "review"
+      },
+      "ms": 3,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "--- ContextWeave Capsule ---\nQuery: quality guarantees\nMode: review | Strategy: single-pass (1 sub-queries)\nTokens: 866/2000\nSymbols: 2 across 2 files\nConfidence: HIGH | Uncertainty: LOW\nCoverage confidence: 60%\nUncertainty flag: false\nRetrieval: stageA 7 -> stageB 2\nCoverage: pivots 2/2 (100%), dependencies 100%, L3 noise 0%\n---\n\n// === README.md ===\n// [full]\n// README.md:1-133\n# research-agent\n\nEvidence-first research plugin for coding agents.\n\nIt answers questions like \"which model should I use for this implementation plan?\" using reproducible datasets, not hand-wavy summaries.\n\n## What it does\n\n- Collects Reddit posts and comments for a topic within a strict date window.\n- Collects web and X-discovery links (via search RSS) with the same date window.\n- Writes raw artifacts (`json` + `csv`) so claims are auditable.\n- Produces a final recommendation report with sample counts, citations, confidence, and limitations.\n\n## Why this exists\n\nPeople want factual, source-backed answers from real community signal (Reddit/X/web), but research is often non-reproducible. This project makes every conclusion traceable to saved source artifacts.\n\n## Install\n\n### 1) Python environment (recommended)\n\n```bash\ncd research-agent\npython3 -m venv .venv\n. .venv/bin/activate\npython -m pip install --upgrade pip\npython -m pip install -e .[dev]\n```\n\n### 2) Use as Codex skill (global)\n\n```bash\nmkdir -p ~/.codex/skills\ncp -R /path/to/research-agent ~/.codex/skills/research-agent\n```\n\nThen in Codex: ask to `use research-agent`.\n\nOr install directly from this repo:\n\n```bash\nbash scripts/install_codex_skill.sh\n```\n\n### 3) Use with other coding agents\n\nAny agent can call these CLIs directly:\n\n- `research-agent-reddit`\n- `research-agent-web-x`\n- `research-agent-report`\n\n## Quickstart\n\n```bash\nresearch-agent-reddit \\\n  --topic \"gpt-5.3 codex vs claude opus 4.6 coding\" \\\n  --start 2026-02-05 --end 2026-02-13 \\\n  --out ./research\n\nresearch-agent-web-x \\\n// ... 69 more lines — use cw_read(symbol: \"readme research agent evidence first plugin for coding agents it\") for full source\n\nMIT\n\n\n// === docs/plans/IMPLEMENTATION_PLAN_END_TO_END.md ===\n// [full]\n// docs/plans/IMPLEMENTATION_PLAN_END_TO_END.md:1-399\n# RAGENT End-to-End Implementation Plan\n\nDate: 2026-02-13\nPrepared from: Claude v2.0 architecture plan + repository baseline audit\nObjective: Deliver a private, open-core-ready, MCP-first opinion research agent that supports general-topic queries while preserving backward compatibility.\n\n## 0) Execution Strategy (Required)\n\n1. Execution mode: single-agent\n2. Lead model: GPT-5 Codex\n3. Worker model policy: same as lead\n4. Teaming rule:\n   - Use `parallel-agent-team` when work spans multiple files/workstreams and can run concurrently.\n   - Use `single-agent` for scoped changes where coordination overhead exceeds gain.\n5. Order rule: always execute by priority `P0 -> P1 -> P2`.\n6. Gate rule: steps 3/4/5 (open-core split, ToS/compliance, ICP/pricing) are hard prerequisites; `RAGENT-P0-004..008` remain `blocked` until `RAGENT-P0-001..003` are `done` with evidence.\n\n## 1) Target Outcome\n\n1. Research CLI supports any-topic queries (`--query`) across Reddit/Web/X with dynamic term extraction.\n2. Recommendation stage supports comparison and non-comparison opinion flows.\n3. Architecture is staged for open-core split, compliance-safe provider policy, and MCP exposure.\n\n## 1A) Non-Skippable Strategic Gate (Steps 3/4/5)\n\n1. Step 3: open-core split (`RAGENT-P0-001`) decides OSS vs hosted boundaries before provider abstractions (Phase 2).\n2. Step 4: ToS/compliance (`RAGENT-P0-002`) defines what collection/storage/redistribution is legal before synthesis/provider expansion (Phase 4).\n// ... 135 more lines — use cw_read(symbol: \"implementation plan end to ragent date 2026 02 13 prepared\") for full source\n\n##\n... document truncated for indexing"
+          }
+        ]
+      }
+    },
+    {
+      "label": "budget_parse_query_8k",
+      "name": "cw_capsule",
+      "args": {
+        "query": "parse_query",
+        "token_budget": 8000,
+        "mode": "review"
+      },
+      "ms": 3,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "--- ContextWeave Capsule ---\nQuery: parse_query\nMode: review | Strategy: single-pass (1 sub-queries)\nTokens: 735/8000\nSymbols: 15 across 5 files\nConfidence: LOW | Uncertainty: MEDIUM\nCoverage confidence: 40%\nUncertainty flag: true\nRetrieval: stageA 17 -> stageB 15\nCoverage: pivots 15/15 (100%), dependencies 100%, L3 noise 0%\n---\n\n// === src/research_agent/query_classifier.py ===\n// [summary]\n[function] parse_query (src/research_agent/query_classifier.py:230)\nsig: def parse_query(raw: str) -> ParsedQuery:\ndeps: _normalize_spaces, _classify, _extract_entities, _search_terms_from_entities, suggest_subreddits, +1 more\n// [summary]\n[previously shown] class ParsedQuery:\n// [summary]\n[previously shown] def suggest_subreddits(parsed_query: ParsedQuery) -> List[str]:\n// [summary]\n[previously shown] def _normalize_spaces(value: str) -> str:\n// [summary]\n[function] _classify (src/research_agent/query_classifier.py:164)\nsig: def _classify(raw: str) -> Tuple[QueryType, List[str]]:\ndeps: _normalize_spaces\n// [summary]\n[function] _extract_entities (src/research_agent/query_classifier.py:186)\nsig: def _extract_entities(raw: str, classified_entities: Sequence[str]) -> List[str]:\ndeps: _clean_entity, _extract_quoted_phrases, _extract_capitalized_phrases, _extract_keyword_phrases\n// [summary]\n[previously shown] def _search_terms_from_entities(raw: str, entities: Sequence[str]) -> List[str]:\n\n// === src/research_agent/build_recommendation.py ===\n// [summary]\n[function] main (src/research_agent/build_recommendation.py:275)\nsig: def main():\ndeps: find_latest, load_json_or_empty, collect_texts, build_report_payload, compute_scores, +4 more\n\n// === src/research_agent/collect_web_x.py ===\n// [summary]\n[function] resolve_query_config (src/research_agent/collect_web_x.py:56)\nsig: def resolve_query_config(topic: str, query: str, require_terms):\ndeps: resolve_query_text, resolve_query_text, parse_query, parse_query, minimum_term_matches, +3 more\n\n// === src/research_agent/collect_reddit.py ===\n// [summary]\n[function] main (src/research_agent/collect_reddit.py:77)\nsig: def main():\ndeps: flatten_comments, _unique_keep_order, discover_subreddits, to_utc_ts, to_utc_ts, +12 more\n\n// === tests/test_query_classifier.py ===\n// [summary]\n[function] test_parse_query_classifies_opinion (tests/test_query_classifier.py:18)\nsig: def test_parse_query_classifies_opinion():\ndeps: parse_query, parse_query\n// [summary]\n[function] test_parse_query_classifies_best_of (tests/test_query_classifier.py:25)\nsig: def test_parse_query_classifies_best_of():\ndeps: parse_query, parse_query\n// [summary]\n[function] test_parse_query_falls_back_to_fact_finding (tests/test_query_classifier.py:31)\nsig: def test_parse_query_falls_back_to_fact_finding():\ndeps: parse_query, parse_query\n// [full]\n// tests/test_query_classifier.py:10-15\ndef test_parse_query_classifies_comparison_and_entities():\n    parsed = parse_query(\"Cursor vs Copilot\")\n    assert parsed.query_type == QueryType.COMPARISON\n    assert parsed.entities[:2] == [\"Cursor\", \"Copilot\"]\n    assert \"Cursor\" in parsed.search_terms\n    assert \"Copilot\" in parsed.search_terms\n// [full]\n// tests/test_query_classifier.py:36-44\ndef test_build_variants_and_thresholds():\n    parsed = parse_query(\"Notion vs Obsidian\")\n    reddit_variants = build_reddit_query_variants(parsed, year=2026)\n    web_variants, x_variants = build_web_query_variants(parsed, year=2026)\n    assert \"Notion vs Obsidian\" in reddit_variants\n    assert any(\"comparison\" in row.lower() for row in web_variants)\n    assert any(\"site:x.com\" in row for row in x_variants)\n    assert minimum_term_matches(QueryType.COMPARISON) == 2\n    assert minimum_term_matches(QueryType.OPINION) == 1\n\n--- Follow-Up Reads ---\nThese symbols were compressed. Use cw_read for full source:\n  cw_read(symbol: \"parse_query\")  — 23 lines, scored 104.34\n  cw_read(symbol: \"ParsedQuery\")  — 6 lines, scored 58.20\n  cw_read(symbol: \"main\")  — 127 lines, scored 56.78\n  cw_read(symbol: \"suggest_subreddits\")  — 12 lines, scored 56.42\n  cw_read(symbol: \"resolve_query_config\")  — 7 lines, scored 53.09\n\n--- Quality Notes ---\n- overall coverage confidence below 55%\n\n--- Diagnostics ---\nClass: narrow\nBottleneck: none\nNo obvious bottleneck detected in the current pipeline stages.\nSuggestion: No immediate action needed. Keep monitoring this query class over time.\n\n--- Next Actions ---\n- Read the highest-value compressed symbol next: cw_read(symbol: \"parse_query\")\n- Narrow the capsule to the most relevant directory: cw_capsule(query: \"parse_query\", path: \"src/research_agent\")"
+          }
+        ]
+      }
+    },
+    {
+      "label": "budget_querytype_8k",
+      "name": "cw_capsule",
+      "args": {
+        "query": "How does QueryType control the pipeline from ingestion to collection to scoring, and where are evidence-quality guarantees actually enforced in code versus merely assumed by downstream stages?",
+        "token_budget": 8000,
+        "mode": "review"
+      },
+      "ms": 8,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "--- ContextWeave Capsule ---\nQuery: How does QueryType control the pipeline from ingestion to collection to scoring, and where are evidence-quality guarantees actually enforced in code versus merely assumed by downstream stages?\nMode: review | Strategy: multi-pass (2 sub-queries)\nTokens: 426/8000\nSymbols: 12 across 7 files\nConfidence: LOW | Uncertainty: HIGH\nCoverage confidence: 40%\nUncertainty flag: true\nRetrieval: stageA 18 -> stageB 13\nCoverage: pivots 12/13 (92%), dependencies 100%, L3 noise 0%\n---\n\n// === [Cluster: src/research_agent] ===\n// === src/research_agent/query_classifier.py ===\n// [full]\n// src/research_agent/query_classifier.py:10-14\nclass QueryType(str, Enum):\n    COMPARISON = \"comparison\"\n    OPINION = \"opinion\"\n    BEST_OF = \"best_of\"\n    FACT_FINDING = \"fact_finding\"\n// [summary]\n[function] parse_query (src/research_agent/query_classifier.py:230)\nsig: def parse_query(raw: str) -> ParsedQuery:\ndeps: _normalize_spaces, _classify, _extract_entities, _search_terms_from_entities, suggest_subreddits, +1 more\n// === src/research_agent/build_recommendation.py ===\n// [skeleton]\n// src/research_agent/build_recommendation.py:121 [function] export def compute_scores(posts, comments, web_links, x_links):\n// [skeleton]\n// src/research_agent/build_recommendation.py:146 [function] export def compute_scores_dynamic(texts, parsed_query: ParsedQuery):\n// [skeleton]\n// src/research_agent/build_recommendation.py:26 [function] export def load_json_or_empty(path: Path):\n// [skeleton]\n// src/research_agent/build_recommendation.py:19 [function] export def find_latest(input_dir: Path, prefix: str, suffix: str):\n// [skeleton]\n// src/research_agent/build_recommendation.py:140 [function] def _first_or_fallback(values, fallback: str):\n// === src/research_agent/common.py ===\n// [skeleton]\n// src/research_agent/common.py:72 [function] export def mention_scores(texts: Iterable[str], model_a_tokens: List[str], model_b_tokens: List[str]) -> Tuple[int, int]:\n\n// === [Cluster: tests] ===\n// === tests/test_build_recommendation.py ===\n// [skeleton]\n// tests/test_build_recommendation.py:10 [function] export def test_compute_scores_prefers_model_a_given_mentions():\n// === tests/test_query_classifier.py ===\n// [summary]\n[function] test_parse_query_classifies_comparison_and_entities (tests/test_query_classifier.py:10)\nsig: def test_parse_query_classifies_comparison_and_entities():\ndeps: parse_query, parse_query, QueryType\n// === tests/test_collect_web_x.py ===\n// [skeleton]\n// tests/test_collect_web_x.py:5 [function] export def test_count_term_matches_threshold_logic():\n\n// === [Cluster: prompts] ===\n// === prompts/codex_bootstrap_prompt.md ===\n// [skeleton]\n// prompts/codex_bootstrap_prompt.md:1 [variable] export codex bootstrap prompt copy paste use this when you want coding agent to fully initialize and run research in one shot text are the\n\n--- Follow-Up Reads ---\nThese symbols were compressed. Use cw_read for full source:\n  cw_read(symbol: \"compute_scores\")  — 12 lines, scored 66.17\n  cw_read(symbol: \"compute_scores_dynamic\")  — 100 lines, scored 65.59\n  cw_read(symbol: \"parse_query\")  — 23 lines, scored 65.21\n  cw_read(symbol: \"mention_scores\")  — 10 lines, scored 62.14\n  cw_read(symbol: \"codex bootstrap prompt copy paste use this when you want\")  — 40 lines, scored 49.85\n\n--- Quality Notes ---\n- query term coverage below 60%\n- overall coverage confidence below 60%\n\n--- Diagnostics ---\nClass: broad\nBottleneck: lexical_mismatch\nStructural retrieval is healthy, but lexical overlap with the query terms is weak enough to depress confidence.\nSuggestion: Treat this as a semantic wording gap: expand concept synonyms or preserve confidence when bridge files already cover the runtime path.\n\n--- Next Actions ---\n- Read the highest-value compressed symbol next: cw_read(symbol: \"compute_scores\")\n- Narrow the capsule to the most relevant directory: cw_capsule(query: \"How does QueryType control the pipeline from ingestion to collection to scoring, and where are evidence-quality guarantees actually enforced in code versus merely assumed by downstream stages?\", path: \"src/research_agent\")"
+          }
+        ]
+      }
+    },
+    {
+      "label": "flow_resolve_query_config",
+      "name": "cw_flow",
+      "args": {
+        "source": "resolve_query_config",
+        "max_hops": 4
+      },
+      "ms": 1,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Outgoing flows from \"resolve_query_config\" (max 4 hops):\n\n\nPath 1:\n  [import] → function build_web_query_variants (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:305)\n  [call] → function build_reddit_query_variants (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:261)\n  [call] → function _unique_keep_order (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:110)\n  [call] → function _normalize_spaces (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:106)\n\nPath 2:\n  [import] → function build_web_query_variants (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:305)\n  [call] → function _unique_keep_order (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:110)\n  [call] → function _normalize_spaces (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:106)\n\nPath 3:\n  [import] → function parse_query (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:230)\n  [call] → function _normalize_spaces (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:106)\n\nPath 4:\n  [import] → function parse_query (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:230)\n  [call] → function _classify (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:164)\n  [call] → function _normalize_spaces (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:106)\n\nPath 5:\n  [import] → function parse_query (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:230)\n  [call] → function _extract_entities (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:186)\n  [call] → function _extract_quoted_phrases (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:132)\n\nPath 6:\n  [import] → function parse_query (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:230)\n  [call] → function _extract_entities (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:186)\n  [call] → function _extract_capitalized_phrases (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:142)\n\nPath 7:\n  [import] → function parse_query (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:230)\n  [call] → function _extract_entities (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:186)\n  [call] → function _extract_keyword_phrases (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:149)\n\nPath 8:\n  [import] → function parse_query (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:230)\n  [call] → function _extract_entities (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:186)\n  [call] → function _clean_entity (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:125)\n\nPath 9:\n  [import] → function parse_query (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:230)\n  [call] → function _search_terms_from_entities (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:199)\n\nPath 10:\n  [import] → function parse_query (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:230)\n  [call] → class ParsedQuery (/Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py:18)"
+          }
+        ]
+      }
+    },
+    {
+      "label": "flow_fetch_rss_items",
+      "name": "cw_flow",
+      "args": {
+        "source": "fetch_rss_items",
+        "max_hops": 4
+      },
+      "ms": 0,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "No outgoing flows found from \"fetch_rss_items\" (flows_limited: true).\nSymbol location: /Users/aejjusingh/Developer/research-agent/src/research_agent/collect_web_x.py:30\nReason: analysis is primarily limited to static call expressions. Prop callbacks,\nhigher-order functions, and unsupported dynamic dispatch patterns may be missing.\nRecommendation: use cw_read to inspect \"fetch_rss_items\" directly."
+          }
+        ]
+      }
+    },
+    {
+      "label": "overview_arch",
+      "name": "cw_overview",
+      "args": {
+        "query": "artifact contract and query type architecture",
+        "path": "src/research_agent",
+        "depth": 2,
+        "max_tokens": 2000
+      },
+      "ms": 1,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "ContextWeave Overview\nProject: /Users/aejjusingh/Developer/research-agent\nScope: src/research_agent\nIndexed Files: 6\nIndexed Symbols: 93 (global: 130)\nGlobal Edges: 141\nFirst-pass rate: 100.0% (12 capsules)\nCorrection rate: 0.0% (12 capsules)\n\nDirectory Summary (depth 2):\n- src (6 files, 93 symbols)\n  - src/research_agent (6 files, 93 symbols)\n\nTop Files by Symbol Count:\n- src/research_agent/query_classifier.py (33 symbols)\n- src/research_agent/build_recommendation.py (27 symbols)\n- src/research_agent/collect_web_x.py (12 symbols)\n- src/research_agent/common.py (11 symbols)\n- src/research_agent/collect_reddit.py (9 symbols)\n- src/research_agent/__init__.py (1 symbols)\n\nQuery Focus: \"artifact contract and query type architecture\"\n- src/research_agent/query_classifier.py\n  · summary match: query_classifier query classifier py _normalize_spaces normalize spaces _unique_keep_order unique keep\n- src/research_agent/build_recommendation.py\n  · summary match: parsed query parsedquery main legacy tokens gpt codex opus claude\n- src/research_agent/collect_web_x.py\n  · summary match: resolve query config main add_rows add rows ua blob rec\n- src/research_agent/common.py\n  · summary match: resolve query text split_terms split terms count_text_mentions count mentions def\n- src/research_agent/collect_reddit.py\n  · summary match: raw query str limit int 12 main ua mozilla researchagent"
+          }
+        ]
+      }
+    },
+    {
+      "label": "recall_quality",
+      "name": "cw_recall",
+      "args": {
+        "query": "query type quality guarantees",
+        "limit": 10
+      },
+      "ms": 0,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Memory recall for \"query type quality guarantees\" (1 results):\n\nIntentional observations:\n- [convention] (confidence: 0.50) .claude/CLAUDE.md: cw capsule: Generate a token-budgeted context capsule for a query.\n"
+          }
+        ]
+      }
+    },
+    {
+      "label": "impact_parse_query",
+      "name": "cw_impact",
+      "args": {
+        "target": "parse_query",
+        "depth": 3
+      },
+      "ms": 1,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Impact analysis for \"parse_query\" (depth 3):\n\n\nDepth 1:\n  import → function test_compute_scores_dynamic_opinion_sentiment (/Users/aejjusingh/Developer/research-agent/tests/test_build_recommendation.py:41)\n  import → function test_compute_scores_dynamic_comparison_and_payload (/Users/aejjusingh/Developer/research-agent/tests/test_build_recommendation.py:54)\n  import → function test_parse_query_classifies_comparison_and_entities (/Users/aejjusingh/Developer/research-agent/tests/test_query_classifier.py:10)\n  import → function test_parse_query_classifies_opinion (/Users/aejjusingh/Developer/research-agent/tests/test_query_classifier.py:18)\n  import → function test_parse_query_classifies_best_of (/Users/aejjusingh/Developer/research-agent/tests/test_query_classifier.py:25)\n  import → function test_parse_query_falls_back_to_fact_finding (/Users/aejjusingh/Developer/research-agent/tests/test_query_classifier.py:31)\n  import → function test_build_variants_and_thresholds (/Users/aejjusingh/Developer/research-agent/tests/test_query_classifier.py:36)\n  import → function main (/Users/aejjusingh/Developer/research-agent/src/research_agent/build_recommendation.py:275)\n  import → function main (/Users/aejjusingh/Developer/research-agent/src/research_agent/collect_reddit.py:77)\n  import → function resolve_query_config (/Users/aejjusingh/Developer/research-agent/src/research_agent/collect_web_x.py:56)\n\nDepth 2:\n  call → variable __main__ (/Users/aejjusingh/Developer/research-agent/src/research_agent/build_recommendation.py:404)\n  import → variable __main__ (/Users/aejjusingh/Developer/research-agent/scripts/build_recommendation.py:9)\n  import → variable __main__ (/Users/aejjusingh/Developer/research-agent/scripts/collect_reddit.py:9)\n  import → variable __main__ (/Users/aejjusingh/Developer/research-agent/scripts/collect_web_x.py:9)\n  call → variable __main__ (/Users/aejjusingh/Developer/research-agent/src/research_agent/collect_reddit.py:227)\n  import → function test_resolve_query_config_uses_dynamic_terms_for_opinion (/Users/aejjusingh/Developer/research-agent/tests/test_collect_web_x.py:10)\n  import → function test_resolve_query_config_keeps_threshold_two_for_comparison (/Users/aejjusingh/Developer/research-agent/tests/test_collect_web_x.py:24)\n  call → function main (/Users/aejjusingh/Developer/research-agent/src/research_agent/collect_web_x.py:65)\n\nDepth 3:\n  call → variable __main__ (/Users/aejjusingh/Developer/research-agent/src/research_agent/collect_web_x.py:197)\n\nTotal: 19 affected symbols"
+          }
+        ]
+      }
+    },
+    {
+      "label": "status_verbose",
+      "name": "cw_status",
+      "args": {
+        "verbose": true
+      },
+      "ms": 1,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "ContextWeave Index Status\nProject: /Users/aejjusingh/Developer/research-agent\n\nFiles:        28\nSymbols:      130\nEdges:        141\nObservations: 20 (0 stale)\nFirst-pass rate: 100.0% (12 capsules)\nCorrection rate: 0.0% (12 capsules)\n\nProject Profile\nLanguages: python (14), markdown (10), yaml (2), bash (1), toml (1)\nActive roots: src (6), docs (5), scripts (4), tests (4), prompts (2), .github (1), agents (1), pyproject.toml (1)\nExcluded roots: .git [.cwignore], .pytest_cache [.gitignore], .venv [.gitignore], __pycache__ [.gitignore], .bundle [.cwignore], .cache [.cwignore], .DS_Store [.gitignore], .next [.cwignore]\nSuspicious dirs: .venv (excluded)\nIgnore defaults: Python defaults exclude __pycache__, venv/.venv, and .tox.\nIgnore defaults: Mixed repos merge config.ignore, config.exclude, config.excludePatterns, .gitignore, and .cwignore.\n\nRecent Capsule Generations:\n  [2026-03-14 09:22:54] \"How does QueryType control the pipeline from ingestion to collection to scoring, and where are evidence-quality guarantees actually enforced in code versus merely assumed by downstream stages?\" — 426/8000 tokens (5%), 12 symbols, noise: 0.00\n  [2026-03-14 09:22:54] \"parse_query\" — 735/8000 tokens (9%), 15 symbols, noise: 0.00\n  [2026-03-14 09:22:54] \"quality guarantees\" — 866/2000 tokens (43%), 2 symbols, noise: 0.00\n  [2026-03-14 09:22:54] \"architecture\" — 425/2000 tokens (21%), 1 symbols, noise: 0.00\n  [2026-03-14 09:22:54] \"main\" — 1199/1200 tokens (100%), 13 symbols, noise: 0.00\n\nPer-file breakdown:\n  /Users/aejjusingh/Developer/research-agent/.github/workflows/tests.yml (1 symbols, yaml)\n  /Users/aejjusingh/Developer/research-agent/README.md (1 symbols, markdown)\n  /Users/aejjusingh/Developer/research-agent/SKILL.md (1 symbols, markdown)\n  /Users/aejjusingh/Developer/research-agent/agents/openai.yaml (1 symbols, yaml)\n  /Users/aejjusingh/Developer/research-agent/docs/plans/IMPLEMENTATION_PLAN_END_TO_END.md (1 symbols, markdown)\n  /Users/aejjusingh/Developer/research-agent/docs/plans/SPRINT_PROGRESS.md (1 symbols, markdown)\n  /Users/aejjusingh/Developer/research-agent/docs/strategy/COMPLIANCE_POSTURE.md (1 symbols, markdown)\n  /Users/aejjusingh/Developer/research-agent/docs/strategy/ICP_PRICING_HYPOTHESIS.md (1 symbols, markdown)\n  /Users/aejjusingh/Developer/research-agent/docs/strategy/OPEN_CORE_BOUNDARY.md (1 symbols, markdown)\n  /Users/aejjusingh/Developer/research-agent/prompts/codex_bootstrap_prompt.md (1 symbols, markdown)\n  /Users/aejjusingh/Developer/research-agent/prompts/universal_agent_prompt.md (1 symbols, markdown)\n  /Users/aejjusingh/Developer/research-agent/pyproject.toml (1 symbols, toml)\n  /Users/aejjusingh/Developer/research-agent/references/source-checklist.md (1 symbols, markdown)\n  /Users/aejjusingh/Developer/research-agent/scripts/build_recommendation.py (1 symbols, python)\n  /Users/aejjusingh/Developer/research-agent/scripts/collect_reddit.py (1 symbols, python)\n  /Users/aejjusingh/Developer/research-agent/scripts/collect_web_x.py (1 symbols, python)\n  /Users/aejjusingh/Developer/research-agent/scripts/install_codex_skill.sh (2 symbols, bash)\n  /Users/aejjusingh/Developer/research-agent/setup.py (0 symbols, python)\n  /Users/aejjusingh/Developer/research-agent/src/research_agent/__init__.py (1 symbols, python)\n  /Users/aejjusingh/Developer/research-agent/src/research_agent/build_recommendation.py (27 symbols, python)\n  /Users/aejjusingh/Developer/research-agent/src/research_agent/collect_reddit.py (9 symbols, python)\n  /Users/aejjusingh/Developer/research-agent/src/research_agent/collect_web_x.py (12 symbols, python)\n  /Users/aejjusingh/Developer/research-agent/src/research_agent/common.py (11 symbols, python)\n  /Users/aejjusingh/Developer/research-agent/src/research_agent/query_classifier.py (33 symbols, python)\n  /Users/aejjusingh/Developer/research-agent/tests/test_build_recommendation.py (8 symbols, python)\n  /Users/aejjusingh/Developer/research-agent/tests/test_collect_web_x.py (3 symbols, python)\n  /Users/aejjusingh/Developer/research-agent/tests/test_common.py (3 symbols, python)\n  /Users/aejjusingh/Developer/research-agent/tests/test_query_classifier.py (5 symbols, python)"
+          }
+        ]
+      }
+    },
+    {
+      "label": "stats_probe_capsule",
+      "name": "cw_capsule",
+      "args": {
+        "query": "resolve_query_config",
+        "token_budget": 1200,
+        "mode": "review"
+      },
+      "ms": 2,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "--- ContextWeave Capsule ---\nQuery: resolve_query_config\nMode: review | Strategy: single-pass (1 sub-queries)\nTokens: 369/1200\nSymbols: 8 across 4 files\nConfidence: HIGH | Uncertainty: LOW\nCoverage confidence: 60%\nUncertainty flag: false\nRetrieval: stageA 8 -> stageB 8\nCoverage: pivots 8/8 (100%), dependencies 100%, L3 noise 0%\n---\n\n// === src/research_agent/collect_web_x.py ===\n// [summary]\n[function] resolve_query_config (src/research_agent/collect_web_x.py:56)\nsig: def resolve_query_config(topic: str, query: str, require_terms):\ndeps: resolve_query_text, resolve_query_text, parse_query, parse_query, minimum_term_matches, +3 more\n// [summary]\n[function] main (src/research_agent/collect_web_x.py:65)\nsig: def main():\ndeps: fetch_rss_items, resolve_query_config, add_rows, to_utc_dt, to_utc_dt, +4 more\n\n// === src/research_agent/query_classifier.py ===\n// [summary]\n[function] parse_query (src/research_agent/query_classifier.py:230)\nsig: def parse_query(raw: str) -> ParsedQuery:\ndeps: _normalize_spaces, _classify, _extract_entities, _search_terms_from_entities, suggest_subreddits, +1 more\n// [summary]\n[function] build_web_query_variants (src/research_agent/query_classifier.py:305)\nsig: def build_web_query_variants(parsed_query: ParsedQuery, year: int | None = None) -> Tuple[List[str], List[str]]:\ndeps: _unique_keep_order, build_reddit_query_variants\n// [summary]\n[previously shown] def minimum_term_matches(query_type: QueryType) -> int:\n\n// === src/research_agent/common.py ===\n// [summary]\n[previously shown] def resolve_query_text(topic: str | None, query: str | None) -> str:\n\n// === tests/test_collect_web_x.py ===\n// [summary]\n[function] test_resolve_query_config_uses_dynamic_terms_for_opinion (tests/test_collect_web_x.py:10)\nsig: def test_resolve_query_config_uses_dynamic_terms_for_opinion():\ndeps: resolve_query_config, resolve_query_config\n// [summary]\n[function] test_resolve_query_config_keeps_threshold_two_for_comparison (tests/test_collect_web_x.py:24)\nsig: def test_resolve_query_config_keeps_threshold_two_for_comparison():\ndeps: resolve_query_config, resolve_query_config\n\n--- Follow-Up Reads ---\nThese symbols were compressed. Use cw_read for full source:\n  cw_read(symbol: \"resolve_query_config\")  — 7 lines, scored 95.31\n  cw_read(symbol: \"parse_query\")  — 23 lines, scored 60.49\n  cw_read(symbol: \"main\")  — 130 lines, scored 58.91\n  cw_read(symbol: \"resolve_query_text\")  — 5 lines, scored 54.32\n  cw_read(symbol: \"build_web_query_variants\")  — 10 lines, scored 52.07"
+          }
+        ]
+      }
+    },
+    {
+      "label": "stats_probe_read",
+      "name": "cw_read",
+      "args": {
+        "symbol": "resolve_query_config"
+      },
+      "ms": 1,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Read src/research_agent/collect_web_x.py:56-62 (7 lines)\nSymbol: function resolve_query_config (56-62)\n\n56 | def resolve_query_config(topic: str, query: str, require_terms):\n57 |     raw_query = resolve_query_text(topic, query)\n58 |     parsed_query = parse_query(raw_query)\n59 |     required = require_terms or parsed_query.search_terms or [raw_query]\n60 |     threshold = minimum_term_matches(parsed_query.query_type)\n61 |     web_queries, x_queries = build_web_query_variants(parsed_query)\n62 |     return raw_query, parsed_query, required, threshold, web_queries, x_queries"
+          }
+        ]
+      }
+    },
+    {
+      "label": "stats_probe_stats",
+      "name": "cw_stats",
+      "args": {},
+      "ms": 4,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "ContextWeave Session Stats\nSession: cfd2b567-3dd6-41d1-a9f7-a73394db6058\n\nCapsules generated:    8\nTotal tokens budgeted: 24,800\nTotal tokens used:     6,390 (26% of budget)\nUnique files covered:  11\nUnique symbols served: 36\nFirst-pass rate:       100.0%\nCorrection rate:       0.0%\n\nEstimated savings:\n  Raw file reads (est): ~18,184 tokens\n  ContextWeave used:    ~6,390 tokens\n  Estimated savings:    ~11,794 tokens (65% reduction)"
+          }
+        ]
+      }
+    }
+  ]
+}

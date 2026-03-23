@@ -1,0 +1,185 @@
+{
+  "totalMs": 386,
+  "results": [
+    {
+      "name": "cw_capsule",
+      "args": {
+        "query": "Understand resolve_query_config: what it returns, how it derives terms and thresholds, and what downstream behavior it controls",
+        "token_budget": 1800,
+        "mode": "review"
+      },
+      "ms": 26,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "--- ContextWeave Capsule ---\nQuery: Understand resolve_query_config: what it returns, how it derives terms and thresholds, and what downstream behavior it controls\nMode: review | Strategy: multi-pass (4 sub-queries)\nTokens: 173/1800\nSymbols: 4 across 4 files\nConfidence: LOW | Uncertainty: MEDIUM\nCoverage confidence: 40%\nUncertainty flag: true\nRetrieval: stageA 22 -> stageB 4\nCoverage: pivots 4/4 (100%), dependencies 100%, L3 noise 0%\n---\n\n// === [Cluster: collect_web_x.py] ===\n// === collect_web_x.py ===\n// [full]\n// collect_web_x.py:56-62\ndef resolve_query_config(topic: str, query: str, require_terms):\n    raw_query = resolve_query_text(topic, query)\n    parsed_query = parse_query(raw_query)\n    required = require_terms or parsed_query.search_terms or [raw_query]\n    threshold = minimum_term_matches(parsed_query.query_type)\n    web_queries, x_queries = build_web_query_variants(parsed_query)\n    return raw_query, parsed_query, required, threshold, web_queries, x_queries\n\n// === [Cluster: common.py] ===\n// === common.py ===\n// [skeleton]\n// common.py:91 [function] export def split_terms(value: str) -> List[str]:\n\n// === [Cluster: query_classifier.py] ===\n// === query_classifier.py ===\n// [skeleton]\n// query_classifier.py:199 [function] def _search_terms_from_entities(raw: str, entities: Sequence[str]) -> List[str]:\n\n// === [Cluster: build_recommendation.py] ===\n// === build_recommendation.py ===\n// [skeleton]\n// build_recommendation.py:135 [function] def _count_term_hits(text: str, terms):\n\n--- Follow-Up Reads ---\nThese symbols were compressed. Use cw_read for full source:\n  cw_read(symbol: \"split_terms\")  — 2 lines, scored 105.56\n  cw_read(symbol: \"_search_terms_from_entities\")  — 15 lines, scored 68.96\n  cw_read(symbol: \"_count_term_hits\")  — 3 lines, scored 56.96\n\n--- Quality Notes ---\n- overall coverage confidence below 60%\n\n--- Diagnostics ---\nClass: broad\nBottleneck: none\nNo obvious bottleneck detected in the current pipeline stages.\nSuggestion: No immediate action needed. Keep monitoring this query class over time.\n\n--- Next Actions ---\n- Read the highest-value compressed symbol next: cw_read(symbol: \"split_terms\")\n- Narrow the capsule to the most relevant directory: cw_capsule(query: \"Understand resolve_query_config: what it returns, how it derives terms and thresholds, and what downstream behavior it controls\", path: \"collect_web_x.py\")"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cw_read",
+      "args": {
+        "symbol": "split_terms"
+      },
+      "ms": 7,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Read src/research_agent/common.py:91-92 (2 lines)\nSymbol: function split_terms (91-92)\n\n91 | def split_terms(value: str) -> List[str]:\n92 |     return re.findall(r\"[A-Za-z0-9.+-]{2,}\", value or \"\")"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cw_read",
+      "args": {
+        "symbol": "_search_terms_from_entities"
+      },
+      "ms": 1,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Read src/research_agent/query_classifier.py:199-213 (15 lines)\nSymbol: function _search_terms_from_entities (199-213)\n\n199 | def _search_terms_from_entities(raw: str, entities: Sequence[str]) -> List[str]:\n200 |     terms: List[str] = []\n201 |     for entity in entities:\n202 |         terms.append(entity)\n203 |         parts = re.findall(r\"[A-Za-z0-9.+-]{2,}\", entity)\n204 |         for part in parts:\n205 |             if part.lower() not in _STOPWORDS:\n206 |                 terms.append(part)\n207 | \n208 |     if not terms:\n209 |         parts = re.findall(r\"[A-Za-z0-9.+-]{3,}\", raw)\n210 |         for part in parts:\n211 |             if part.lower() not in _STOPWORDS:\n212 |                 terms.append(part)\n213 |     return _unique_keep_order(terms)[:12]"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cw_read",
+      "args": {
+        "symbol": "_count_term_hits"
+      },
+      "ms": 1,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Read src/research_agent/build_recommendation.py:135-137 (3 lines)\nSymbol: function _count_term_hits (135-137)\n\n135 | def _count_term_hits(text: str, terms):\n136 |     low = (text or \"\").lower()\n137 |     return sum(1 for term in terms if term.lower() in low)"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cw_impact",
+      "args": {
+        "target": "src/research_agent/collect_web_x.py:resolve_query_config"
+      },
+      "ms": 1,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Impact analysis for \"src/research_agent/collect_web_x.py:resolve_query_config\" (depth 3):\n\n\nDepth 1:\n  import → function test_resolve_query_config_uses_dynamic_terms_for_opinion (/Users/aejjusingh/Developer/research-agent/tests/test_collect_web_x.py:10)\n  import → function test_resolve_query_config_keeps_threshold_two_for_comparison (/Users/aejjusingh/Developer/research-agent/tests/test_collect_web_x.py:24)\n  call → function main (/Users/aejjusingh/Developer/research-agent/src/research_agent/collect_web_x.py:65)\n\nDepth 2:\n  call → variable __main__ (/Users/aejjusingh/Developer/research-agent/src/research_agent/collect_web_x.py:197)\n  import → variable __main__ (/Users/aejjusingh/Developer/research-agent/scripts/build_recommendation.py:9)\n  import → variable __main__ (/Users/aejjusingh/Developer/research-agent/scripts/collect_reddit.py:9)\n  import → variable __main__ (/Users/aejjusingh/Developer/research-agent/scripts/collect_web_x.py:9)\n\nTotal: 7 affected symbols"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cw_read",
+      "args": {
+        "symbol": "resolve_query_config"
+      },
+      "ms": 1,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Read src/research_agent/collect_web_x.py:56-62 (7 lines)\nSymbol: function resolve_query_config (56-62)\n\n56 | def resolve_query_config(topic: str, query: str, require_terms):\n57 |     raw_query = resolve_query_text(topic, query)\n58 |     parsed_query = parse_query(raw_query)\n59 |     required = require_terms or parsed_query.search_terms or [raw_query]\n60 |     threshold = minimum_term_matches(parsed_query.query_type)\n61 |     web_queries, x_queries = build_web_query_variants(parsed_query)\n62 |     return raw_query, parsed_query, required, threshold, web_queries, x_queries"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cw_read",
+      "args": {
+        "symbol": "resolve_query_text"
+      },
+      "ms": 0,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Read src/research_agent/common.py:84-88 (5 lines)\nSymbol: function resolve_query_text (84-88)\n\n84 | def resolve_query_text(topic: str | None, query: str | None) -> str:\n85 |     candidate = (query or topic or \"\").strip()\n86 |     if not candidate:\n87 |         raise ValueError(\"Provide either --query or --topic.\")\n88 |     return candidate"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cw_read",
+      "args": {
+        "symbol": "parse_query"
+      },
+      "ms": 1,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Read src/research_agent/query_classifier.py:230-252 (23 lines)\nSymbol: function parse_query (230-252)\n\n230 | def parse_query(raw: str) -> ParsedQuery:\n231 |     normalized = _normalize_spaces(raw)\n232 |     if not normalized:\n233 |         raise ValueError(\"query must not be empty\")\n234 | \n235 |     query_type, classified_entities = _classify(normalized)\n236 |     entities = _extract_entities(normalized, classified_entities)\n237 |     search_terms = _search_terms_from_entities(normalized, entities)\n238 |     provisional = ParsedQuery(\n239 |         raw_query=normalized,\n240 |         query_type=query_type,\n241 |         entities=entities,\n242 |         search_terms=search_terms,\n243 |         subreddit_hints=[],\n244 |     )\n245 |     hints = suggest_subreddits(provisional)\n246 |     return ParsedQuery(\n247 |         raw_query=normalized,\n248 |         query_type=query_type,\n249 |         entities=entities,\n250 |         search_terms=search_terms,\n251 |         subreddit_hints=hints,\n252 |     )"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cw_read",
+      "args": {
+        "symbol": "minimum_term_matches"
+      },
+      "ms": 1,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Read src/research_agent/query_classifier.py:255-258 (4 lines)\nSymbol: function minimum_term_matches (255-258)\n\n255 | def minimum_term_matches(query_type: QueryType) -> int:\n256 |     if query_type == QueryType.COMPARISON:\n257 |         return 2\n258 |     return 1"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cw_read",
+      "args": {
+        "symbol": "build_web_query_variants"
+      },
+      "ms": 1,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Read src/research_agent/query_classifier.py:305-314 (10 lines)\nSymbol: function build_web_query_variants (305-314)\n\n305 | def build_web_query_variants(parsed_query: ParsedQuery, year: int | None = None) -> Tuple[List[str], List[str]]:\n306 |     base = build_reddit_query_variants(parsed_query, year=year)\n307 |     web_queries = _unique_keep_order(base + [f\"{parsed_query.raw_query} reddit\", f\"{parsed_query.raw_query} forum\"])\n308 |     x_queries = _unique_keep_order(\n309 |         [\n310 |             f\"site:x.com {parsed_query.raw_query}\",\n311 |             f\"site:twitter.com {parsed_query.raw_query}\",\n312 |         ]\n313 |     )\n314 |     return web_queries, x_queries"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cw_read",
+      "args": {
+        "path": "tests/test_collect_web_x.py"
+      },
+      "ms": 1,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Read tests/test_collect_web_x.py:1-33 (33 lines)\n\n 1 | from research_agent.collect_web_x import count_term_matches, resolve_query_config\n 2 | from research_agent.query_classifier import QueryType\n 3 | \n 4 | \n 5 | def test_count_term_matches_threshold_logic():\n 6 |     text = \"gpt-5.3 codex beat opus in one run\"\n 7 |     assert count_term_matches(text, [\"gpt-5.3\", \"codex\", \"opus\", \"claude\"]) == 3\n 8 | \n 9 | \n10 | def test_resolve_query_config_uses_dynamic_terms_for_opinion():\n11 |     raw_query, parsed, terms, threshold, web_queries, x_queries = resolve_query_config(\n12 |         topic=\"\",\n13 |         query=\"Is Anker 737 power bank worth it?\",\n14 |         require_terms=None,\n15 |     )\n16 |     assert raw_query == \"Is Anker 737 power bank worth it?\"\n17 |     assert parsed.query_type == QueryType.OPINION\n18 |     assert threshold == 1\n19 |     assert any(term.lower() == \"anker\" for term in terms)\n20 |     assert any(\"anker\" in query.lower() for query in web_queries)\n21 |     assert any(\"site:x.com\" in query for query in x_queries)\n22 | \n23 | \n24 | def test_resolve_query_config_keeps_threshold_two_for_comparison():\n25 |     _, parsed, terms, threshold, _, _ = resolve_query_config(\n26 |         topic=\"\",\n27 |         query=\"Cursor vs Copilot\",\n28 |         require_terms=None,\n29 |     )\n30 |     assert parsed.query_type == QueryType.COMPARISON\n31 |     assert threshold == 2\n32 |     assert \"Cursor\" in terms\n33 | "
+          }
+        ]
+      }
+    },
+    {
+      "name": "cw_stats",
+      "args": {},
+      "ms": 4,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "ContextWeave Session Stats\nSession: 0d75fd67-db3b-458e-a627-37512391d323\n\nCapsules generated:    1\nTotal tokens budgeted: 1,800\nTotal tokens used:     173 (10% of budget)\nUnique files covered:  4\nUnique symbols served: 4\nFirst-pass rate:       100.0%\nCorrection rate:       0.0%\n\nEstimated savings:\n  Raw file reads (est): ~8,643 tokens\n  ContextWeave used:    ~173 tokens\n  Estimated savings:    ~8,470 tokens (98% reduction)"
+          }
+        ]
+      }
+    }
+  ]
+}

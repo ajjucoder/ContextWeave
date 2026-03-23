@@ -1,0 +1,10 @@
+commands:
+  install: npm install
+  typecheck: npx tsc --noEmit
+  build: npm run build
+  test: npm test
+  lint: npm run lint
+
+services:
+  # No persistent services needed for security fix mission
+  # All work is code-only with SQLite in-memory tests

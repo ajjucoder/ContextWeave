@@ -1,0 +1,142 @@
+def resolve_query_config(topic: str, query: str, require_terms):
+    raw_query = resolve_query_text(topic, query)
+    parsed_query = parse_query(raw_query)
+    required = require_terms or parsed_query.search_terms or [raw_query]
+    threshold = minimum_term_matches(parsed_query.query_type)
+    web_queries, x_queries = build_web_query_variants(parsed_query)
+    return raw_query, parsed_query, required, threshold, web_queries, x_queries
+
+
+def main():
+    p = argparse.ArgumentParser(description="Collect web and X.com links for research runs")
+    p.add_argument("--topic", default="", help="Legacy topic input. Prefer --query.")
+    p.add_argument("--query", default="", help="General research query.")
+    p.add_argument("--start", required=True, help="YYYY-MM-DD UTC")
+    p.add_argument("--end", required=True, help="YYYY-MM-DD UTC")
+    p.add_argument("--out", required=True)
+    p.add_argument("--max-items", type=int, default=200)
+    p.add_argument("--sleep", type=float, default=0.8)
+    p.add_argument(
+        "--require-terms",
+        nargs="*",
+        default=None,
+        help="Override term filter terms. Defaults to terms extracted from --query/--topic.",
+    )
+    args = p.parse_args()
+
+    raw_query, parsed_query, required_terms, match_threshold, web_queries, x_queries = resolve_query_config(
+        args.topic, args.query, args.require_terms
+    )
+
+    start_dt = to_utc_dt(args.start, end_of_day=False)
+    end_dt = to_utc_dt(args.end, end_of_day=True)
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    web_rows = []
+    x_rows = []
+    errors = []
+    seen = set()
+
+    def add_rows(items, query):
+        for item in items:
+            link = item.get("link", "")
+            if not link or link in seen:
+                continue
+            seen.add(link)
+
+            blob = (
+                (item.get("title", "") + " " + item.get("description", "") + " " + link).lower()
+            )
+            matches = count_term_matches(blob, required_terms)
+            if matches < match_threshold:
+                continue
+
+            pub_dt = parse_pubdate(item.get("pubDate", ""))
+            if pub_dt and not (start_dt <= pub_dt <= end_dt):
+                continue
+
+            rec = {
+                "source": query,
+                "query": query,
+                "title": item.get("title", ""),
+                "link": link,
+                "domain": domain(link),
+                "description": item.get("description", ""),
+                "pub_date_raw": item.get("pubDate", ""),
+                "pub_date_utc": pub_dt.isoformat() if pub_dt else "",
+                "in_window": bool(pub_dt and start_dt <= pub_dt <= end_dt),
+            }
+            if rec["domain"] in {"x.com", "www.x.com", "twitter.com", "www.twitter.com", "mobile.twitter.com"}:
+                x_rows.append(rec)
+            else:
+                web_rows.append(rec)
+
+    for q in web_queries:
+        try:
+            add_rows(fetch_rss_items(q), q)
+        except Exception as e:
+            errors.append({"phase": "web_query", "query": q, "error": str(e)})
+        time.sleep(args.sleep)
+
+    for q in x_queries:
+        try:
+            add_rows(fetch_rss_items(q), q)
+        except Exception as e:
+            errors.append({"phase": "x_query", "query": q, "error": str(e)})
+        time.sleep(args.sleep)
+
+    web_rows = web_rows[: args.max_items]
+    x_rows = x_rows[: args.max_items]
+
+    stamp = f"{args.start}_to_{args.end}"
+    web_json = out_dir / f"web_links_{stamp}.json"
+    x_json = out_dir / f"x_links_{stamp}.json"
+    web_csv = out_dir / f"web_links_{stamp}.csv"
+    x_csv = out_dir / f"x_links_{stamp}.csv"
+    summary_json = out_dir / f"web_x_dataset_summary_{stamp}.json"
+    log_json = out_dir / f"web_x_collection_log_{stamp}.json"
+
+    write_json(web_json, web_rows)
+    write_json(x_json, x_rows)
+    write_json(log_json, errors)
+
+    fields = [
+        "source",
+        "query",
+        "title",
+        "link",
+        "domain",
+        "description",
+        "pub_date_raw",
+        "pub_date_utc",
+        "in_window",
+    ]
+    write_csv(web_csv, web_rows, fields)
+    write_csv(x_csv, x_rows, fields)
+
+    summary = {
+        "topic": args.topic or raw_query,
+        "query": raw_query,
+        "query_type": parsed_query.query_type.value,
+        "require_terms": required_terms,
+        "term_match_threshold": match_threshold,
+        "window_start_utc": start_dt.isoformat(),
+        "window_end_utc": end_dt.isoformat(),
+        "web_links_collected": len(web_rows),
+        "x_links_collected": len(x_rows),
+        "note": "X link count may be low/zero depending on search engine indexing and query constraints.",
+        "generated_files": [
+            web_json.name,
+            x_json.name,
+            web_csv.name,
+            x_csv.name,
+            summary_json.name,
+            log_json.name,
+        ],
+    }
+    write_json(summary_json, summary)
+    print(json.dumps(summary, indent=2))
+
+
+if __name__ == "__main__":

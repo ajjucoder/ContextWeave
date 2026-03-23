@@ -1,0 +1,10 @@
+def build_web_query_variants(parsed_query: ParsedQuery, year: int | None = None) -> Tuple[List[str], List[str]]:
+    base = build_reddit_query_variants(parsed_query, year=year)
+    web_queries = _unique_keep_order(base + [f"{parsed_query.raw_query} reddit", f"{parsed_query.raw_query} forum"])
+    x_queries = _unique_keep_order(
+        [
+            f"site:x.com {parsed_query.raw_query}",
+            f"site:twitter.com {parsed_query.raw_query}",
+        ]
+    )
+    return web_queries, x_queries

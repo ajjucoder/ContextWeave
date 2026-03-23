@@ -1,0 +1,131 @@
+def main():
+    p = argparse.ArgumentParser(description="Build recommendation memo from collected research artifacts")
+    p.add_argument("--input-dir", required=True)
+    p.add_argument("--question", required=True)
+    p.add_argument("--model-a", default="", help="Legacy comparison mode label A.")
+    p.add_argument("--model-b", default="", help="Legacy comparison mode label B.")
+    p.add_argument("--json-output", default="", help="Optional path to write machine-readable JSON report.")
+    p.add_argument("--print-json", action="store_true", help="Print machine-readable JSON payload to stdout.")
+    args = p.parse_args()
+
+    if bool(args.model_a) != bool(args.model_b):
+        raise SystemExit("Provide both --model-a and --model-b together for legacy comparison mode.")
+
+    d = Path(args.input_dir)
+    summary_path = find_latest(d, "reddit_dataset_summary_", ".json")
+    posts_path = find_latest(d, "reddit_posts_", "_raw.json")
+    comments_path = find_latest(d, "reddit_comments_", "_raw.json")
+
+    if not summary_path or not posts_path or not comments_path:
+        raise SystemExit("Missing Reddit dataset files. Run collect_reddit.py first.")
+
+    reddit_summary = json.loads(summary_path.read_text())
+    posts = json.loads(posts_path.read_text())
+    comments = json.loads(comments_path.read_text())
+
+    web_summary_path = find_latest(d, "web_x_dataset_summary_", ".json")
+    web_links_path = find_latest(d, "web_links_", ".json")
+    x_links_path = find_latest(d, "x_links_", ".json")
+
+    web_summary = json.loads(web_summary_path.read_text()) if web_summary_path and web_summary_path.exists() else {}
+    web_links = load_json_or_empty(web_links_path)
+    x_links = load_json_or_empty(x_links_path)
+
+    legacy_mode = bool(args.model_a and args.model_b)
+    if legacy_mode:
+        a_score, b_score = compute_scores(posts, comments, web_links, x_links)
+        winner = args.model_a if a_score >= b_score else args.model_b
+        payload = build_report_payload(
+            question=args.question,
+            model_a=args.model_a,
+            model_b=args.model_b,
+            winner=winner,
+            a_score=a_score,
+            b_score=b_score,
+            reddit_summary=reddit_summary,
+            posts=posts,
+            comments=comments,
+            web_summary=web_summary,
+            web_links=web_links,
+            x_links=x_links,
+        )
+    else:
+        parsed_query = parse_query(args.question)
+        texts = collect_texts(posts, comments, web_links, x_links)
+        dynamic_scores = compute_scores_dynamic(texts, parsed_query)
+        payload = build_dynamic_report_payload(
+            question=args.question,
+            parsed_query=parsed_query,
+            dynamic_scores=dynamic_scores,
+            reddit_summary=reddit_summary,
+            posts=posts,
+            comments=comments,
+            web_summary=web_summary,
+            web_links=web_links,
+            x_links=x_links,
+        )
+
+    now = datetime.now(tz=timezone.utc).strftime("%Y%m%d_%H%M%S")
+    report_path = d / f"research_report_{now}.md"
+
+    lines = []
+    lines.append("# Research Recommendation")
+    lines.append("")
+    lines.append(f"Question: {payload['question']}")
+    lines.append(f"Recommendation: **{payload['recommendation']}**")
+    lines.append("")
+    lines.append("## Dataset")
+    lines.append(f"- Reddit posts: {payload['dataset']['reddit_posts']}")
+    lines.append(f"- Reddit comments: {payload['dataset']['reddit_comments']}")
+    lines.append(f"- Web links: {payload['dataset']['web_links']}")
+    lines.append(f"- X links: {payload['dataset']['x_links']}")
+    lines.append(f"- Window: {payload['dataset']['window_start_utc']} to {payload['dataset']['window_end_utc']}")
+    lines.append("")
+    lines.append("## Signal Summary")
+    lines.append(f"- Query type: {payload.get('query_type', QueryType.FACT_FINDING.value)}")
+    if payload.get("scores"):
+        for label, score in payload["scores"].items():
+            lines.append(f"- {label} heuristic score: {score}")
+        lines.append("- Score = keyword/entity mentions across Reddit posts/comments and web/X metadata.")
+    if payload.get("analysis", {}).get("mode") == "opinion":
+        analysis = payload["analysis"]
+        lines.append(f"- Entity: {analysis.get('entity')}")
+        lines.append(f"- Sentiment: {analysis.get('sentiment')}")
+        lines.append(f"- Positive hits: {analysis.get('positive_hits')}")
+        lines.append(f"- Negative hits: {analysis.get('negative_hits')}")
+    if payload.get("analysis", {}).get("mode") == "best_of":
+        analysis = payload["analysis"]
+        lines.append(f"- Top candidates: {', '.join(analysis.get('top_candidates', [])) or 'none'}")
+    lines.append("")
+    lines.append("## Primary Citations")
+    lines.append("### Reddit")
+    for post in payload["citations"]["reddit"]:
+        lines.append(f"- {post.get('link')} (num_comments={post.get('num_comments', 0)})")
+    if payload["citations"]["web"]:
+        lines.append("### Web")
+        for link in payload["citations"]["web"]:
+            lines.append(f"- {link}")
+    if payload["citations"]["x"]:
+        lines.append("### X")
+        for link in payload["citations"]["x"]:
+            lines.append(f"- {link}")
+
+    lines.append("")
+    lines.append("## Confidence")
+    lines.append(f"- Confidence: {payload['confidence']}")
+    lines.append(f"- Inference: {payload['inference_note']}")
+    lines.append("")
+    lines.append("## Limitations")
+    for lim in payload["limitations"]:
+        lines.append(f"- {lim}")
+
+    report_path.write_text("\n".join(lines))
+    if args.json_output:
+        Path(args.json_output).write_text(json.dumps(payload, ensure_ascii=False, indent=2))
+    if args.print_json:
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    print(str(report_path))
+
+
+if __name__ == "__main__":
+    main()

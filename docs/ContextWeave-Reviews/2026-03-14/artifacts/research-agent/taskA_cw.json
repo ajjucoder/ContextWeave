@@ -1,0 +1,82 @@
+{
+  "totalMs": 378,
+  "results": [
+    {
+      "name": "cw_capsule",
+      "args": {
+        "query": "Understand resolve_query_config: what it returns, how it derives terms and thresholds, and what downstream behavior it controls",
+        "token_budget": 1800,
+        "mode": "review"
+      },
+      "ms": 27,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "--- ContextWeave Capsule ---\nQuery: Understand resolve_query_config: what it returns, how it derives terms and thresholds, and what downstream behavior it controls\nMode: review | Strategy: multi-pass (4 sub-queries)\nTokens: 173/1800\nSymbols: 4 across 4 files\nConfidence: LOW | Uncertainty: MEDIUM\nCoverage confidence: 40%\nUncertainty flag: true\nRetrieval: stageA 22 -> stageB 4\nCoverage: pivots 4/4 (100%), dependencies 100%, L3 noise 0%\n---\n\n// === [Cluster: collect_web_x.py] ===\n// === collect_web_x.py ===\n// [full]\n// collect_web_x.py:56-62\ndef resolve_query_config(topic: str, query: str, require_terms):\n    raw_query = resolve_query_text(topic, query)\n    parsed_query = parse_query(raw_query)\n    required = require_terms or parsed_query.search_terms or [raw_query]\n    threshold = minimum_term_matches(parsed_query.query_type)\n    web_queries, x_queries = build_web_query_variants(parsed_query)\n    return raw_query, parsed_query, required, threshold, web_queries, x_queries\n\n// === [Cluster: common.py] ===\n// === common.py ===\n// [skeleton]\n// common.py:91 [function] export def split_terms(value: str) -> List[str]:\n\n// === [Cluster: query_classifier.py] ===\n// === query_classifier.py ===\n// [skeleton]\n// query_classifier.py:199 [function] def _search_terms_from_entities(raw: str, entities: Sequence[str]) -> List[str]:\n\n// === [Cluster: build_recommendation.py] ===\n// === build_recommendation.py ===\n// [skeleton]\n// build_recommendation.py:135 [function] def _count_term_hits(text: str, terms):\n\n--- Follow-Up Reads ---\nThese symbols were compressed. Use cw_read for full source:\n  cw_read(symbol: \"split_terms\")  — 2 lines, scored 105.56\n  cw_read(symbol: \"_search_terms_from_entities\")  — 15 lines, scored 68.96\n  cw_read(symbol: \"_count_term_hits\")  — 3 lines, scored 56.96\n\n--- Quality Notes ---\n- overall coverage confidence below 60%\n\n--- Diagnostics ---\nClass: broad\nBottleneck: none\nNo obvious bottleneck detected in the current pipeline stages.\nSuggestion: No immediate action needed. Keep monitoring this query class over time.\n\n--- Next Actions ---\n- Read the highest-value compressed symbol next: cw_read(symbol: \"split_terms\")\n- Narrow the capsule to the most relevant directory: cw_capsule(query: \"Understand resolve_query_config: what it returns, how it derives terms and thresholds, and what downstream behavior it controls\", path: \"collect_web_x.py\")"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cw_impact",
+      "args": {
+        "target": "src/research_agent/collect_web_x.py:resolve_query_config"
+      },
+      "ms": 7,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Impact analysis for \"src/research_agent/collect_web_x.py:resolve_query_config\" (depth 3):\n\n\nDepth 1:\n  import → function test_resolve_query_config_uses_dynamic_terms_for_opinion (/Users/aejjusingh/Developer/research-agent/tests/test_collect_web_x.py:10)\n  import → function test_resolve_query_config_keeps_threshold_two_for_comparison (/Users/aejjusingh/Developer/research-agent/tests/test_collect_web_x.py:24)\n  call → function main (/Users/aejjusingh/Developer/research-agent/src/research_agent/collect_web_x.py:65)\n\nDepth 2:\n  call → variable __main__ (/Users/aejjusingh/Developer/research-agent/src/research_agent/collect_web_x.py:197)\n  import → variable __main__ (/Users/aejjusingh/Developer/research-agent/scripts/build_recommendation.py:9)\n  import → variable __main__ (/Users/aejjusingh/Developer/research-agent/scripts/collect_reddit.py:9)\n  import → variable __main__ (/Users/aejjusingh/Developer/research-agent/scripts/collect_web_x.py:9)\n\nTotal: 7 affected symbols"
+          }
+        ]
+      }
+    },
+    {
+      "name": "cw_read",
+      "args": {
+        "target": "src/research_agent/collect_web_x.py:resolve_query_config"
+      },
+      "ms": 0,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Error: provide path or symbol"
+          }
+        ],
+        "isError": true
+      }
+    },
+    {
+      "name": "cw_read",
+      "args": {
+        "target": "tests/test_collect_web_x.py"
+      },
+      "ms": 0,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "Error: provide path or symbol"
+          }
+        ],
+        "isError": true
+      }
+    },
+    {
+      "name": "cw_stats",
+      "args": {},
+      "ms": 4,
+      "response": {
+        "content": [
+          {
+            "type": "text",
+            "text": "ContextWeave Session Stats\nSession: 34387e62-0760-4b19-bd01-052f9efc2656\n\nCapsules generated:    1\nTotal tokens budgeted: 1,800\nTotal tokens used:     173 (10% of budget)\nUnique files covered:  4\nUnique symbols served: 4\nFirst-pass rate:       100.0%\nCorrection rate:       0.0%\n\nEstimated savings:\n  Raw file reads (est): ~8,643 tokens\n  ContextWeave used:    ~173 tokens\n  Estimated savings:    ~8,470 tokens (98% reduction)"
+          }
+        ]
+      }
+    }
+  ]
+}

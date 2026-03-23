@@ -1,0 +1,151 @@
+def main():
+    p = argparse.ArgumentParser(description="Collect date-filtered Reddit data for research runs")
+    p.add_argument("--topic", default="", help="Legacy topic input. Prefer --query.")
+    p.add_argument("--query", default="", help="General research query.")
+    p.add_argument("--start", required=True, help="YYYY-MM-DD UTC")
+    p.add_argument("--end", required=True, help="YYYY-MM-DD UTC")
+    p.add_argument("--out", required=True)
+    p.add_argument("--max-comment-posts", type=int, default=60)
+    p.add_argument("--subreddits", nargs="*", default=None, help="Override subreddit list.")
+    p.add_argument(
+        "--auto-subreddits",
+        action="store_true",
+        help="Auto-discover additional subreddits from Reddit search.",
+    )
+    args = p.parse_args()
+
+    raw_query = resolve_query_text(args.topic, args.query)
+    parsed_query = parse_query(raw_query)
+
+    start_ts = to_utc_ts(args.start, end_of_day=False)
+    end_ts = to_utc_ts(args.end, end_of_day=True)
+    out_dir = Path(args.out)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    query_variants = build_reddit_query_variants(parsed_query)
+    subreddits = (
+        _unique_keep_order(args.subreddits)
+        if args.subreddits
+        else _unique_keep_order(parsed_query.subreddit_hints or DEFAULT_SUBREDDITS)
+    )
+
+    posts = {}
+    errors = []
+
+    if args.auto_subreddits:
+        try:
+            discovered = discover_subreddits(raw_query)
+            subreddits = _unique_keep_order(subreddits + discovered)
+        except Exception as e:
+            errors.append({"phase": "subreddit_discovery", "query": raw_query, "error": str(e)})
+
+    for sr in subreddits:
+        for q in query_variants:
+            params = {
+                "q": q,
+                "restrict_sr": "on",
+                "sort": "new",
+                "limit": "100",
+            }
+            url = f"https://old.reddit.com/r/{sr}/search.json?" + urllib.parse.urlencode(params)
+            try:
+                data, _ = fetch_json(url, user_agent=UA)
+            except Exception as e:
+                errors.append({"phase": "search", "subreddit": sr, "query": q, "error": str(e)})
+                continue
+
+            for c in data.get("data", {}).get("children", []):
+                d = c.get("data", {})
+                created = int(d.get("created_utc") or 0)
+                if created < start_ts or created > end_ts:
+                    continue
+                pid = d.get("id")
+                if not pid:
+                    continue
+                posts[pid] = {
+                    "id": pid,
+                    "fullname": d.get("name"),
+                    "subreddit": d.get("subreddit"),
+                    "title": d.get("title") or "",
+                    "author": d.get("author") or "",
+                    "created_utc": created,
+                    "created_iso": datetime.fromtimestamp(created, tz=timezone.utc).isoformat(),
+                    "score": d.get("score"),
+                    "upvote_ratio": d.get("upvote_ratio"),
+                    "num_comments": d.get("num_comments"),
+                    "permalink": "https://old.reddit.com" + (d.get("permalink") or ""),
+                    "url": d.get("url") or "",
+                    "selftext": d.get("selftext") or "",
+                }
+            time.sleep(1.0)
+
+    posts_out = sorted(posts.values(), key=lambda x: x["created_utc"])
+
+    comments = []
+    for post in sorted(posts_out, key=lambda x: (x.get("num_comments") or 0), reverse=True)[: args.max_comment_posts]:
+        try:
+            listing, _ = fetch_json(post["permalink"].rstrip("/") + ".json?limit=200&sort=top", user_agent=UA)
+        except Exception as e:
+            errors.append({"phase": "comments", "post_id": post["id"], "error": str(e)})
+            continue
+        if isinstance(listing, list) and len(listing) > 1:
+            nodes = listing[1].get("data", {}).get("children", [])
+            flatten_comments(nodes, post["id"], comments)
+        time.sleep(1.0)
+
+    stamp = f"{args.start}_to_{args.end}"
+
+    posts_json = out_dir / f"reddit_posts_{stamp}_raw.json"
+    comments_json = out_dir / f"reddit_comments_{stamp}_raw.json"
+    posts_csv = out_dir / f"reddit_posts_{stamp}.csv"
+    comments_csv = out_dir / f"reddit_comments_{stamp}.csv"
+    summary_json = out_dir / f"reddit_dataset_summary_{stamp}.json"
+    log_json = out_dir / f"reddit_collection_log_{stamp}.json"
+
+    write_json(posts_json, posts_out)
+    write_json(comments_json, comments)
+    write_json(log_json, errors)
+
+    write_csv(
+        posts_csv,
+        posts_out,
+        [
+            "id", "fullname", "subreddit", "title", "author", "created_utc", "created_iso",
+            "score", "upvote_ratio", "num_comments", "permalink", "url", "selftext",
+        ],
+    )
+    write_csv(
+        comments_csv,
+        comments,
+        [
+            "post_id", "comment_id", "parent_id", "author", "score", "created_utc", "created_iso",
+            "permalink", "body_len", "body",
+        ],
+    )
+
+    summary = {
+        "topic": args.topic or raw_query,
+        "query": raw_query,
+        "query_type": parsed_query.query_type.value,
+        "window_start_utc": f"{args.start}T00:00:00+00:00",
+        "window_end_utc": f"{args.end}T23:59:59+00:00",
+        "subreddits": subreddits,
+        "query_variants": query_variants,
+        "search_terms": parsed_query.search_terms,
+        "posts_collected": len(posts_out),
+        "comments_collected": len(comments),
+        "comment_posts_scraped": min(args.max_comment_posts, len(posts_out)),
+        "generated_files": [
+            posts_json.name,
+            comments_json.name,
+            posts_csv.name,
+            comments_csv.name,
+            summary_json.name,
+            log_json.name,
+        ],
+    }
+    write_json(summary_json, summary)
+    print(json.dumps(summary, indent=2))
+
+
+if __name__ == "__main__":

@@ -1,0 +1,29 @@
+def parse_query(raw: str) -> ParsedQuery:
+    normalized = _normalize_spaces(raw)
+    if not normalized:
+        raise ValueError("query must not be empty")
+
+    query_type, classified_entities = _classify(normalized)
+    entities = _extract_entities(normalized, classified_entities)
+    search_terms = _search_terms_from_entities(normalized, entities)
+    provisional = ParsedQuery(
+        raw_query=normalized,
+        query_type=query_type,
+        entities=entities,
+        search_terms=search_terms,
+        subreddit_hints=[],
+    )
+    hints = suggest_subreddits(provisional)
+    return ParsedQuery(
+        raw_query=normalized,
+        query_type=query_type,
+        entities=entities,
+        search_terms=search_terms,
+        subreddit_hints=hints,
+    )
+
+
+def minimum_term_matches(query_type: QueryType) -> int:
+    if query_type == QueryType.COMPARISON:
+        return 2
+    return 1

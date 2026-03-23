@@ -6,6 +6,22 @@ export interface ContentMatch {
   filePath: string;
 }
 
+/**
+ * Escape special LIKE pattern characters (% and _) to treat them as literals.
+ * Also escapes backslash to prevent escape character injection.
+ * 
+ * @param term - The user-provided search term
+ * @returns The term with %, _, and \ escaped with a backslash
+ * 
+ * @example
+ * escapeLikePattern("100%") // returns "100\%"
+ * escapeLikePattern("file_name") // returns "file\_name"
+ * escapeLikePattern("C:\\Users") // returns "C:\\\\Users"
+ */
+function escapeLikePattern(term: string): string {
+  return term.replace(/[\\%_]/g, "\\$&");
+}
+
 export function contentFallbackSearch(
   db: Database.Database,
   queryTerms: string[],
@@ -16,12 +32,13 @@ export function contentFallbackSearch(
   const fileHits = new Map<number, number>();
 
   const stmt = db.prepare(
-    "SELECT s.id as symbolId, s.file_id as fileId, f.path as filePath FROM symbols s JOIN files f ON f.id = s.file_id WHERE LOWER(s.full_source) LIKE ? LIMIT 50"
+    "SELECT s.id as symbolId, s.file_id as fileId, f.path as filePath FROM symbols s JOIN files f ON f.id = s.file_id WHERE LOWER(s.full_source) LIKE ? ESCAPE '\\' LIMIT 50"
   );
 
   for (const term of queryTerms) {
     if (term.length < 3) continue;
-    const pattern = `%${term}%`;
+    const escaped = escapeLikePattern(term);
+    const pattern = `%${escaped}%`;
     const rows = stmt.all(pattern) as Array<{ symbolId: number; fileId: number; filePath: string }>;
     for (const row of rows) {
       fileHits.set(row.fileId, (fileHits.get(row.fileId) ?? 0) + 1);

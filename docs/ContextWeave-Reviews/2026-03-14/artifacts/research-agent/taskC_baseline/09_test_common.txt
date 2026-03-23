@@ -1,0 +1,19 @@
+from research_agent.common import parse_pubdate, mention_scores
+
+
+def test_parse_pubdate_rfc822():
+    dt = parse_pubdate("Fri, 13 Feb 2026 05:21:33 GMT")
+    assert dt is not None
+    assert dt.year == 2026
+    assert dt.month == 2
+
+
+def test_mention_scores_counts_each_text_once_per_model():
+    texts = [
+        "gpt-5.3 codex is fast",
+        "claude opus 4.6 quality",
+        "codex and claude both",
+    ]
+    a, b = mention_scores(texts, ["gpt-5.3", "codex"], ["opus 4.6", "claude"])
+    assert a == 2
+    assert b == 2

@@ -1,0 +1,45 @@
+from research_agent.query_classifier import (
+    QueryType,
+    build_reddit_query_variants,
+    build_web_query_variants,
+    minimum_term_matches,
+    parse_query,
+)
+
+
+def test_parse_query_classifies_comparison_and_entities():
+    parsed = parse_query("Cursor vs Copilot")
+    assert parsed.query_type == QueryType.COMPARISON
+    assert parsed.entities[:2] == ["Cursor", "Copilot"]
+    assert "Cursor" in parsed.search_terms
+    assert "Copilot" in parsed.search_terms
+
+
+def test_parse_query_classifies_opinion():
+    parsed = parse_query("Is Anker 737 power bank worth it?")
+    assert parsed.query_type == QueryType.OPINION
+    assert any("Anker" in entity for entity in parsed.entities)
+    assert "Anker" in parsed.search_terms
+
+
+def test_parse_query_classifies_best_of():
+    parsed = parse_query("Best note taking app for students")
+    assert parsed.query_type == QueryType.BEST_OF
+    assert "productivity" in {x.lower() for x in parsed.subreddit_hints}
+
+
+def test_parse_query_falls_back_to_fact_finding():
+    parsed = parse_query("release date for model xyz")
+    assert parsed.query_type == QueryType.FACT_FINDING
+
+
+def test_build_variants_and_thresholds():
+    parsed = parse_query("Notion vs Obsidian")
+    reddit_variants = build_reddit_query_variants(parsed, year=2026)
+    web_variants, x_variants = build_web_query_variants(parsed, year=2026)
+    assert "Notion vs Obsidian" in reddit_variants
+    assert any("comparison" in row.lower() for row in web_variants)
+    assert any("site:x.com" in row for row in x_variants)
+    assert minimum_term_matches(QueryType.COMPARISON) == 2
+    assert minimum_term_matches(QueryType.OPINION) == 1
+

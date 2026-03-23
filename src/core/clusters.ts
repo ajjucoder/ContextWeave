@@ -53,7 +53,8 @@ export function computeClusters(db: Database.Database, projectRoot?: string): vo
   ];
 
   for (const { kinds, threshold } of edgeGroups) {
-    const kindList = kinds.map(k => `'${k}'`).join(", ");
+    // Use parameterized queries to prevent SQL injection
+    const kindPlaceholders = kinds.map(() => '?').join(', ');
     const rows = db.prepare(`
       SELECT
         MIN(sf.file_id, tf.file_id) as file_a,
@@ -63,10 +64,10 @@ export function computeClusters(db: Database.Database, projectRoot?: string): vo
       JOIN symbols sf ON sf.id = e.source_symbol_id
       JOIN symbols tf ON tf.id = e.target_symbol_id
       WHERE sf.file_id != tf.file_id
-        AND e.kind IN (${kindList})
+        AND e.kind IN (${kindPlaceholders})
       GROUP BY file_a, file_b
-      HAVING edge_count >= ${threshold}
-    `).all() as FileEdgeRow[];
+      HAVING edge_count >= ?
+    `).all(...kinds, threshold) as FileEdgeRow[];
 
     for (const edge of rows) {
       const i = indexMap.get(edge.file_a);
