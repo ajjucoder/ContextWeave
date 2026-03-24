@@ -143,4 +143,42 @@ describe("packNodes", () => {
     expect(result.packed[0]?.compressionLevel).toBe(2);
     expect(result.packed[0]?.tokenCount).toBe(l2Tokens);
   });
+
+  it("renders L1 compression with a 60/40 head-tail line split on line boundaries", () => {
+    const file = makeFile(6, "src/capsule/smart-truncation.ts");
+    const lines = 150;
+    const body = Array.from({ length: lines }, (_, i) => {
+      if (i === 0) return "export function smartTruncationCase(): number {";
+      if (i === lines - 1) return "}";
+      return `  const line${i} = ${i};`;
+    }).join("\n");
+    const symbol: SymbolRecord = {
+      id: 61,
+      fileId: file.id,
+      name: "smartTruncationCase",
+      kind: "function",
+      startLine: 1,
+      endLine: lines,
+      signature: "function smartTruncationCase(): number",
+      bodyHash: "b-61",
+      fullSource: body,
+      isExported: true,
+      docComment: null,
+      centrality: 0.05,
+      lastSeen: Date.now(),
+    };
+    const node = makeNode(symbol, file, 8.8, 1, 1);
+
+    const result = packNodes([node], countTokens(body) + 100, 1);
+
+    expect(result.packed).toHaveLength(1);
+    expect(result.packed[0]?.compressionLevel).toBe(1);
+    expect(result.packed[0]?.rendered).toContain("line59 = 59;");
+    expect(result.packed[0]?.rendered).toContain("line110 = 110;");
+    expect(result.packed[0]?.rendered).toContain("line148 = 148;");
+    expect(result.packed[0]?.rendered).toContain("\n}");
+    expect(result.packed[0]?.rendered).toContain("50 lines omitted");
+    expect(result.packed[0]?.rendered).not.toContain("line80 = 80;");
+    expect(result.packed[0]?.rendered?.split("\n")).toContain("  const line110 = 110;");
+  });
 });
