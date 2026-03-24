@@ -6,6 +6,18 @@ import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("passive-observations");
 
+function hasActiveObservation(
+  db: Database.Database,
+  scope: string,
+  note: string
+): boolean {
+  const existing = db.prepare(
+    "SELECT id FROM observations WHERE scope = ? AND note = ? AND archived = 0 LIMIT 1"
+  ).get(scope, note) as { id: number } | undefined;
+
+  return existing !== undefined;
+}
+
 export function captureQueryObservation(
   db: Database.Database,
   query: string,
@@ -25,11 +37,14 @@ export function captureQueryObservation(
       if (symbol) names.push(symbol.name);
     }
 
+    const note = `[auto] Query: "${query}" resolved to: ${names.join(", ")}`;
+    if (hasActiveObservation(db, "passive", note)) return;
+
     const store = new ObservationStore(db);
     store.create({
       sessionId,
       scope: "passive",
-      note: `[auto] Query: "${query}" resolved to: ${names.join(", ")}`,
+      note,
       symbolId: pivotArray[0],
       confidence: 0.5,
     });
@@ -65,11 +80,14 @@ export function captureFileChangeObservation(
     const removedNames = diff.deleted.map((s: { name: string }) => s.name);
     const modifiedNames = diff.modified.map((s) => s.new.name);
 
+    const note = `[auto] Modified: ${relativePath} — added: [${addedNames.join(", ")}], removed: [${removedNames.join(", ")}], changed: [${modifiedNames.join(", ")}]`;
+    if (hasActiveObservation(db, "passive", note)) return;
+
     const store = new ObservationStore(db);
     store.create({
       sessionId,
       scope: "passive",
-      note: `[auto] Modified: ${relativePath} — added: [${addedNames.join(", ")}], removed: [${removedNames.join(", ")}], changed: [${modifiedNames.join(", ")}]`,
+      note,
       fileId,
       confidence: 0.6,
     });

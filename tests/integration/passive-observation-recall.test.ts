@@ -45,6 +45,28 @@ describe("passive observations are searchable via recall", () => {
     expect(results[0]!.observation.note).toContain("UserService authentication");
   });
 
+  it("captureQueryObservation skips duplicate passive observations", () => {
+    const symbols = symbolQueries(db);
+    const allSyms = symbols.getAll();
+    const pivotIds = new Set(allSyms.slice(0, 3).map((s) => s.id));
+    const query = "UserService authentication dedup";
+    const note = `[auto] Query: "${query}" resolved to: ${allSyms.slice(0, 3).map((s) => s.name).join(", ")}`;
+    const before = (db.prepare(
+      "SELECT COUNT(*) as count FROM observations WHERE scope = ? AND note = ? AND archived = 0"
+    ).get("passive", note) as { count: number }).count;
+
+    captureQueryObservation(db, query, pivotIds, "test-session", FIXTURE_DIR);
+    captureQueryObservation(db, query, pivotIds, "test-session", FIXTURE_DIR);
+
+    const row = db.prepare(
+      "SELECT COUNT(*) as count FROM observations WHERE scope = ? AND note = ? AND archived = 0"
+    ).get("passive", note) as {
+      count: number;
+    };
+
+    expect(row.count - before).toBe(1);
+  });
+
   it("captureFileChangeObservation creates an observation findable by BM25", () => {
     captureFileChangeObservation(
       db,
@@ -66,6 +88,30 @@ describe("passive observations are searchable via recall", () => {
 
     expect(results.length).toBeGreaterThan(0);
     expect(results[0]!.observation.note).toContain("newHelper");
+  });
+
+  it("captureFileChangeObservation skips duplicate passive observations", () => {
+    const filePath = resolve(FIXTURE_DIR, "service.ts");
+    const note = "[auto] Modified: service.ts — added: [dedupHelper], removed: [], changed: []";
+    const diff = {
+      added: [{ name: "dedupHelper", kind: "function", startLine: 1, endLine: 5, signature: "", bodyHash: "", fullSource: "", isExported: true, docComment: null }],
+      deleted: [],
+      modified: [],
+      renamed: [],
+      unchanged: [],
+    };
+    const before = (db.prepare(
+      "SELECT COUNT(*) as count FROM observations WHERE scope = ? AND note = ? AND archived = 0"
+    ).get("passive", note) as { count: number }).count;
+
+    captureFileChangeObservation(db, filePath, diff, 1, "test-session", FIXTURE_DIR);
+    captureFileChangeObservation(db, filePath, diff, 1, "test-session", FIXTURE_DIR);
+
+    const row = db.prepare(
+      "SELECT COUNT(*) as count FROM observations WHERE scope = ? AND note = ? AND archived = 0"
+    ).get("passive", note) as { count: number };
+
+    expect(row.count - before).toBe(1);
   });
 
   it("ObservationStore.create produces BM25-searchable results", () => {
