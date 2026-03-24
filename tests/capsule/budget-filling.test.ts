@@ -63,7 +63,7 @@ describe("budget filling for broad queries", () => {
     });
     expect(result.metadata.symbolCount).toBeGreaterThan(0);
     const utilization = result.metadata.tokensUsed / result.metadata.tokenBudget;
-    expect(utilization).toBeGreaterThan(0);
+    expect(utilization).toBeGreaterThanOrEqual(0.50);
   });
 
   it("story-complete fallback focuses on top files when scatter detected", () => {
