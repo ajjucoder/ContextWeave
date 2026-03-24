@@ -27,9 +27,13 @@ vi.mock("../../src/core/indexer.js", async (importOriginal) => {
   };
 });
 
-vi.mock("../../src/core/parser.js", () => ({
-  detectLanguage: mockDetectLanguage,
-}));
+vi.mock("../../src/core/parser.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../src/core/parser.js")>();
+  return {
+    ...actual,
+    detectLanguage: mockDetectLanguage,
+  };
+});
 
 vi.mock("../../src/memory/staleness.js", () => ({
   StalenessEngine: class {

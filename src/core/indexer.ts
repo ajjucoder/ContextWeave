@@ -6,7 +6,7 @@ import { cpus } from "node:os";
 import { fileURLToPath } from "node:url";
 import type Database from "better-sqlite3";
 import type { ParsedSymbol, SymbolRecord, IndexDiff, ParseResult, PreparedChunk, EmbeddingRuntime } from "./types.js";
-import { parseFile, detectLanguage } from "./parser.js";
+import { parseFile, detectLanguage, initParser } from "./parser.js";
 import { hashFile } from "../utils/hash.js";
 import { fileQueries } from "../db/queries/files.js";
 import { symbolQueries } from "../db/queries/symbols.js";
@@ -94,6 +94,8 @@ interface PickTargetsOptions {
 const WORKER_CONCURRENCY = Math.max(2, Math.min(8, cpus().length - 1));
 const WORKER_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "parser-worker.js");
 const USE_TSX_WORKER_LOADER = WORKER_SCRIPT.includes(`${sep}src${sep}`);
+const PARSE_TIMEOUT_MICROS = 5_000_000;
+const PARSE_TIMEOUT_MS = PARSE_TIMEOUT_MICROS / 1000;
 
 export interface IndexerOptions {
   embeddings?: EmbeddingRuntime | null;
@@ -981,7 +983,7 @@ function runParseWorkerBatch(filePaths: string[]): Promise<WorkerFileParseResult
 
           const content = readFileSync(filePath, "utf-8");
           const hash = hashFile(content);
-          const parseResult = parseFile(filePath, content, language);
+          const parseResult = parseFileWithTimeout(filePath, content, language);
           return {
             filePath,
             content,
@@ -1038,6 +1040,30 @@ function runParseWorkerBatch(filePaths: string[]): Promise<WorkerFileParseResult
       rejectPromise(new Error(`Parser worker exited with code ${code}`));
     });
   });
+}
+
+function parseFileWithTimeout(filePath: string, content: string, language: string): ParseResult {
+  if (language === "markdown" || language === "yaml" || language === "json" || language === "toml" || language === "ini") {
+    return parseFile(filePath, content, language);
+  }
+
+  const parser = initParser(language);
+  parser.setTimeoutMicros(PARSE_TIMEOUT_MICROS);
+  try {
+    return parseFile(filePath, content, language);
+  } finally {
+    parser.setTimeoutMicros(0);
+  }
+}
+
+function isTimedOutParseResult(parseResult: ParseResult): boolean {
+  return parseResult.timedOut === true;
+}
+
+function warnOnTimedOutParse(filePath: string): string {
+  const message = `Parse timed out for ${filePath} after ${PARSE_TIMEOUT_MS}ms`;
+  log.warn("skipping file after parse timeout", { filePath, timeoutMs: PARSE_TIMEOUT_MS });
+  return message;
 }
 
 function writeParseResult(
@@ -1305,6 +1331,7 @@ export async function indexProject(
     workerResults.flatMap((batchResult) =>
       batchResult
         .filter((parsed) => !parsed.error && !!parsed.parseResult)
+        .filter((parsed) => !isTimedOutParseResult(parsed.parseResult!))
         .map(async (parsed) => ({
           filePath: parsed.filePath,
           preparedChunks: await buildEmbeddingChunks(parsed.filePath, parsed.content, {
@@ -1329,6 +1356,11 @@ export async function indexProject(
       for (const parsed of batchResult) {
         if (parsed.error || !parsed.parseResult) {
           allErrors.push(`${parsed.filePath}: ${parsed.error ?? "parser returned no result"}`);
+          continue;
+        }
+
+        if (isTimedOutParseResult(parsed.parseResult)) {
+          allErrors.push(warnOnTimedOutParse(parsed.filePath));
           continue;
         }
 
@@ -1580,7 +1612,14 @@ export async function indexSingleFile(
   }
 
   const hash = hashFile(content);
-  const parseResult = parseFile(resolvedPath, content, language);
+  const parseResult = parseFileWithTimeout(resolvedPath, content, language);
+  if (isTimedOutParseResult(parseResult)) {
+    return {
+      symbolCount: 0,
+      errors: [warnOnTimedOutParse(resolvedPath)],
+      diff: null,
+    };
+  }
   const preparedChunks = await buildEmbeddingChunks(resolvedPath, content, {
     languageHint: language,
   }).catch((error) => {

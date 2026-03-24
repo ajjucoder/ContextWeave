@@ -76,6 +76,8 @@ const extensionToLanguage: Record<string, string> = {
 const DOCUMENT_SOURCE_LIMIT = 6000;
 const DOCUMENT_NAME_TOKEN_LIMIT = 10;
 const DOCUMENT_SIGNATURE_TOKEN_LIMIT = 24;
+export const DEFAULT_PARSE_TIMEOUT_MICROS = 5_000_000;
+export const DEFAULT_PARSE_TIMEOUT_MS = DEFAULT_PARSE_TIMEOUT_MICROS / 1000;
 
 export function detectLanguage(filePath: string): string | null {
   const ext = extname(filePath).toLowerCase();
@@ -95,6 +97,22 @@ export function initParser(language: string): Parser {
   parser.setLanguage(getLanguage());
   parserCache.set(language, parser);
   return parser;
+}
+
+function buildEmptyParseResult(errors: string[], timedOut = false): ParseResult {
+  return {
+    symbols: [],
+    imports: [],
+    calls: [],
+    frameworkCalls: [],
+    variableBindings: [],
+    errors,
+    timedOut,
+  };
+}
+
+export function formatParseTimeoutError(filePath: string, timeoutMicros: number): string {
+  return `Parse timed out for ${filePath} after ${Math.round(timeoutMicros / 1000)}ms`;
 }
 
 function extractDocComment(node: Parser.SyntaxNode): string | null {
@@ -143,7 +161,7 @@ function hashContent(source: string): string {
   return createHash("sha256").update(source).digest("hex");
 }
 
-function isDocumentLanguage(language: string): boolean {
+export function isDocumentLanguage(language: string): boolean {
   return (
     language === "markdown" ||
     language === "yaml" ||
@@ -1704,14 +1722,22 @@ export function parseFile(
     const parser = initParser(language);
     // tree-sitter's string parse() throws for inputs >= 32768 bytes.
     // Use the callback (string-chunk) form for large files.
-    let tree: ReturnType<typeof parser.parse>;
+    const timeoutMicros = parser.getTimeoutMicros();
+    let tree: ReturnType<typeof parser.parse> | null;
     if (content.length < 32768) {
-      tree = parser.parse(content);
+      tree = parser.parse(content) as ReturnType<typeof parser.parse> | null;
     } else {
       tree = parser.parse(((index: number) => {
         const chunk = content.slice(index, index + 4096);
         return chunk.length > 0 ? chunk : null;
-      }) as unknown as string);
+      }) as unknown as string) as ReturnType<typeof parser.parse> | null;
+    }
+
+    if (!tree) {
+      if (timeoutMicros > 0) {
+        return buildEmptyParseResult([formatParseTimeoutError(filePath, timeoutMicros)], true);
+      }
+      throw new Error(`tree-sitter returned no tree for ${filePath}`);
     }
 
     if (tree.rootNode.hasError && !isBenignTsxParseWarning(tree.rootNode, language, content)) {
@@ -1751,13 +1777,10 @@ export function parseFile(
     return { symbols, imports, calls, frameworkCalls, variableBindings, errors };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    return {
-      symbols: [],
-      imports: [],
-      calls: [],
-      frameworkCalls: [],
-      variableBindings: [],
-      errors: [`Failed to parse ${filePath}: ${message}`],
-    };
+    if (/timed?\s*out/i.test(message)) {
+      const timeoutMicros = initParser(language).getTimeoutMicros();
+      return buildEmptyParseResult([formatParseTimeoutError(filePath, timeoutMicros || DEFAULT_PARSE_TIMEOUT_MICROS)], true);
+    }
+    return buildEmptyParseResult([`Failed to parse ${filePath}: ${message}`]);
   }
 }

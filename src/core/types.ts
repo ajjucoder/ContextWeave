@@ -282,6 +282,7 @@ export interface ParseResult {
   frameworkCalls: ParsedFrameworkCall[];
   variableBindings: VariableTypeBinding[];
   errors: string[];
+  timedOut?: boolean;
 }
 
 export interface ScoredNode {
