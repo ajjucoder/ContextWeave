@@ -1,0 +1,7 @@
+{
+  "featureId": "wave3a-onnx-runtime",
+  "status": "pass",
+  "summary": "Manual scrutiny of embedding-model configuration, runtime wiring, and dedicated tests shows the local ONNX embedder remains opt-in, resolves supported checkpoints, and batches 64 items as required.",
+  "issues": [],
+  "sharedStateObservations": []
+}

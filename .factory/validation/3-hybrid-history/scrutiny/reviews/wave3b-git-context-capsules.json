@@ -1,0 +1,7 @@
+{
+  "featureId": "wave3b-git-context-capsules",
+  "status": "pass",
+  "summary": "Manual scrutiny of temporal-query detection and capsule pipeline hooks shows relevant commits are surfaced as history observations for why/when/history-style queries, with validators passing end to end.",
+  "issues": [],
+  "sharedStateObservations": []
+}

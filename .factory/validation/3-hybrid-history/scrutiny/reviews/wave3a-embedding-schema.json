@@ -1,0 +1,7 @@
+{
+  "featureId": "wave3a-embedding-schema",
+  "status": "pass",
+  "summary": "Manual scrutiny confirmed the v23 migration and schema declarations add the symbol and chunk embedding tables with the expected indexes and rollback path, and the full validator suite passed.",
+  "issues": [],
+  "sharedStateObservations": []
+}

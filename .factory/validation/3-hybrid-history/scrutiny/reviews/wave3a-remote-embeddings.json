@@ -1,0 +1,7 @@
+{
+  "featureId": "wave3a-remote-embeddings",
+  "status": "pass",
+  "summary": "Manual scrutiny of remote embedding model resolution and API request handling shows OpenAI, Jina, and Voyage support is present with graceful missing-key behavior covered by tests and passing validators.",
+  "issues": [],
+  "sharedStateObservations": []
+}

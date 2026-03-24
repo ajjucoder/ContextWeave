@@ -1,0 +1,40 @@
+{
+  "milestone": "3-hybrid-history",
+  "round": 1,
+  "status": "pass",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "npm test",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "npx tsc --noEmit",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "npm run lint",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "skills / task-runtime",
+      "suggestion": "Fix Task subagent model resolution for scrutiny validators or explicitly document a fallback review path when Task launches fail because the configured model name is invalid.",
+      "evidence": "Both scrutiny-feature-reviewer and codebase-validation-specialist Task launches failed in this run with \"Invalid model: custom:GPT-5.4-Medium-[VibeProxy]-25\", so reviews had to be completed manually before synthesis.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [],
+  "previousRound": null
+}

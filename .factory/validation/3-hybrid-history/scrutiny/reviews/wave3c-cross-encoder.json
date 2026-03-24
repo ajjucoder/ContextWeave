@@ -1,0 +1,7 @@
+{
+  "featureId": "wave3c-cross-encoder",
+  "status": "pass",
+  "summary": "Manual scrutiny of reranker model resolution, score fusion, and hybrid runtime wiring shows the cross-encoder remains opt-in, caps reranking to 80 candidates, and blends scores using alpha as specified.",
+  "issues": [],
+  "sharedStateObservations": []
+}

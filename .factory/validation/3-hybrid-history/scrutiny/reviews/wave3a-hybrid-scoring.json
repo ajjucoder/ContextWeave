@@ -1,0 +1,7 @@
+{
+  "featureId": "wave3a-hybrid-scoring",
+  "status": "pass",
+  "summary": "Manual scrutiny of candidate scoring and hybrid runtime tests shows cosine similarity is blended into broad retrieval while exact narrow matches remain ahead of semantic neighbors.",
+  "issues": [],
+  "sharedStateObservations": []
+}

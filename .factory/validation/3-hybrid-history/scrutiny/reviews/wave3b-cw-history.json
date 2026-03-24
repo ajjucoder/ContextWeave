@@ -1,0 +1,7 @@
+{
+  "featureId": "wave3b-cw-history",
+  "status": "pass",
+  "summary": "Manual scrutiny of the cw_history tool and integration tests shows both file-level and symbol-level history lookups work against indexed repositories and reuse stored summaries when available.",
+  "issues": [],
+  "sharedStateObservations": []
+}
