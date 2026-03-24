@@ -16,6 +16,7 @@ import { registerFilesTool } from "./tools/files.js";
 import { registerSearchTool } from "./tools/search.js";
 import { registerReadTool } from "./tools/read.js";
 import { registerStatsTool } from "./tools/stats.js";
+import { registerExportTool } from "./tools/export.js";
 import { startWatcher, stopWatcher } from "../core/watcher.js";
 import { createEmbeddingRuntime, disposeEmbeddingRuntime } from "../core/embedding-runtime.js";
 import { indexProject } from "../core/indexer.js";
@@ -111,6 +112,7 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
   registerSearchTool(server, db, projectRoot);
   registerReadTool(server, db, projectRoot);
   registerStatsTool(server, db, projectRoot, serverSessionId);
+  registerExportTool(server, db, projectRoot);
 
   registerReindexTool(server, db, projectRoot, config, embeddingRuntime);
   if (isPrimary) {
