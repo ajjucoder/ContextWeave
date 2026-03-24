@@ -1,9 +1,11 @@
 import type Database from "better-sqlite3";
 import type { LightSymbolRecord, SymbolRecord } from "../../core/types.js";
 import { sanitizeFTS5Term } from "../../utils/fts5-sanitize.js";
+import { createLogger } from "../../utils/logger.js";
 
 type SymbolQueriesResult = ReturnType<typeof symbolQueriesImpl>;
 const symbolQueriesCache = new WeakMap<Database.Database, SymbolQueriesResult>();
+const logger = createLogger("symbols-query");
 
 export function symbolQueries(db: Database.Database): SymbolQueriesResult {
   const cached = symbolQueriesCache.get(db);
@@ -197,7 +199,8 @@ function symbolQueriesImpl(db: Database.Database) {
       const pattern = `"${sanitized}"`;
       try {
         return searchFTS.all(pattern, limit).map(mapRow).filter(Boolean) as SymbolRecord[];
-      } catch {
+      } catch (error) {
+        logger.debug("FTS search failed", { error });
         return [];
       }
     },

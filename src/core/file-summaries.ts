@@ -8,6 +8,7 @@ import {
   sanitizeFTS5Term,
   buildFTS5ORPattern,
 } from "../utils/fts5-sanitize.js";
+import { createLogger } from "../utils/logger.js";
 import { RUNTIME_CODE_PATH_RE, RUNTIME_QUERY_TERMS, TYPE_DECLARATION_PATH_RE } from "../capsule/signals.js";
 
 interface SymbolRow {
@@ -40,6 +41,8 @@ interface RankedSearchResult extends FileSummarySearchResult {
   expandedHits: number;
   score: number;
 }
+
+const logger = createLogger("file-summaries");
 
 const TEST_QUERY_TERMS = new Set([
   "test",
@@ -335,7 +338,8 @@ export function searchFilesByQuery(
         LIMIT ?
       `).all(pattern, limit) as SearchRow[];
       return rows;
-    } catch {
+    } catch (error) {
+      logger.debug("FTS search failed", { error });
       return [];
     }
   };
