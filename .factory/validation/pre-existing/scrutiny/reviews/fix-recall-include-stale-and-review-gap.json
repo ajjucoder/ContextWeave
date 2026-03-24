@@ -1,0 +1,48 @@
+{
+  "featureId": "fix-recall-include-stale-and-review-gap",
+  "status": "pass",
+  "summary": "Feature branch b4634d7 fully addresses all blocking issues identified in fix-recall-grouping-regression. The fix correctly restores include_stale passive grouping by: (1) always passing includePassive:true to search so passive observations enter the pipeline, (2) computing showPassive as scope==='passive' || include_stale===true to control display, (3) using displayedPassive=showPassive ? passive : [] to conditionally render, and (4) adding a new test case that explicitly verifies include_stale=true surfaces passive observations alongside intentional ones. All 3 tests in recall-tool-grouping.test.ts pass.",
+  "issues": [],
+  "sharedStateObservations": [
+    {
+      "target": "recall.ts",
+      "observation": "Line 24: showPassive = scope === 'passive' || include_stale === true. This correctly restores the include_stale passthrough that was lost in 3ab8987. When include_stale=true, showPassive becomes true, triggering passive observation display.",
+      "rationale": "Fixes blocking issue #1 from prior review."
+    },
+    {
+      "target": "recall.ts",
+      "observation": "Line 27: includePassive: true is always passed to search.search(). This ensures passive observations are always retrieved from the database into the results pipeline, regardless of display intent. The filtering happens at display time via displayedPassive.",
+      "rationale": "Fixes blocking issue #3 from prior review — passive observations now always enter the pipeline."
+    },
+    {
+      "target": "recall.ts",
+      "observation": "Line 47: const displayedPassive = showPassive ? passive : []. This is the display-time filter that was missing in 3ab8987. When showPassive is false (default case), displayedPassive is an empty array, preventing passive observations from being rendered even though they exist in results.",
+      "rationale": "Key fix for conditional rendering of passive section."
+    },
+    {
+      "target": "recall.ts",
+      "observation": "Lines 56-58: if (showPassive) { renderGroup('Passive observations', displayedPassive); }. The passive group is only rendered when showPassive is true, preventing the 'Passive observations: (none)' pattern in default output.",
+      "rationale": "Clean conditional rendering — no empty passive section in default output."
+    },
+    {
+      "target": "recall.ts",
+      "observation": "Lines 30-31: limit is increased to Math.max(requestedLimit * 3, requestedLimit) when showPassive is false. This compensates for fetching extra passive data (not displayed) so intentional results are not starved.",
+      "rationale": "Smart budget management — non-displayed passive results do not reduce intentional result count."
+    },
+    {
+      "target": "recall-tool-grouping.test.ts",
+      "observation": "New test 'surfaces passive observations when include_stale is enabled' (lines 97-141) explicitly verifies that include_stale:true surfaces both passive and intentional observations with correct grouping. This test was added in the same commit (b4634d7) as the fix, resolving the prior issue where test changes were in a separate commit.",
+      "rationale": "Fixes blocking issue #2 — test now travels with the feature in the same commit."
+    }
+  ],
+  "evidence": [
+    "git diff 17524e6..b4634d7 -- src/mcp/tools/recall.ts: shows showPassive restored to 'scope === \"passive\" || include_stale === true', includePassive always set to true, displayedPassive filter added",
+    "git show b4634d7 --format=\"\" -- tests/integration/recall-tool-grouping.test.ts: shows new test 'surfaces passive observations when include_stale is enabled' added in same commit as the fix",
+    "npm test -- tests/integration/recall-tool-grouping.test.ts: 3 tests pass (hides passive by default, can return passive with scope=passive, surfaces passive with include_stale=true)",
+    "git diff 3ab8987..b4634d7 -- src/mcp/tools/recall.ts: shows the key change from includePassive:showPassive (broken) back to includePassive:true (fixed)",
+    "recall.ts line 24: showPassive = scope === 'passive' || include_stale === true — correct OR logic restored",
+    "recall.ts line 27: includePassive: true — always search passive regardless of display intent",
+    "recall.ts line 47: displayedPassive = showPassive ? passive : [] — display-time filtering",
+    "recall.ts lines 56-58: conditional renderGroup call prevents empty passive section in default output"
+  ]
+}
