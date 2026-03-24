@@ -6,6 +6,8 @@ const mockStopWatcher = vi.fn();
 const mockSyncBootstrapObservations = vi.fn();
 const mockRunMigrations = vi.fn();
 const mockGetDb = vi.fn(() => ({ mocked: true }));
+const mockFileQueriesCount = vi.fn(() => 0);
+const mockFileQueries = vi.fn(() => ({ count: mockFileQueriesCount }));
 const mockCloseDb = vi.fn();
 const mockBackfillSummariesIfNeeded = vi.fn();
 const mockBackfillClustersIfNeeded = vi.fn();
@@ -72,6 +74,10 @@ vi.mock("../../src/memory/bootstrap.js", () => ({
   syncBootstrapObservations: mockSyncBootstrapObservations,
 }));
 
+vi.mock("../../src/db/queries/files.js", () => ({
+  fileQueries: mockFileQueries,
+}));
+
 describe("startMcpServer", () => {
   beforeEach(() => {
     vi.resetModules();
@@ -125,9 +131,9 @@ describe("startMcpServer", () => {
       "cw_capsule",
       "cw_status",
       "cw_stats",
+      "cw_reindex",
     ]));
     expect(registeredToolsByServer[0]).not.toContain("cw_remember");
-    expect(registeredToolsByServer[0]).not.toContain("cw_reindex");
   });
 
   it("cleans up watcher, db, and lock when startup fails after watcher init", async () => {
