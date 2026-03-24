@@ -1,0 +1,12 @@
+{
+  "featureId": "wave2a-symbol-visibility",
+  "status": "pass",
+  "summary": "Pass. Visibility metadata is persisted on symbols, inferred by the parser, and used to deprioritize cross-file private helpers.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/db/migrations.ts:554-561 adds the `visibility` column, src/core/parser.ts:581-649 infers public/private/protected/internal visibility across language conventions, and src/capsule/pipeline/candidate-scorer.ts:24-39 applies cross-file visibility penalties.",
+    "tests/unit/parser.test.ts:393-444 verifies TypeScript, Python, and Rust visibility inference, including private/protected/internal cases required by the milestone.",
+    "tests/capsule/pipeline/candidate-scorer.test.ts:141-166 verifies `ensureBroadFileSpread` avoids selecting a private cross-file helper when a public alternative is available."
+  ]
+}

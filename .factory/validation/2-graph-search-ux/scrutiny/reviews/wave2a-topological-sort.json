@@ -1,0 +1,12 @@
+{
+  "featureId": "wave2a-topological-sort",
+  "status": "pass",
+  "summary": "Pass. `cw_flow` has a dependency-first topological ordering implementation backed by a direct unit test.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/core/graph.ts:265-314 adds `topologicalSort`, deriving a dependency-first ordering from the reachable outgoing subgraph and falling back deterministically when cycles remain.",
+    "tests/core/graph-algorithms.test.ts:126-138 asserts a linear `handleRequest -> auth -> db` chain is returned as `[db, auth, handleRequest]`, matching the milestone requirement.",
+    "The full validator run passed, so the new graph ordering logic integrates cleanly with the existing flow tool surface."
+  ]
+}

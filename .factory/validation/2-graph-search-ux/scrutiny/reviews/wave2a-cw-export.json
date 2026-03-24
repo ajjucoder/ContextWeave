@@ -1,0 +1,12 @@
+{
+  "featureId": "wave2a-cw-export",
+  "status": "pass",
+  "summary": "Pass. `cw_export` is registered with dot/graphml/json outputs and correctly scopes graph data to a requested path.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/mcp/tools/export.ts:14-224 defines the scoped graph collector plus DOT, GraphML, and JSON formatters and registers the `cw_export` MCP tool.",
+    "tests/integration/mcp-export.test.ts:47-92 exercises all three formats, confirms DOT output contains graph edges, GraphML emits XML with filePath metadata, and JSON only includes nodes from the requested scope.",
+    "tests/integration/mcp-tool-schema-compat.test.ts includes schema coverage for `cw_export`, and the full validator run passed."
+  ]
+}

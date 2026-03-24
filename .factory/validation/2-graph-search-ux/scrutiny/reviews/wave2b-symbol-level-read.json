@@ -1,0 +1,12 @@
+{
+  "featureId": "wave2b-symbol-level-read",
+  "status": "pass",
+  "summary": "Pass. `cw_read` accepts file-qualified symbol shorthand and returns only the symbol range instead of the full file.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/mcp/tools/read.ts:155-177 parses `file::symbol` or `file:symbol` targets, and src/mcp/tools/read.ts:223-320 resolves the matching symbol and bounds the response to its line range.",
+    "tests/integration/mcp-navigation-tools.test.ts:143-176 verifies both symbol-targeted reads and the `sample.ts::validateEmail` shorthand, asserting only lines 11-13 are returned and unrelated later symbols are excluded.",
+    "tests/field/review-regressions.test.ts includes end-to-end file-qualified `cw_read` checks on fixture projects, and the full validator run remained green."
+  ]
+}

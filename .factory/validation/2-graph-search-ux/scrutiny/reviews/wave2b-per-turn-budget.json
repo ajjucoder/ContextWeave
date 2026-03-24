@@ -1,0 +1,12 @@
+{
+  "featureId": "wave2b-per-turn-budget",
+  "status": "pass",
+  "summary": "Pass. `cw_read` now tracks cumulative per-session character usage and truncates once the shared budget is exceeded.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/mcp/tools/read.ts:14-70 defines the default 20k character budget and excerpt budgeting helper, and src/mcp/tools/read.ts:187-320 threads a stable session id through reads so usage accumulates per session.",
+    "tests/integration/read-budget.test.ts:62-105 verifies a second read in the same session emits `Warning: Budget exceeded` and truncates later lines, while a fresh session gets an untouched budget.",
+    "The passing full validator run confirms the budget tracking did not regress existing read-tool behaviors."
+  ]
+}

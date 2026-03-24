@@ -1,0 +1,12 @@
+{
+  "featureId": "wave2b-confidence-tiers",
+  "status": "pass",
+  "summary": "Pass. Structured capsule output now includes high/medium/low confidence tiers and tiered supplementary-read counts.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/capsule/formatter.ts:366-458 computes the structured confidence tier and writes `confidence` plus `recommended_supplementary_reads` into the returned capsule payload.",
+    "tests/capsule/followup-suggestions.test.ts:109-204 verifies high-confidence capsules return 2 supplementary reads and medium-confidence capsules return 5; low-confidence behavior is also covered in formatter-focused tests.",
+    "tests/integration/capsule.test.ts:140-142 asserts structured capsule outputs always include one of the expected supplementary-read counts, and the full test suite passed."
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "featureId": "wave2c-smart-truncation",
+  "status": "pass",
+  "summary": "Pass. L1 packing now preserves the head and tail of long symbols instead of cutting off mid-function.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/capsule/packer.ts:14-35 implements `renderL1SmartTruncation`, keeping the first 60% and final 40% of visible lines and inserting an omitted-lines marker with a `cw_read` hint.",
+    "tests/capsule/packer.test.ts:147-179 verifies the rendered output includes both early and late lines from a 150-line function, preserves the closing brace, and reports `50 lines omitted`.",
+    "The full validator run passed, confirming the new truncation strategy works with the rest of capsule packing."
+  ]
+}

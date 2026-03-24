@@ -1,0 +1,12 @@
+{
+  "featureId": "wave2c-cw-snapshot",
+  "status": "pass",
+  "summary": "Pass. `cw_snapshot` returns a compact structured session summary with active files, observations, decisions, and token-budget trimming.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/mcp/tools/snapshot.ts:8-204 defines the 2048-token budget, active-file/observation/decision loaders, and snapshot trimming logic before registering the `cw_snapshot` tool.",
+    "tests/integration/mcp-snapshot.test.ts:105-138 verifies the tool returns JSON under the token budget, includes the expected active files, surfaces recent observations, and returns only decision-scoped items in the decisions list.",
+    "tests/integration/mcp-server.test.ts confirms `cw_snapshot` is registered in both primary and secondary server modes, and the full validator run passed."
+  ]
+}

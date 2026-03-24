@@ -1,0 +1,12 @@
+{
+  "featureId": "wave2d-chokidar-watcher",
+  "status": "pass",
+  "summary": "Pass. The chokidar watcher debounces reindexing, suppresses duplicate work, propagates diffs, and is started only for primary MCP sessions.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/core/watcher-v2.ts:12-225 defines the chokidar watcher, 2-second debounce, 10-second duplicate suppression, immediate delete handling, and diff propagation hooks.",
+    "tests/core/watcher-v2.test.ts:58-220 verifies debounce timing, delete handling, duplicate suppression, and diff propagation after reindexing.",
+    "tests/integration/mcp-server.test.ts:101-133 verifies the watcher starts in primary mode with the expected session context and is skipped in secondary mode."
+  ]
+}

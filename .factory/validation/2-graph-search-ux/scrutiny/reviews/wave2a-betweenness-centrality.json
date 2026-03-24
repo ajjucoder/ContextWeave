@@ -1,0 +1,12 @@
+{
+  "featureId": "wave2a-betweenness-centrality",
+  "status": "pass",
+  "summary": "Pass. Graph centrality now computes Brandes betweenness, persists it on symbols, and is covered by focused graph algorithm tests.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/core/graph.ts:507-571 implements Brandes betweenness centrality over the compact adjacency structure, and src/core/graph.ts:671-705 persists betweenness alongside PageRank updates.",
+    "tests/core/graph-algorithms.test.ts:79-124 verifies the 3-node line graph gives betweenness(A)=0, betweenness(B)=1, betweenness(C)=0, the shortcut A->C collapses B back to 0, and updateCentralityScores stores the computed values.",
+    "Validator run `npm test` passed with 206 test files and 1411 tests green in this scrutiny session."
+  ]
+}

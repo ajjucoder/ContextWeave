@@ -1,0 +1,12 @@
+{
+  "featureId": "wave2a-scc-detection",
+  "status": "pass",
+  "summary": "Pass. Tarjan-style SCC discovery and circular-cluster counting are implemented and exercised by cycle-focused tests.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/core/graph.ts:571-659 implements `findStronglyConnectedComponents` and `countCircularDependencyClusters`, including self-loop handling for single-node cycles.",
+    "tests/core/graph-algorithms.test.ts:140-168 verifies a 3-node cycle is returned as one component and that a self-referential symbol counts as one circular dependency cluster.",
+    "src/mcp/tools/stats.ts:232 surfaces the cluster count in formatted stats output, tying the SCC logic to the user-visible milestone behavior."
+  ]
+}

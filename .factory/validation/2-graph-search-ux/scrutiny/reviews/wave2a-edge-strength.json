@@ -1,0 +1,12 @@
+{
+  "featureId": "wave2a-edge-strength",
+  "status": "pass",
+  "summary": "Pass. Edge strength is stored in schema/migrations, populated by edge kind, and consumed by weighted BFS traversal.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/db/migrations.ts:524-546 adds the `strength` column and backfills call/import/reference/type_usage weights, while src/core/edge-strength.ts:1-13 centralizes the canonical values.",
+    "src/core/weighted-bfs.ts:31-40 incorporates `edge.strength` directly into traversal cost, so stronger edges become cheaper expansion paths.",
+    "tests/core/weighted-bfs.test.ts:132-154 confirms call edges persist with strength 1.0, import edges with 0.8, and that the call-edge target remains closer than the same-length import-edge target."
+  ]
+}

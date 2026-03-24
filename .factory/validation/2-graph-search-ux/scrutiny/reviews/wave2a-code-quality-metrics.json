@@ -1,0 +1,12 @@
+{
+  "featureId": "wave2a-code-quality-metrics",
+  "status": "pass",
+  "summary": "Pass. `cw_stats` now reports quality score, dead-code counts, large-function warnings, and circular dependency clusters.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/mcp/tools/stats.ts:61-128 computes quality score, dead code count, and large function warnings, and src/mcp/tools/stats.ts:229-244 formats those metrics into the user-facing stats text.",
+    "tests/unit/stats.test.ts:265-284 verifies dead code count, large function metadata, degraded quality score, and the presence of the new quality text in formatted stats output.",
+    "tests/core/graph-algorithms.test.ts and the passing full test suite provide the supporting circular dependency evidence used by the stats tool."
+  ]
+}

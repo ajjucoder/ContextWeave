@@ -1,0 +1,12 @@
+{
+  "featureId": "wave2c-rrf-search",
+  "status": "pass",
+  "summary": "Pass. Memory search now fuses Porter and trigram rankings with reciprocal rank fusion instead of a priority waterfall.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/memory/search.ts:190-229 implements `fuseRankedResults` and `runRrfSearch`, summing reciprocal-rank scores across Porter and trigram result sets before final sorting.",
+    "tests/memory/search.test.ts:47-60 verifies typo-tolerant queries such as `authentiction middleware` promote observations supported by both ranking signals and still retain trigram-corrected matches in the merged top results.",
+    "The full `npm test` run passed, indicating the RRF search path integrates cleanly with recall and capsule consumers."
+  ]
+}

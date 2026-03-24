@@ -1,0 +1,12 @@
+{
+  "featureId": "wave2c-proximity-reranking",
+  "status": "pass",
+  "summary": "Pass. Pivot scoring adds a proximity boost for multi-term matches that appear close together and withholds that boost for distant terms.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "The milestone behavior is exercised through the pivot scorer path that feeds capsule pivot resolution, and the tests confirm the intended reranking effect rather than simple lexical matching.",
+    "tests/capsule/pivot-scorer.test.ts:267-289 verifies an `AuthMiddleware` candidate with co-located `auth` and `middleware` terms outranks a candidate where those terms are separated by unrelated text, with a score ratio greater than 1.4.",
+    "tests/capsule/pivot-scorer.test.ts:291-310 verifies the boost is not applied when the terms are far apart, matching the milestone requirement."
+  ]
+}
