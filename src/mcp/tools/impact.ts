@@ -170,12 +170,13 @@ export function registerImpactTool(server: McpServer, db: Database.Database): vo
 
         // Trace impact for all resolved symbols (handles barrel re-exports:
         // same-named symbols in index.ts re-exports are traced separately)
+        // Always use traceImpactWithBarrelAliases because barrel aliases represent
+        // real consumer dependencies - even when pinned to an exact symbol, consumers
+        // may import via barrel (index.ts) so we must trace through it to find them.
         const seen = new Set<string>();
         const allImpacts: ImpactNode[] = [];
         for (const pivot of pivotSymbols) {
-          const tracedNodes = pinToExactSymbol
-            ? traceImpact(db, pivot.id, maxDepth)
-            : traceImpactWithBarrelAliases(db, pivot, maxDepth);
+          const tracedNodes = traceImpactWithBarrelAliases(db, pivot, maxDepth);
           for (const node of tracedNodes) {
             const key = `${node.file}:${node.line}:${node.name}`;
             if (!seen.has(key)) {
