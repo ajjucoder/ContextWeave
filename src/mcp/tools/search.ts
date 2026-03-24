@@ -1,12 +1,11 @@
-import { lstatSync, readFileSync, realpathSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type Database from "better-sqlite3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod/v3";
-import { isPathWithinRoot } from "../../core/indexer.js";
 import { fileQueries } from "../../db/queries/files.js";
 import { symbolQueries } from "../../db/queries/symbols.js";
-import { globToRegExp, toProjectRelativePath, withinPath } from "./path-filters.js";
+import { globToRegExp, isSafeProjectPath, toProjectRelativePath, withinPath } from "./path-filters.js";
 import { runRipgrepSearch, isRipgrepAvailable } from "./ripgrep.js";
 import { getRegisterTool } from "./register-helper.js";
 
@@ -21,22 +20,6 @@ interface SearchResult {
   snippet: string;
   isDefinition: boolean;
   symbolContext: string;
-}
-
-function isSafeProjectPath(filePath: string, projectRoot: string): boolean {
-  if (!isPathWithinRoot(filePath, projectRoot)) return false;
-
-  try {
-    const stat = lstatSync(filePath);
-    if (stat.isSymbolicLink()) {
-      const realPath = realpathSync(filePath);
-      return isPathWithinRoot(realPath, projectRoot);
-    }
-  } catch {
-    return false;
-  }
-
-  return true;
 }
 
 export function parseDelimitedRegex(query: string): { pattern: string; flags: string } | null {

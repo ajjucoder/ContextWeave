@@ -1,10 +1,10 @@
-import { lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { relative, resolve } from "node:path";
 import type Database from "better-sqlite3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod/v3";
 import { getRegisterTool } from "./register-helper.js";
-import { isPathWithinRoot } from "../../core/indexer.js";
+import { isSafeProjectPath } from "./path-filters.js";
 import { fileQueries } from "../../db/queries/files.js";
 import { symbolQueries } from "../../db/queries/symbols.js";
 import type { SymbolRecord } from "../../core/types.js";
@@ -15,22 +15,6 @@ const MAX_READ_BYTES = 2 * 1024 * 1024;
 interface ResolvedSymbol {
   symbol: SymbolRecord;
   filePath: string;
-}
-
-function isSafeProjectPath(filePath: string, projectRoot: string): boolean {
-  if (!isPathWithinRoot(filePath, projectRoot)) return false;
-
-  try {
-    const stat = lstatSync(filePath);
-    if (stat.isSymbolicLink()) {
-      const realPath = realpathSync(filePath);
-      return isPathWithinRoot(realPath, projectRoot);
-    }
-  } catch {
-    return false;
-  }
-
-  return true;
 }
 
 function resolveSymbolTarget(

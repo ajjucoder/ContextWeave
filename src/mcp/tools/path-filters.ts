@@ -1,4 +1,6 @@
+import { lstatSync, realpathSync } from "node:fs";
 import { relative, resolve } from "node:path";
+import { isPathWithinRoot } from "../../core/indexer.js";
 
 function cleanSlashes(value: string): string {
   return value.replace(/\\/g, "/").replace(/\/+/g, "/").trim();
@@ -56,6 +58,22 @@ function expandBracePatterns(pattern: string): string[] {
   const prefix = pattern.slice(0, open);
   const suffix = pattern.slice(close + 1);
   return options.flatMap((option) => expandBracePatterns(`${prefix}${option}${suffix}`));
+}
+
+export function isSafeProjectPath(filePath: string, projectRoot: string): boolean {
+  if (!isPathWithinRoot(filePath, projectRoot)) return false;
+
+  try {
+    const stat = lstatSync(filePath);
+    if (stat.isSymbolicLink()) {
+      const realPath = realpathSync(filePath);
+      return isPathWithinRoot(realPath, projectRoot);
+    }
+  } catch {
+    return false;
+  }
+
+  return true;
 }
 
 export function toProjectRelativePath(projectRoot: string, filePath: string): string {
