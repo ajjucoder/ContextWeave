@@ -2,7 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import Database from "better-sqlite3";
 import { createSchema } from "../../src/db/schema.js";
 import { runMigrations } from "../../src/db/migrations.js";
-import { computeSessionStats } from "../../src/mcp/tools/stats.js";
+import { computeSessionStats, formatStats } from "../../src/mcp/tools/stats.js";
+import { fileQueries } from "../../src/db/queries/files.js";
+import { symbolQueries } from "../../src/db/queries/symbols.js";
+import { edgeQueries } from "../../src/db/queries/edges.js";
 
 let db: Database.Database;
 
@@ -27,6 +30,43 @@ function insertCapsuleLog(
   `).run(sessionId, query, budget, used, JSON.stringify(symbols), JSON.stringify(files), Date.now(), followedUp ? 1 : 0);
 }
 
+function insertCycleGraph(): void {
+  const files = fileQueries(db);
+  const symbols = symbolQueries(db);
+  const edges = edgeQueries(db);
+  const now = Date.now();
+  const fileId = files.insert({
+    path: "src/cycle.ts",
+    hash: "cycle-hash",
+    lastIndexed: now,
+    mtime: now,
+    language: "typescript",
+    symbolCount: 0,
+    error: null,
+  });
+
+  const ids = ["A", "B", "C"].map((name) => symbols.insert({
+    fileId,
+    name,
+    kind: "function",
+    startLine: 1,
+    endLine: 1,
+    signature: `function ${name}()`,
+    bodyHash: `${name}-hash`,
+    fullSource: `function ${name}() {}`,
+    isExported: true,
+    docComment: null,
+    centrality: 0,
+    lastSeen: now,
+    parentSymbolId: null,
+    qualifiedName: null,
+  }));
+
+  edges.insert({ sourceSymbolId: ids[0]!, targetSymbolId: ids[1]!, kind: "call", createdAt: now });
+  edges.insert({ sourceSymbolId: ids[1]!, targetSymbolId: ids[2]!, kind: "call", createdAt: now });
+  edges.insert({ sourceSymbolId: ids[2]!, targetSymbolId: ids[0]!, kind: "call", createdAt: now });
+}
+
 beforeEach(() => {
   db = new Database(":memory:");
   db.pragma("foreign_keys = ON");
@@ -47,6 +87,7 @@ describe("computeSessionStats", () => {
     expect(stats.totalTokensUsed).toBe(0);
     expect(stats.uniqueFiles).toBe(0);
     expect(stats.uniqueSymbols).toBe(0);
+    expect(stats.circularDependencyClusters).toBe(0);
     expect(stats.firstPassRate).toBe(0);
     expect(stats.correctionRate).toBe(0);
     expect(stats.budgetUtilization).toBe(0);
@@ -64,6 +105,7 @@ describe("computeSessionStats", () => {
     expect(stats.totalTokensUsed).toBe(5500);
     expect(stats.uniqueFiles).toBe(3);
     expect(stats.uniqueSymbols).toBe(4);
+    expect(stats.circularDependencyClusters).toBe(0);
     expect(stats.firstPassRate).toBe(0.5);
     expect(stats.correctionRate).toBe(0.5);
     // budgetUtilization: avg of (2400/4000 + 3100/4000) / 2 = (0.6 + 0.775) / 2 = 0.6875
@@ -117,5 +159,16 @@ describe("computeSessionStats", () => {
     const stats = computeSessionStats(db, "s1", "/test");
     expect(stats.capsulesGenerated).toBe(1);
     expect(stats.totalTokensUsed).toBe(2000);
+  });
+
+  it("reports circular dependency cluster count in formatted stats output", () => {
+    setupSession("s1");
+    insertCycleGraph();
+
+    const stats = computeSessionStats(db, "s1", "/test");
+    const text = formatStats(stats, "s1");
+
+    expect(stats.circularDependencyClusters).toBe(1);
+    expect(text).toContain("1 circular dependency clusters detected");
   });
 });

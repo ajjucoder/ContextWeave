@@ -7,6 +7,8 @@ import { symbolQueries } from "../../src/db/queries/symbols.js";
 import { edgeQueries } from "../../src/db/queries/edges.js";
 import {
   computeBetweennessCentrality,
+  countCircularDependencyClusters,
+  findStronglyConnectedComponents,
   topologicalSort,
   updateCentralityScores,
 } from "../../src/core/graph.js";
@@ -135,5 +137,34 @@ describe("graph algorithms", () => {
       ids.get("auth")!,
       ids.get("handleRequest")!,
     ]);
+  });
+
+  it("finds a three-node cycle as one strongly connected component", () => {
+    const ids = insertGraph([
+      ["A", "B"],
+      ["B", "C"],
+      ["C", "A"],
+      ["C", "D"],
+    ]);
+
+    const components = findStronglyConnectedComponents(db);
+    const cycle = components.find((component) => component.length === 3);
+
+    expect(cycle).toBeDefined();
+    expect(new Set(cycle)).toEqual(new Set([
+      ids.get("A")!,
+      ids.get("B")!,
+      ids.get("C")!,
+    ]));
+    expect(countCircularDependencyClusters(db)).toBe(1);
+  });
+
+  it("counts a self-referential symbol as a circular dependency cluster", () => {
+    insertGraph([
+      ["Self", "Self"],
+      ["A", "B"],
+    ]);
+
+    expect(countCircularDependencyClusters(db)).toBe(1);
   });
 });

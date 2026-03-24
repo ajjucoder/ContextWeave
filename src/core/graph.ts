@@ -571,6 +571,97 @@ export function computeBetweennessCentrality(db: Database.Database): Map<number,
   return result;
 }
 
+export function findStronglyConnectedComponents(db: Database.Database): number[][] {
+  const symbols = symbolQueries(db);
+  const symbolIds = symbols.getAllIds();
+
+  if (symbolIds.length === 0) return [];
+
+  const n = symbolIds.length;
+  const idToIndex = new Map(symbolIds.map((id, index) => [id, index]));
+  const { targets, offsets } = buildCompactAdjacency(db, idToIndex, n);
+  const indexByVertex = new Int32Array(n).fill(-1);
+  const lowLink = new Int32Array(n).fill(-1);
+  const onStack = new Uint8Array(n);
+  const stack: number[] = [];
+  const components: number[][] = [];
+  let currentIndex = 0;
+
+  const strongConnect = (vertex: number) => {
+    indexByVertex[vertex] = currentIndex;
+    lowLink[vertex] = currentIndex;
+    currentIndex += 1;
+    stack.push(vertex);
+    onStack[vertex] = 1;
+
+    const start = offsets[vertex]!;
+    const end = offsets[vertex + 1]!;
+    for (let edgeIndex = start; edgeIndex < end; edgeIndex++) {
+      const neighbor = targets[edgeIndex]!;
+      if (indexByVertex[neighbor] === -1) {
+        strongConnect(neighbor);
+        lowLink[vertex] = Math.min(lowLink[vertex]!, lowLink[neighbor]!);
+      } else if (onStack[neighbor] === 1) {
+        lowLink[vertex] = Math.min(lowLink[vertex]!, indexByVertex[neighbor]!);
+      }
+    }
+
+    if (lowLink[vertex] !== indexByVertex[vertex]) return;
+
+    const component: number[] = [];
+    let stackedVertex = -1;
+    while (stackedVertex !== vertex) {
+      stackedVertex = stack.pop()!;
+      onStack[stackedVertex] = 0;
+      component.push(symbolIds[stackedVertex]!);
+    }
+    components.push(component);
+  };
+
+  for (let vertex = 0; vertex < n; vertex++) {
+    if (indexByVertex[vertex] === -1) {
+      strongConnect(vertex);
+    }
+  }
+
+  return components;
+}
+
+export function countCircularDependencyClusters(db: Database.Database): number {
+  const symbols = symbolQueries(db);
+  const symbolIds = symbols.getAllIds();
+
+  if (symbolIds.length === 0) return 0;
+
+  const idToIndex = new Map(symbolIds.map((id, index) => [id, index]));
+  const { targets, offsets } = buildCompactAdjacency(db, idToIndex, symbolIds.length);
+
+  let count = 0;
+  for (const component of findStronglyConnectedComponents(db)) {
+    if (component.length > 1) {
+      count += 1;
+      continue;
+    }
+
+    const symbolId = component[0];
+    if (symbolId === undefined) continue;
+
+    const vertex = idToIndex.get(symbolId);
+    if (vertex === undefined) continue;
+
+    const start = offsets[vertex]!;
+    const end = offsets[vertex + 1]!;
+    for (let edgeIndex = start; edgeIndex < end; edgeIndex++) {
+      if (targets[edgeIndex] === vertex) {
+        count += 1;
+        break;
+      }
+    }
+  }
+
+  return count;
+}
+
 const CENTRALITY_UPDATE_BATCH_SIZE = 5000;
 
 export function updateCentralityScores(db: Database.Database): void {

@@ -2,6 +2,7 @@ import { z } from "zod/v3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
 import { capsuleLogQueries } from "../../db/queries/capsule-log.js";
+import { countCircularDependencyClusters } from "../../core/graph.js";
 import { getRegisterTool } from "./register-helper.js";
 
 export const FOLLOW_UP_METRICS_SAMPLE_LIMIT = 200;
@@ -12,6 +13,7 @@ export interface SessionStats {
   totalTokensUsed: number;
   uniqueFiles: number;
   uniqueSymbols: number;
+  circularDependencyClusters: number;
   firstPassRate: number;
   correctionRate: number;
   budgetUtilization: number;
@@ -65,6 +67,7 @@ export function computeSessionStats(
       totalTokensUsed: 0,
       uniqueFiles: 0,
       uniqueSymbols: 0,
+      circularDependencyClusters: countCircularDependencyClusters(db),
       firstPassRate: 0,
       correctionRate: 0,
       budgetUtilization: 0,
@@ -100,6 +103,7 @@ export function computeSessionStats(
     totalTokensUsed: totalUsed,
     uniqueFiles: allFiles.size,
     uniqueSymbols: allSymbols.size,
+    circularDependencyClusters: countCircularDependencyClusters(db),
     firstPassRate: followUpMetrics.firstPassRate,
     correctionRate: followUpMetrics.correctionRate,
     budgetUtilization,
@@ -107,7 +111,7 @@ export function computeSessionStats(
   };
 }
 
-function formatStats(stats: SessionStats, sessionId: string): string {
+export function formatStats(stats: SessionStats, sessionId: string): string {
   const avgTokensPerCapsule =
     stats.capsulesGenerated > 0
       ? Math.round(stats.totalTokensUsed / stats.capsulesGenerated)
@@ -120,6 +124,7 @@ function formatStats(stats: SessionStats, sessionId: string): string {
     `Session: ${sessionId}`,
     "",
     `Indexed: ${stats.uniqueFiles} files, ${stats.uniqueSymbols} symbols`,
+    `${stats.circularDependencyClusters} circular dependency clusters detected`,
     `Avg tokens per capsule: ${avgTokensPerCapsule.toLocaleString()}`,
     `Budget utilization: ${budgetUtilizationPct}%`,
     "",
