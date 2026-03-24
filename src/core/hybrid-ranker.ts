@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import { splitIdentifier } from "../utils/camel-split.js";
 import { termWeight } from "../capsule/signals.js";
 import type { EmbeddingRuntime, HybridSearchResult, SymbolKind } from "./types.js";
+import { blendRerankerScore } from "./reranker.js";
 import { symbolQueries } from "../db/queries/symbols.js";
 import { globToRegExp, toProjectRelativePath, withinPath } from "../mcp/tools/path-filters.js";
 
@@ -363,23 +364,29 @@ export async function hybridSearch(
   });
 
   if (embeddingRuntime.reranker && results.length > 1) {
-    const rerankCandidates = results.slice(0, Math.min(30, results.length));
+    const rerankCandidates = results.slice(0, Math.min(embeddingRuntime.reranker.maxCandidates, results.length));
     const documents = rerankCandidates.map((r) => {
       const scopeLabel = r.scopeChain[r.scopeChain.length - 1] ?? r.kind;
-      return `${scopeLabel} in ${r.filePath}`;
+      return `${scopeLabel} ${r.kind} ${r.filePath}:${r.startLine}-${r.endLine}`;
     });
 
     try {
       const reranked = await embeddingRuntime.reranker.rerank(options.query, documents);
       const rerankedResults: HybridSearchResult[] = [];
       const rerankedIndices = new Set<number>();
+      const maxStageAScore = rerankCandidates[0]?.rrfScore ?? 1;
 
       for (const { index, score } of reranked) {
         const original = rerankCandidates[index];
         if (!original) continue;
+        const normalizedStageAScore = maxStageAScore > 0 ? original.rrfScore / maxStageAScore : 0;
         rerankedResults.push({
           ...original,
-          rrfScore: original.rrfScore * 0.4 + score * 0.6,
+          rrfScore: blendRerankerScore(
+            normalizedStageAScore,
+            score,
+            embeddingRuntime.reranker.alpha
+          ) * maxStageAScore,
         });
         rerankedIndices.add(index);
       }

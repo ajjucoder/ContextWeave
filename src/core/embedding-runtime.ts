@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { VectorStore } from "./vector-store.js";
-import { CrossEncoderReranker } from "./reranker.js";
+import { CrossEncoderReranker, resolveRerankerModel } from "./reranker.js";
 import type { EmbeddingRuntime } from "./types.js";
 import { createLogger } from "../utils/logger.js";
 import {
@@ -14,7 +14,7 @@ const log = createLogger("embedding-runtime");
 
 export async function createEmbeddingRuntime(
   db: Database.Database,
-  options: { modelName?: string | undefined } & RemoteEmbedderOptions = {}
+  options: { modelName?: string | undefined; rerankerModel?: string | undefined } & RemoteEmbedderOptions = {}
 ): Promise<EmbeddingRuntime | null> {
   const model = resolveEmbeddingModel(options.modelName);
   if (model.kind === "disabled") {
@@ -33,12 +33,20 @@ export async function createEmbeddingRuntime(
     vectorStore.initialize();
 
     let reranker: CrossEncoderReranker | undefined;
-    try {
-      reranker = new CrossEncoderReranker();
-    } catch (err) {
-      log.warn("cross-encoder reranker unavailable", {
-        error: err instanceof Error ? err.message : String(err),
-      });
+    const rerankerSpec = resolveRerankerModel(options.rerankerModel);
+    if (rerankerSpec.kind === "local") {
+      try {
+        reranker = new CrossEncoderReranker({
+          modelName: rerankerSpec.huggingFaceModelId,
+          maxCandidates: rerankerSpec.maxCandidates,
+          alpha: rerankerSpec.alpha,
+        });
+      } catch (err) {
+        log.warn("cross-encoder reranker unavailable", {
+          error: err instanceof Error ? err.message : String(err),
+          modelName: rerankerSpec.configuredName,
+        });
+      }
     }
 
     return {

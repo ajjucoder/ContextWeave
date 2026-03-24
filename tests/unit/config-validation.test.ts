@@ -83,6 +83,7 @@ describe("config validation security", () => {
         "gcThreshold",
         "passiveTtlDays",
         "embeddingModel",
+        "rerankerModel",
         "primaryDirs",
         "archiveDirs",
       ].sort();

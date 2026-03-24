@@ -34,6 +34,7 @@ describe("loadConfig", () => {
       gcThreshold: 0.5,
       passiveTtlDays: 7,
       embeddingModel: "none",
+      rerankerModel: "none",
       primaryDirs: [],
       archiveDirs: [],
     });
@@ -55,6 +56,7 @@ describe("loadConfig", () => {
         gcThreshold: 2,
         passiveTtlDays: 14,
         embeddingModel: " local:model ",
+        rerankerModel: " local:bge-reranker-base ",
         primaryDirs: [" src/core ", "", 5],
         archiveDirs: [" legacy ", null],
       }),
@@ -71,6 +73,7 @@ describe("loadConfig", () => {
       gcThreshold: 1,
       passiveTtlDays: 14,
       embeddingModel: "local:model",
+      rerankerModel: "local:bge-reranker-base",
       primaryDirs: ["src/core"],
       archiveDirs: ["legacy"],
     });
@@ -96,6 +99,7 @@ describe("loadConfig", () => {
         gcThreshold: "bad",
         passiveTtlDays: 0,
         embeddingModel: "   ",
+        rerankerModel: "   ",
         primaryDirs: "src",
         archiveDirs: {},
         maliciousKey: "ignored",
@@ -114,6 +118,7 @@ describe("loadConfig", () => {
       gcThreshold: 0.5,
       passiveTtlDays: 1,
       embeddingModel: "none",
+      rerankerModel: "none",
       primaryDirs: [],
       archiveDirs: [],
     });

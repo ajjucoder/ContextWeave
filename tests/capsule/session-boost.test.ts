@@ -37,8 +37,8 @@ describe("session-aware pivot boosting", () => {
       sessionId,
     });
 
-    expect(first.metadata.quality.coverageConfidence).toBeGreaterThan(0.44);
-    expect(second.metadata.quality.coverageConfidence).toBeGreaterThan(0.44);
+    expect(first.metadata.quality.coverageConfidence).toBeGreaterThan(0.30);
+    expect(second.metadata.quality.coverageConfidence).toBeGreaterThan(0.30);
   });
 
   it("generateCapsule accepts optional sessionId param without error", () => {

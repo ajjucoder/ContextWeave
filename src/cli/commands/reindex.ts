@@ -25,6 +25,7 @@ export async function runReindex(projectRoot: string, targetPath?: string): Prom
   const config = loadConfig(projectRoot);
   const embeddingRuntime = await createEmbeddingRuntime(db, {
     modelName: config.embeddingModel,
+    rerankerModel: config.rerankerModel,
   });
 
   if (targetPath) {

@@ -1,24 +1,49 @@
-import { env, pipeline } from "@huggingface/transformers";
+import { env, pipeline } from "@xenova/transformers";
 import { createLogger } from "../utils/logger.js";
 
 const log = createLogger("reranker");
 
-export const DEFAULT_RERANKER_MODEL = "Xenova/ms-marco-MiniLM-L-6-v2";
+export const DEFAULT_RERANKER_MODEL = "none";
+export const DEFAULT_RERANKER_ALPHA = 0.4;
+export const DEFAULT_RERANKER_MAX_CANDIDATES = 80;
 
 interface ClassificationOutput {
   label: string;
   score: number;
 }
 
+type TextClassificationInput = { text: string; text_pair: string };
+
 type TextClassificationPipeline = (
-  input: { text: string; text_pair: string } | Array<{ text: string; text_pair: string }>,
+  input: TextClassificationInput | TextClassificationInput[],
   options?: { topk?: number }
 ) => Promise<ClassificationOutput | ClassificationOutput[] | ClassificationOutput[][]>;
+
+export interface DisabledRerankerModelSpec {
+  configuredName: string;
+  kind: "disabled";
+}
+
+export interface LocalRerankerModelSpec {
+  configuredName: string;
+  kind: "local";
+  huggingFaceModelId: string;
+  maxCandidates: number;
+  alpha: number;
+}
+
+export type RerankerModelSpec = DisabledRerankerModelSpec | LocalRerankerModelSpec;
 
 export interface RerankerOptions {
   modelName?: string;
   cacheDir?: string;
-  topK?: number;
+  maxCandidates?: number;
+  alpha?: number;
+  pipelineFactory?: (
+    task: "text-classification",
+    modelName: string,
+    options: Record<string, unknown>
+  ) => Promise<unknown>;
 }
 
 export interface RerankResult {
@@ -26,15 +51,66 @@ export interface RerankResult {
   score: number;
 }
 
+const LOCAL_MODEL_SPECS: Record<string, Pick<LocalRerankerModelSpec, "huggingFaceModelId">> = {
+  "local:bge-reranker-base": {
+    huggingFaceModelId: "Xenova/bge-reranker-base",
+  },
+};
+
+export function resolveRerankerModel(modelName?: string | null): RerankerModelSpec {
+  const configuredName = modelName?.trim() || DEFAULT_RERANKER_MODEL;
+  if (configuredName === "none") {
+    return {
+      configuredName,
+      kind: "disabled",
+    };
+  }
+
+  const local = LOCAL_MODEL_SPECS[configuredName];
+  if (local) {
+    return {
+      configuredName,
+      kind: "local",
+      huggingFaceModelId: local.huggingFaceModelId,
+      maxCandidates: DEFAULT_RERANKER_MAX_CANDIDATES,
+      alpha: DEFAULT_RERANKER_ALPHA,
+    };
+  }
+
+  if (configuredName.startsWith("local:")) {
+    return {
+      configuredName,
+      kind: "local",
+      huggingFaceModelId: configuredName.slice("local:".length),
+      maxCandidates: DEFAULT_RERANKER_MAX_CANDIDATES,
+      alpha: DEFAULT_RERANKER_ALPHA,
+    };
+  }
+
+  return {
+    configuredName,
+    kind: "disabled",
+  };
+}
+
+export function blendRerankerScore(stageAScore: number, crossEncoderScore: number, alpha: number): number {
+  const clampedAlpha = Math.max(0, Math.min(1, alpha));
+  return clampedAlpha * stageAScore + (1 - clampedAlpha) * crossEncoderScore;
+}
+
 export class CrossEncoderReranker {
   private pipeline: TextClassificationPipeline | null = null;
   private loading: Promise<TextClassificationPipeline> | null = null;
-  private readonly modelName: string;
-  private readonly topK: number;
+  readonly modelName: string;
+  readonly maxCandidates: number;
+  readonly alpha: number;
+  private readonly pipelineFactory: NonNullable<RerankerOptions["pipelineFactory"]>;
 
   constructor(options: RerankerOptions = {}) {
-    this.modelName = options.modelName ?? DEFAULT_RERANKER_MODEL;
-    this.topK = options.topK ?? 20;
+    this.modelName = options.modelName ?? "Xenova/bge-reranker-base";
+    this.maxCandidates = Math.max(1, options.maxCandidates ?? DEFAULT_RERANKER_MAX_CANDIDATES);
+    this.alpha = Math.max(0, Math.min(1, options.alpha ?? DEFAULT_RERANKER_ALPHA));
+    this.pipelineFactory = options.pipelineFactory ?? pipeline;
     if (options.cacheDir) {
       env.cacheDir = options.cacheDir;
     }
@@ -48,68 +124,68 @@ export class CrossEncoderReranker {
       log.info("loading cross-encoder model", { model: this.modelName });
       const start = Date.now();
 
-      const pipe = await pipeline("text-classification", this.modelName, {
+      const pipe = await this.pipelineFactory("text-classification", this.modelName, {
         dtype: "q8",
         device: "cpu",
-      });
+      }) as TextClassificationPipeline;
 
-      log.info("cross-encoder model loaded", { ms: Date.now() - start });
-      this.pipeline = pipe as unknown as TextClassificationPipeline;
-      return this.pipeline;
+      log.info("cross-encoder model loaded", { ms: Date.now() - start, model: this.modelName });
+      this.pipeline = pipe;
+      return pipe;
     })();
 
     return this.loading;
   }
 
-  async rerank(
-    query: string,
-    documents: string[]
-  ): Promise<RerankResult[]> {
+  async rerank(query: string, documents: string[]): Promise<RerankResult[]> {
     if (documents.length === 0) return [];
+
+    const truncatedDocuments = documents.slice(0, this.maxCandidates);
 
     try {
       const pipe = await this.load();
       const start = Date.now();
-
-      const inputs = documents.map((doc) => ({
+      const inputs = truncatedDocuments.map((document) => ({
         text: query,
-        text_pair: doc.slice(0, 512),
+        text_pair: document.slice(0, 512),
       }));
+      const batchSize = 8;
+      const scored: RerankResult[] = [];
 
-      const batchSize = 16;
-      const allScores: RerankResult[] = [];
+      for (let offset = 0; offset < inputs.length; offset += batchSize) {
+        const batch = inputs.slice(offset, offset + batchSize);
+        const output = await pipe(batch, { topk: 1 });
+        const rows = Array.isArray(output)
+          ? (output as Array<ClassificationOutput | ClassificationOutput[]>).map((entry) =>
+              Array.isArray(entry) ? entry[0] : entry
+            )
+          : [output as ClassificationOutput];
 
-      for (let i = 0; i < inputs.length; i += batchSize) {
-        const batch = inputs.slice(i, i + batchSize);
-        const results = await pipe(batch, { topk: 1 });
-        const flat = Array.isArray(results)
-          ? (results as Array<ClassificationOutput | ClassificationOutput[]>).map((r) =>
-            Array.isArray(r) ? r[0]! : r
-          )
-          : [results as ClassificationOutput];
-
-        for (let j = 0; j < flat.length; j++) {
-          allScores.push({
-            index: i + j,
-            score: flat[j]?.score ?? 0,
+        for (let index = 0; index < rows.length; index += 1) {
+          scored.push({
+            index: offset + index,
+            score: rows[index]?.score ?? 0,
           });
         }
       }
 
-      allScores.sort((a, b) => b.score - a.score);
-
+      scored.sort((left, right) => right.score - left.score);
       log.info("reranking complete", {
-        candidates: documents.length,
+        candidates: truncatedDocuments.length,
         ms: Date.now() - start,
-        topScore: allScores[0]?.score ?? 0,
+        alpha: this.alpha,
+        topScore: scored[0]?.score ?? 0,
       });
-
-      return allScores.slice(0, this.topK);
-    } catch (err) {
+      return scored;
+    } catch (error) {
       log.warn("reranking failed, returning original order", {
-        error: err instanceof Error ? err.message : String(err),
+        error: error instanceof Error ? error.message : String(error),
+        model: this.modelName,
       });
-      return documents.map((_, i) => ({ index: i, score: 1 - i * 0.01 }));
+      return truncatedDocuments.map((_, index) => ({
+        index,
+        score: 1 - index / Math.max(1, truncatedDocuments.length),
+      }));
     }
   }
 

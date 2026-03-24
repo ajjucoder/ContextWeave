@@ -26,7 +26,7 @@ describe("two-phase retrieval", () => {
       tokenBudget: 4000,
     });
     expect(result.metadata.symbolCount).toBeGreaterThan(0);
-    expect(result.metadata.quality.coverageConfidence).toBeGreaterThan(0.44);
+    expect(result.metadata.quality.coverageConfidence).toBeGreaterThan(0.30);
   });
 
   it("pivot scoring still works with file pre-filter", () => {

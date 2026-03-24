@@ -83,6 +83,7 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
   const db = getServerDb(projectRoot, isPrimary);
   const embeddingRuntime = await createEmbeddingRuntime(db, {
     modelName: config?.embeddingModel,
+    rerankerModel: config?.rerankerModel,
   });
   const indexedFileCount = fileQueries(db).count();
   if (indexedFileCount === 0) {

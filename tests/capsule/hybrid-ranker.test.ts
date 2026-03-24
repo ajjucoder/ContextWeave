@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import Database from "better-sqlite3";
 import { createSchema } from "../../src/db/schema.js";
 import { runMigrations } from "../../src/db/migrations.js";
@@ -30,6 +30,20 @@ function createRuntime(results: VectorSearchResult[]): EmbeddingRuntime {
       },
     },
     modelName: "test-hybrid-model",
+  };
+}
+
+function createRerankerRuntime(
+  results: VectorSearchResult[],
+  rerankImpl: NonNullable<EmbeddingRuntime["reranker"]>["rerank"]
+): EmbeddingRuntime {
+  return {
+    ...createRuntime(results),
+    reranker: {
+      alpha: 0.4,
+      maxCandidates: 80,
+      rerank: rerankImpl,
+    },
   };
 }
 
@@ -295,5 +309,48 @@ describe("hybridSearch", () => {
     expect(results.find((entry) => entry.fileId === common.fileId)?.bm25Rank).toBeGreaterThan(
       results.find((entry) => entry.fileId === specific.fileId)?.bm25Rank ?? 0
     );
+  });
+
+  it("reranks up to the top 80 stage-a candidates and blends cross-encoder scores", async () => {
+    const fixtures = Array.from({ length: 85 }, (_, index) =>
+      insertChunkFixture(`src/features/candidate-${index}.ts`, `Candidate${index}`, {
+        chunkText: `candidate ${index} semantic feature`,
+      })
+    );
+
+    const rerank = vi.fn(async (_query: string, documents: string[]) =>
+      documents.map((_, index) => ({
+        index,
+        score: index === 79 ? 1 : 0.01,
+      }))
+    );
+
+    const runtime = createRerankerRuntime(
+      fixtures.map((fixture, index) => ({
+        chunkId: fixture.chunkId,
+        fileId: fixture.fileId,
+        filePath: `src/features/candidate-${index}.ts`,
+        startLine: 1,
+        endLine: 20,
+        distance: 0.001 + index / 1000,
+        scopeChain: [`Candidate${index}`],
+        entityNames: [`Candidate${index}`],
+        tokenCount: 24,
+      })),
+      rerank
+    );
+
+    const results = await hybridSearch(db, runtime, {
+      query: "semantic feature",
+      queryTerms: ["semantic", "feature"],
+      queryEmbedding: new Float32Array(384),
+      projectRoot: "/repo",
+      limit: 85,
+    });
+
+    expect(rerank).toHaveBeenCalledTimes(1);
+    expect(rerank.mock.calls[0]?.[1]).toHaveLength(80);
+    expect(results[0]?.filePath).toBe("src/features/candidate-79.ts");
+    expect(results.some((entry) => entry.filePath === "src/features/candidate-80.ts")).toBe(true);
   });
 });

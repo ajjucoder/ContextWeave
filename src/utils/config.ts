@@ -11,6 +11,7 @@ export interface ProjectConfig {
   gcThreshold: number;
   passiveTtlDays: number;
   embeddingModel: string;
+  rerankerModel: string;
   primaryDirs: string[];
   archiveDirs: string[];
 }
@@ -26,6 +27,7 @@ const DEFAULTS: ProjectConfig = {
   gcThreshold: 0.5,
   passiveTtlDays: 7,
   embeddingModel: "none",
+  rerankerModel: "none",
   primaryDirs: [],
   archiveDirs: [],
 };
@@ -125,6 +127,7 @@ export function loadConfig(projectRoot: string): ProjectConfig {
         DEFAULTS.passiveTtlDays
       ),
       embeddingModel: sanitizeEmbeddingModel(raw.embeddingModel),
+      rerankerModel: sanitizeEmbeddingModel(raw.rerankerModel),
       primaryDirs: sanitizePatterns(raw.primaryDirs),
       archiveDirs: sanitizePatterns(raw.archiveDirs),
     };

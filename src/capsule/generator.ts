@@ -62,24 +62,6 @@ export async function generateCapsuleWithRuntime(
       limit: 36,
     });
 
-    if (embeddingRuntime.reranker && hybridSearchResults.length > 5) {
-      try {
-        const documents = hybridSearchResults.map((result) => `${result.scopeChain.join(".")} ${result.kind} ${result.filePath}:${result.startLine}`);
-        const reranked = await embeddingRuntime.reranker.rerank(params.query, documents);
-        const rerankedResults = reranked.map((entry) => hybridSearchResults[entry.index]!);
-        const rerankedSet = new Set(reranked.map((entry) => entry.index));
-        for (let index = 0; index < hybridSearchResults.length; index++) {
-          if (!rerankedSet.has(index)) rerankedResults.push(hybridSearchResults[index]!);
-        }
-        hybridSearchResults.length = 0;
-        hybridSearchResults.push(...rerankedResults);
-      } catch (error) {
-        logger.debug("cross-encoder reranking skipped", {
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-
     return generateCapsule(db, { ...params, queryEmbedding, hybridSearchResults });
   } catch (error) {
     logger.warn("hybrid runtime unavailable during capsule generation; falling back to lexical retrieval", {
