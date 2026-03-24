@@ -264,6 +264,57 @@ describe("scorePivotRelevance", () => {
     expect(ranked.scored[0]?.id).toBe(2);
   });
 
+  it("boosts co-located multi-term candidates for proximity-style queries", () => {
+    const ranked = rankPivotsWithScores(
+      [
+        {
+          id: 1,
+          name: "AuthMiddleware",
+          signature: "function AuthMiddleware(request, middlewareContext)",
+          kind: "function",
+          filePath: "src/auth/middleware.ts",
+        },
+        {
+          id: 2,
+          name: "AuthPipeline",
+          signature:
+            "function AuthPipeline(request, next) // authorization boundary with many unrelated details before middleware registration",
+          kind: "function",
+          filePath: "src/security/pipeline.ts",
+        },
+      ],
+      ["auth", "middleware"],
+      10
+    );
+
+    expect(ranked.scored[0]?.id).toBe(1);
+    expect((ranked.scored[0]?.score ?? 0) / (ranked.scored[1]?.score ?? 1)).toBeGreaterThan(1.4);
+  });
+
+  it("does not apply the proximity boost when query terms are far apart", () => {
+    const closeScore = scorePivotRelevance(
+      {
+        name: "AuthMiddleware",
+        signature: "function AuthMiddleware(request, middlewareContext)",
+        kind: "function",
+        filePath: "src/auth/middleware.ts",
+      },
+      ["auth", "middleware"]
+    );
+    const distantScore = scorePivotRelevance(
+      {
+        name: "AuthPipeline",
+        signature:
+          "function AuthPipeline(request, next) // authorization boundary with many unrelated details before middleware registration",
+        kind: "function",
+        filePath: "src/security/pipeline.ts",
+      },
+      ["auth", "middleware"]
+    );
+
+    expect(closeScore).toBeGreaterThan(distantScore);
+  });
+
   it("penalizes hook type declarations for runtime hook lifecycle queries", () => {
     const hooksScore = scorePivotRelevance(
       {

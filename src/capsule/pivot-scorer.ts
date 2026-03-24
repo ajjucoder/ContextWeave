@@ -78,6 +78,9 @@ const TYPE_QUERY_TERMS = new Set([
   "signatures",
   "dts",
 ]);
+const PROXIMITY_WINDOW_CHARS = 50;
+const PROXIMITY_BOOST_MULTIPLIER = 1.5;
+
 function extractSignalTokens(value: string): string[] {
   return value
     .replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -94,6 +97,52 @@ function stemMatch(token: string, term: string): boolean {
     if (token[i] !== term[i]) return i >= Math.min(5, prefixLen);
   }
   return true;
+}
+
+function hasMultiTermProximityBoost(candidate: PivotCandidate, queryTerms: string[]): boolean {
+  const uniqueTerms = [...new Set(queryTerms.map((term) => term.toLowerCase()).filter((term) => term.length >= 2))];
+  if (uniqueTerms.length < 2) return false;
+
+  const haystack = `${normalizeRetrievalPath(candidate.filePath, 6)} ${candidate.name} ${candidate.signature}`.toLowerCase();
+  const termPositions = new Map<string, number[]>();
+
+  for (const term of uniqueTerms) {
+    const positions: number[] = [];
+    let startIndex = 0;
+    while (startIndex < haystack.length) {
+      const matchIndex = haystack.indexOf(term, startIndex);
+      if (matchIndex === -1) break;
+      positions.push(matchIndex);
+      startIndex = matchIndex + 1;
+    }
+    if (positions.length > 0) {
+      termPositions.set(term, positions);
+    }
+  }
+
+  if (termPositions.size < 2) return false;
+
+  const positionedTerms = [...termPositions.entries()];
+  for (let i = 0; i < positionedTerms.length; i += 1) {
+    const [leftTerm, leftPositions] = positionedTerms[i]!;
+    for (let j = i + 1; j < positionedTerms.length; j += 1) {
+      const [rightTerm, rightPositions] = positionedTerms[j]!;
+      for (const leftPosition of leftPositions) {
+        const leftEnd = leftPosition + leftTerm.length;
+        for (const rightPosition of rightPositions) {
+          const rightEnd = rightPosition + rightTerm.length;
+          const gap = rightPosition >= leftPosition
+            ? Math.max(0, rightPosition - leftEnd)
+            : Math.max(0, leftPosition - rightEnd);
+          if (gap <= PROXIMITY_WINDOW_CHARS) {
+            return true;
+          }
+        }
+      }
+    }
+  }
+
+  return false;
 }
 
 function describePivotRelevance(
@@ -251,6 +300,10 @@ function describePivotRelevance(
   }
   if (pathSegmentMatch) {
     score += 10;
+  }
+
+  if (score > 0 && hasMultiTermProximityBoost(candidate, queryTerms)) {
+    score *= PROXIMITY_BOOST_MULTIPLIER;
   }
 
   return { score, exactNameMatch };
