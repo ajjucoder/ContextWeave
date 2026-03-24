@@ -56,4 +56,9 @@ describe("migrations", () => {
     );
     expect(usesIndex).toBe(true);
   });
+
+  it("v21: symbols table has betweenness column", () => {
+    const info = db.prepare("PRAGMA table_info(symbols)").all() as Array<{ name: string }>;
+    expect(info.some((col) => col.name === "betweenness")).toBe(true);
+  });
 });

@@ -43,7 +43,7 @@ describe("DB migration upgrade path", () => {
       .all() as Array<{ version: number }>;
     const versions = applied.map((r) => r.version);
 
-    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20]);
+    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
 
     db.close();
   });
@@ -73,12 +73,12 @@ describe("DB migration upgrade path", () => {
         .get() as { cnt: number }
     ).cnt;
 
-    expect(count).toBe(20);
+    expect(count).toBe(21);
 
     db.close();
   });
 
-  it("rolls back migrations 16-19 to version 15", () => {
+  it("rolls back migrations 16-21 to version 15", () => {
     const db = new Database(":memory:");
     db.pragma("foreign_keys = ON");
     runMigrations(db);
@@ -136,6 +136,7 @@ describe("DB migration upgrade path", () => {
       .all() as Array<{ name: string }>;
     expect(symbolColumns.some((column) => column.name === "parent_symbol_id")).toBe(false);
     expect(symbolColumns.some((column) => column.name === "qualified_name")).toBe(false);
+    expect(symbolColumns.some((column) => column.name === "betweenness")).toBe(false);
 
     db.close();
   });
@@ -160,7 +161,7 @@ describe("DB migration upgrade path", () => {
     const versions = db
       .prepare("SELECT version FROM rollback_order ORDER BY rowid")
       .all() as Array<{ version: number }>;
-    expect(versions.map((row) => row.version)).toEqual([20, 19, 18, 17, 16]);
+    expect(versions.map((row) => row.version)).toEqual([21, 20, 19, 18, 17, 16]);
 
     db.close();
   });
@@ -171,6 +172,20 @@ describe("DB migration upgrade path", () => {
     runMigrations(db);
 
     expect(() => rollbackMigration(db, 14)).toThrow(/v15/);
+
+    db.close();
+  });
+
+  it("adds betweenness to symbols in v21", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    runMigrations(db);
+
+    const columns = db.prepare("PRAGMA table_info(symbols)").all() as Array<{ name: string; dflt_value: string | null }>;
+    const betweennessColumn = columns.find((column) => column.name === "betweenness");
+
+    expect(betweennessColumn).toBeDefined();
+    expect(betweennessColumn?.dflt_value).toBe("0.0");
 
     db.close();
   });

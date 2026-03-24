@@ -286,6 +286,7 @@ export function getBatchSymbolDegrees(db: Database.Database, symbolIds: number[]
 const DAMPING = 0.85;
 const MAX_ITERATIONS = 50;
 const CONVERGENCE_THRESHOLD = 1e-6;
+const MAX_BETWEENNESS_SYMBOLS = 100_000;
 
 interface CompactAdjacency {
   targets: Int32Array;
@@ -391,22 +392,104 @@ export function computePageRank(db: Database.Database): Map<number, number> {
   return result;
 }
 
+export function computeBetweennessCentrality(db: Database.Database): Map<number, number> {
+  const symbols = symbolQueries(db);
+  const symbolIds = symbols.getAllIds();
+
+  if (symbolIds.length === 0) return new Map();
+
+  const n = symbolIds.length;
+  const idToIndex = new Map(symbolIds.map((id, i) => [id, i]));
+  const { targets, offsets } = buildCompactAdjacency(db, idToIndex, n);
+  const betweenness = new Float64Array(n);
+
+  for (let source = 0; source < n; source++) {
+    const stack: number[] = [];
+    const predecessors = new Map<number, number[]>();
+    const sigma = new Float64Array(n);
+    const delta = new Float64Array(n);
+    const distance = new Int32Array(n).fill(-1);
+    const queue: number[] = [source];
+
+    sigma[source] = 1;
+    distance[source] = 0;
+
+    let head = 0;
+    while (head < queue.length) {
+      const vertex = queue[head++]!;
+      stack.push(vertex);
+
+      const start = offsets[vertex]!;
+      const end = offsets[vertex + 1]!;
+      for (let edgeIndex = start; edgeIndex < end; edgeIndex++) {
+        const neighbor = targets[edgeIndex]!;
+        const neighborDistance = distance[neighbor] ?? -1;
+        const vertexDistance = distance[vertex] ?? 0;
+        if (neighborDistance < 0) {
+          distance[neighbor] = (distance[vertex] ?? 0) + 1;
+          queue.push(neighbor);
+        }
+        if ((distance[neighbor] ?? -1) === vertexDistance + 1) {
+          sigma[neighbor] = (sigma[neighbor] ?? 0) + (sigma[vertex] ?? 0);
+          const prior = predecessors.get(neighbor);
+          if (prior) prior.push(vertex);
+          else predecessors.set(neighbor, [vertex]);
+        }
+      }
+    }
+
+    while (stack.length > 0) {
+      const vertex = stack.pop()!;
+      const prior = predecessors.get(vertex) ?? [];
+      for (const predecessor of prior) {
+        const sigmaVertex = sigma[vertex] ?? 0;
+        if (sigmaVertex === 0) continue;
+        delta[predecessor] = (delta[predecessor] ?? 0) + ((sigma[predecessor] ?? 0) / sigmaVertex) * (1 + (delta[vertex] ?? 0));
+      }
+      if (vertex !== source) {
+        betweenness[vertex] = (betweenness[vertex] ?? 0) + (delta[vertex] ?? 0);
+      }
+    }
+  }
+
+  const result = new Map<number, number>();
+  for (let i = 0; i < n; i++) {
+    result.set(symbolIds[i]!, betweenness[i]!);
+  }
+  return result;
+}
+
 const CENTRALITY_UPDATE_BATCH_SIZE = 5000;
 
 export function updateCentralityScores(db: Database.Database): void {
   const symbolsQ = symbolQueries(db);
   const ranks = computePageRank(db);
+  const shouldComputeBetweenness = ranks.size <= MAX_BETWEENNESS_SYMBOLS;
+  const betweenness = shouldComputeBetweenness ? computeBetweennessCentrality(db) : null;
 
-  log.info(`updating centrality for ${ranks.size} symbols`);
+  log.info(`updating centrality metrics for ${ranks.size} symbols`);
+  if (!shouldComputeBetweenness) {
+    log.info(
+      `skipping betweenness centrality for ${ranks.size} symbols (limit ${MAX_BETWEENNESS_SYMBOLS})`
+    );
+  }
 
   if (ranks.size <= CENTRALITY_UPDATE_BATCH_SIZE) {
     const applyUpdates = db.transaction(() => {
+      if (!shouldComputeBetweenness) {
+        db.prepare("UPDATE symbols SET betweenness = 0").run();
+      }
       for (const [symbolId, rank] of ranks) {
         symbolsQ.updateCentrality(symbolId, rank);
+        symbolsQ.updateBetweenness(symbolId, betweenness?.get(symbolId) ?? 0);
       }
     });
     applyUpdates();
     return;
+  }
+
+  if (!shouldComputeBetweenness) {
+    db.prepare("UPDATE symbols SET betweenness = 0").run();
   }
 
   const entries = [...ranks.entries()];
@@ -415,6 +498,7 @@ export function updateCentralityScores(db: Database.Database): void {
     const applyBatch = db.transaction(() => {
       for (const [symbolId, rank] of batch) {
         symbolsQ.updateCentrality(symbolId, rank);
+        symbolsQ.updateBetweenness(symbolId, betweenness?.get(symbolId) ?? 0);
       }
     });
     applyBatch();

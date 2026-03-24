@@ -89,6 +89,7 @@ function symbolQueriesImpl(db: Database.Database) {
   `);
 
   const updateCentrality = db.prepare("UPDATE symbols SET centrality = @centrality WHERE id = @id");
+  const updateBetweenness = db.prepare("UPDATE symbols SET betweenness = @betweenness WHERE id = @id");
   const getByFileId = db.prepare("SELECT * FROM symbols WHERE file_id = ?");
   const getByFileIdLight = db.prepare(
     "SELECT id, file_id, name, kind, start_line, end_line, signature, body_hash, is_exported, doc_comment, centrality, last_seen FROM symbols WHERE file_id = ?"
@@ -206,6 +207,10 @@ function symbolQueriesImpl(db: Database.Database) {
 
     updateCentrality(id: number, centrality: number): void {
       updateCentrality.run({ id, centrality });
+    },
+
+    updateBetweenness(id: number, betweenness: number): void {
+      updateBetweenness.run({ id, betweenness });
     },
 
     getByFileId(fileId: number): SymbolRecord[] {

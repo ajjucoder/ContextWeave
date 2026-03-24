@@ -511,6 +511,21 @@ const migrations: Migration[] = [
       db.exec("DROP INDEX IF EXISTS idx_observations_file");
     },
   },
+  {
+    version: 21,
+    up(db) {
+      const columns = db.prepare("PRAGMA table_info(symbols)").all() as Array<{ name: string }>;
+      if (!columns.some((column) => column.name === "betweenness")) {
+        db.exec("ALTER TABLE symbols ADD COLUMN betweenness REAL NOT NULL DEFAULT 0.0");
+      }
+    },
+    down(db) {
+      const columns = db.prepare("PRAGMA table_info(symbols)").all() as Array<{ name: string }>;
+      if (columns.some((column) => column.name === "betweenness")) {
+        db.exec("ALTER TABLE symbols DROP COLUMN betweenness");
+      }
+    },
+  },
 ];
 
 function ensureSchemaMigrationsTable(db: Database.Database): void {

@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS symbols (
   is_exported INTEGER NOT NULL DEFAULT 0,
   doc_comment TEXT,
   centrality        REAL    NOT NULL DEFAULT 0.0,
+  betweenness       REAL    NOT NULL DEFAULT 0.0,
   last_seen         INTEGER NOT NULL,
   parent_symbol_id  INTEGER REFERENCES symbols(id),
   qualified_name    TEXT
