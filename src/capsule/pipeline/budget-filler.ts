@@ -28,7 +28,14 @@ import { getDirectoryWeight } from "../../utils/directory-weights.js";
 import { isFrameworkEntryPath } from "../../utils/path-retrieval.js";
 import { scoreNode, assignCompressionLevel } from "../scorer.js";
 import { rankPivotsWithScores, scorePivotRelevance } from "../pivot-scorer.js";
-import { ACTION_SIGNAL_TERMS, UI_COMPONENT_PATH_RE, PAGE_ENTRY_PATH_RE } from "../signals.js";
+import {
+  ACTION_SIGNAL_TERMS,
+  PAGE_ENTRY_PATH_RE,
+  RUNTIME_CODE_PATH_RE,
+  RUNTIME_QUERY_TERMS,
+  TYPE_DECLARATION_PATH_RE,
+  UI_COMPONENT_PATH_RE,
+} from "../signals.js";
 import { renderSymbol, type EdgeSummary } from "../compressor.js";
 import { packNodes, packNodesStoryMode, enrichL2WithDeps } from "../packer.js";
 import { formatCapsule, buildStructuredOutput, selectObservations } from "../formatter.js";
@@ -214,39 +221,6 @@ const TYPE_FOCUSED_TERMS = new Set([
   "typedefs",
   "dts",
 ]);
-const RUNTIME_QUERY_TERMS = new Set([
-  "api",
-  "auth",
-  "callback",
-  "compiler",
-  "controller",
-  "dispatch",
-  "endpoint",
-  "fetch",
-  "flow",
-  "handler",
-  "hook",
-  "hooks",
-  "http",
-  "lifecycle",
-  "middleware",
-  "pipeline",
-  "request",
-  "response",
-  "route",
-  "router",
-  "routing",
-  "runtime",
-  "server",
-  "service",
-  "session",
-  "stack",
-  "validation",
-  "validator",
-]);
-const TYPE_DECLARATION_PATH_RE = /(^|\/)types?(\/|$)|\.d\.ts$|(^|\/)types?\.[cm]?[jt]sx?$/i;
-const RUNTIME_CODE_PATH_RE = /(^|\/)(src|lib|server|app|api|routes?|controllers?|services?)(\/|$)/i;
-
 function getRuntimeKindWeight(
   kind: string,
   preferRuntimeKinds: boolean

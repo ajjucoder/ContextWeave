@@ -8,6 +8,7 @@ import {
   sanitizeFTS5Term,
   buildFTS5ORPattern,
 } from "../utils/fts5-sanitize.js";
+import { RUNTIME_CODE_PATH_RE, RUNTIME_QUERY_TERMS, TYPE_DECLARATION_PATH_RE } from "../capsule/signals.js";
 
 interface SymbolRow {
   name: string;
@@ -99,38 +100,6 @@ const TYPE_QUERY_TERMS = new Set([
   "dts",
 ]);
 
-const RUNTIME_QUERY_TERMS = new Set([
-  "api",
-  "auth",
-  "callback",
-  "compiler",
-  "controller",
-  "dispatch",
-  "endpoint",
-  "fetch",
-  "flow",
-  "handler",
-  "hook",
-  "hooks",
-  "http",
-  "lifecycle",
-  "middleware",
-  "pipeline",
-  "request",
-  "response",
-  "route",
-  "router",
-  "routing",
-  "runtime",
-  "schema",
-  "server",
-  "service",
-  "session",
-  "stack",
-  "validation",
-  "validator",
-]);
-
 function isTestLikePath(path: string): boolean {
   const lower = normalizeRetrievalPath(path, 6).toLowerCase();
   return (
@@ -173,27 +142,11 @@ function isConfigLikePath(path: string): boolean {
 }
 
 function isTypeLikePath(path: string): boolean {
-  const lower = normalizeRetrievalPath(path, 6).toLowerCase();
-  return lower.endsWith(".d.ts") || lower.startsWith("types/") || lower.includes("/types/");
+  return TYPE_DECLARATION_PATH_RE.test(normalizeRetrievalPath(path, 6));
 }
 
 function isRuntimeLikePath(path: string): boolean {
-  const lower = normalizeRetrievalPath(path, 6).toLowerCase();
-  return (
-    lower.startsWith("src/") ||
-    lower.startsWith("lib/") ||
-    lower.startsWith("app/") ||
-    lower.startsWith("server/") ||
-    lower.startsWith("api/") ||
-    lower.includes("/src/") ||
-    lower.includes("/lib/") ||
-    lower.includes("/app/") ||
-    lower.includes("/server/") ||
-    lower.includes("/api/") ||
-    lower.includes("/routes/") ||
-    lower.includes("/controllers/") ||
-    lower.includes("/services/")
-  );
+  return RUNTIME_CODE_PATH_RE.test(normalizeRetrievalPath(path, 6));
 }
 
 function isUiComponentPath(path: string): boolean {

@@ -8,7 +8,7 @@ import { expandQueryWithSynonyms } from "../../utils/synonyms.js";
 import { getDirectoryWeight } from "../../utils/directory-weights.js";
 import { isFrameworkEntryPath, normalizeRetrievalPath } from "../../utils/path-retrieval.js";
 import { rankPivotsWithScores, scorePivotRelevance } from "../pivot-scorer.js";
-import { ACTION_SIGNAL_TERMS } from "../signals.js";
+import { ACTION_SIGNAL_TERMS, RUNTIME_CODE_PATH_RE, RUNTIME_QUERY_TERMS, TYPE_DECLARATION_PATH_RE } from "../signals.js";
 import { classifyQueryIntent } from "../intent-classifier.js";
 import {
   decomposeForBroad,
@@ -68,38 +68,6 @@ const TYPE_FOCUSED_TERMS = new Set([
   "typedefs",
   "dts",
 ]);
-const RUNTIME_QUERY_TERMS = new Set([
-  "api",
-  "auth",
-  "callback",
-  "compiler",
-  "controller",
-  "dispatch",
-  "endpoint",
-  "fetch",
-  "flow",
-  "handler",
-  "hook",
-  "hooks",
-  "http",
-  "lifecycle",
-  "middleware",
-  "pipeline",
-  "request",
-  "response",
-  "route",
-  "router",
-  "routing",
-  "runtime",
-  "server",
-  "service",
-  "session",
-  "stack",
-  "validation",
-  "validator",
-]);
-const TYPE_DECLARATION_PATH_RE = /(^|\/)types?(\/|$)|\.d\.ts$|(^|\/)types?\.[cm]?[jt]sx?$/i;
-const RUNTIME_CODE_PATH_RE = /(^|\/)(src|lib|server|app|api|routes?|controllers?|services?)(\/|$)/i;
 const idfStmtCache = new WeakMap<Database.Database, ReturnType<Database.Database["prepare"]>>();
 const connectedSymbolsStmtCache = new WeakMap<Database.Database, Database.Statement<[number, number, number], { symbolId: number; fileId: number }>>();
 

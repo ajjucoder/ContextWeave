@@ -1,5 +1,11 @@
 import { normalizeRetrievalPath } from "../utils/path-retrieval.js";
-import { ACTION_SIGNAL_TERMS, termWeight } from "./signals.js";
+import {
+  ACTION_SIGNAL_TERMS,
+  RUNTIME_CODE_PATH_RE,
+  RUNTIME_QUERY_TERMS,
+  TYPE_DECLARATION_RE,
+  termWeight,
+} from "./signals.js";
 
 export interface PivotCandidate {
   name: string;
@@ -28,7 +34,6 @@ const COMPONENT_PATH_RE = /(^|\/)(components?|templates?|marketing)(\/|$)/i;
 const VIEW_PATH_RE = /(^|\/)views?(\/|$)/i;
 const CONFIG_PATH_RE =
   /(^|\/)(\.github|\.circleci|\.vscode|\.husky)(\/|$)|(^|\/)(package\.json|tsconfig\.json|eslint\.config|vite\.config|vitest\.config|jest\.config|tailwind\.config|postcss\.config)|\/\.eslintrc/i;
-const TYPE_DECLARATION_RE = /(^|\/)types?(\/|$)|\.d\.ts$/i;
 const UI_NAME_RE =
   /(hero|faq|tabs?|timeline|header|banner|testimonial|view|card|modal|panel|avatar|badge|skeleton|placeholder)/i;
 const CONFIG_QUERY_TERMS = new Set([
@@ -73,39 +78,6 @@ const TYPE_QUERY_TERMS = new Set([
   "signatures",
   "dts",
 ]);
-const RUNTIME_QUERY_TERMS = new Set([
-  "api",
-  "auth",
-  "callback",
-  "compiler",
-  "controller",
-  "dispatch",
-  "endpoint",
-  "fetch",
-  "flow",
-  "handler",
-  "hook",
-  "hooks",
-  "http",
-  "lifecycle",
-  "middleware",
-  "pipeline",
-  "request",
-  "response",
-  "route",
-  "router",
-  "routing",
-  "runtime",
-  "schema",
-  "server",
-  "service",
-  "session",
-  "stack",
-  "validation",
-  "validator",
-]);
-const RUNTIME_CODE_PATH_RE = /(^|\/)(src|lib|server|app|api|routes?|controllers?|services?)(\/|$)/i;
-
 function extractSignalTokens(value: string): string[] {
   return value
     .replace(/([a-z])([A-Z])/g, "$1 $2")
