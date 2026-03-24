@@ -68,4 +68,11 @@ describe("migrations", () => {
     expect(strengthColumn).toBeDefined();
     expect(strengthColumn?.dflt_value).toBe("1.0");
   });
+
+  it("v22: symbols table has visibility column with default public", () => {
+    const info = db.prepare("PRAGMA table_info(symbols)").all() as Array<{ name: string; dflt_value: string | null }>;
+    const visibilityColumn = info.find((col) => col.name === "visibility");
+    expect(visibilityColumn).toBeDefined();
+    expect(visibilityColumn?.dflt_value).toBe("'public'");
+  });
 });

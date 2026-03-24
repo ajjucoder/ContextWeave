@@ -13,6 +13,7 @@ import type {
   ParsedCall,
   ParseResult,
   SymbolKind,
+  SymbolVisibility,
 } from "./types.js";
 
 const require = createRequire(import.meta.url);
@@ -577,6 +578,51 @@ function languageOverrideExported(name: string, language: string): boolean | nul
   return null;
 }
 
+function inferSymbolVisibility(
+  node: Parser.SyntaxNode,
+  name: string,
+  content: string,
+  language: string,
+  isExportedValue: boolean,
+  kind: SymbolKind
+): SymbolVisibility {
+  const snippet = node.text.slice(0, 240);
+  const lineStart = content.lastIndexOf("\n", node.startIndex) + 1;
+  const lineEnd = content.indexOf("\n", node.endIndex);
+  const declarationLine = content.slice(lineStart, lineEnd === -1 ? content.length : lineEnd);
+  const signatureZone = `${declarationLine} ${snippet.split("{", 1)[0] ?? snippet}`;
+  const normalized = signatureZone.replace(/\s+/g, " ").trim();
+
+  if (/\bprivate\b/i.test(normalized)) return "private";
+  if (/\bprotected\b/i.test(normalized)) return "protected";
+  if (/\binternal\b/i.test(normalized)) return "internal";
+
+  if (language === "rust") {
+    if (/\bpub\s*\(\s*crate\s*\)/.test(normalized) || /\bcrate\b/.test(normalized)) return "internal";
+    if (/\bpub\b/.test(normalized)) return "public";
+    if (kind !== "variable") return "private";
+  }
+
+  if (language === "python") {
+    if (/^__[^_]/.test(name)) return "private";
+    if (/^_/.test(name)) return "protected";
+  }
+
+  if (language === "go") {
+    return isExportedValue ? "public" : "private";
+  }
+
+  if (["typescript", "tsx", "javascript", "jsx"].includes(language) && (kind === "method" || kind === "class")) {
+    return "public";
+  }
+
+  if (language === "java" && /^(class|interface|enum)\b/.test(normalized)) {
+    return "internal";
+  }
+
+  return isExportedValue ? "public" : "private";
+}
+
 function nodeToSymbol(
   node: Parser.SyntaxNode,
   nameNode: Parser.SyntaxNode,
@@ -588,6 +634,7 @@ function nodeToSymbol(
   const name = nameNode.text;
   const fullSource = node.text;
   const override = languageOverrideExported(name, language);
+  const isExportedValue = exportedOverride ?? (override !== null ? override : isExported(node));
   return {
     name,
     kind,
@@ -596,8 +643,9 @@ function nodeToSymbol(
     signature: buildSignature(node, content),
     fullSource,
     bodyHash: hashContent(fullSource),
-    isExported: exportedOverride ?? (override !== null ? override : isExported(node)),
+    isExported: isExportedValue,
     docComment: extractDocComment(node),
+    visibility: inferSymbolVisibility(node, name, content, language, isExportedValue, kind),
   };
 }
 

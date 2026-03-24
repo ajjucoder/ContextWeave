@@ -11,6 +11,7 @@ interface ScoreParams {
   lexicalBoost?: number;
   localityBoost?: number;
   hubPenalty?: number;
+  visibilityMultiplier?: number;
   mode: CapsuleMode;
 }
 
@@ -35,6 +36,7 @@ export function scoreNode(params: ScoreParams): number {
   const lexicalBoost = params.lexicalBoost ?? 1;
   const localityBoost = params.localityBoost ?? 1;
   const hubPenalty = params.hubPenalty ?? computeHubPenalty(params.centrality, params.isPivot ?? false);
+  const visibilityMultiplier = params.visibilityMultiplier ?? 1;
 
   return (
     distanceFactor *
@@ -44,7 +46,8 @@ export function scoreNode(params: ScoreParams): number {
     exportMultiplier *
     lexicalBoost *
     localityBoost *
-    hubPenalty
+    hubPenalty *
+    visibilityMultiplier
   );
 }
 

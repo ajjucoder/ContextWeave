@@ -16,7 +16,12 @@ function makeFile(id: number, path: string): FileRecord {
   return { id, path, hash: "h", lastIndexed: 0, mtime: 0, language: "typescript", symbolCount: 1, error: null };
 }
 
-function makeSymbol(id: number, fileId: number, name: string): LightSymbolRecord {
+function makeSymbol(
+  id: number,
+  fileId: number,
+  name: string,
+  visibility: LightSymbolRecord["visibility"] = "public"
+): LightSymbolRecord {
   return {
     id,
     fileId,
@@ -32,6 +37,7 @@ function makeSymbol(id: number, fileId: number, name: string): LightSymbolRecord
     lastSeen: Date.now(),
     parentSymbolId: null,
     qualifiedName: null,
+    visibility,
   };
 }
 
@@ -130,5 +136,33 @@ describe("candidate scorer", () => {
 
     expect(spread.length).toBeGreaterThan(selected.length);
     expect(new Set(spread.map((candidate) => candidate.file.id)).size).toBeGreaterThan(1);
+  });
+
+  it("ensureBroadFileSpread prefers public symbols over private cross-file helpers", () => {
+    const selected = [{
+      symbol: makeSymbol(20, 20, "generateCapsule"),
+      file: makeFile(20, "src/capsule/generator.ts"),
+      score: 10,
+      distance: 0,
+      isPivot: true,
+      lexicalScore: 5,
+      degree: 0,
+    }];
+    const spread = ensureBroadFileSpread(selected, {
+      intent: "broad",
+      tokenBudget: 4500,
+      queryUiFocused: false,
+      ranked: selected,
+      visited: new Map(),
+      getFileSymbols: () => [
+        makeSymbol(21, 21, "privateHelper", "private"),
+        makeSymbol(22, 21, "publicApi", "public"),
+      ],
+      files: [makeFile(21, "src/capsule/service.ts")],
+      pivotQueryTerms: ["service"],
+    });
+
+    expect(spread.some((candidate) => candidate.symbol.name === "publicApi")).toBe(true);
+    expect(spread.some((candidate) => candidate.symbol.name === "privateHelper")).toBe(false);
   });
 });

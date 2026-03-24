@@ -31,6 +31,8 @@ export type ParsedCallEdgeKind = Exclude<EdgeKind, "import" | "reexport" | "refe
 
 export type CompressionLevel = 0 | 1 | 2 | 3;
 
+export type SymbolVisibility = "public" | "private" | "protected" | "internal";
+
 export type CapsuleMode = "debug" | "refactor" | "feature" | "review";
 
 export interface FileRecord {
@@ -60,6 +62,7 @@ export interface SymbolRecord {
   lastSeen: number;
   parentSymbolId: number | null;
   qualifiedName: string | null;
+  visibility?: SymbolVisibility;
 }
 
 export interface LightSymbolRecord {
@@ -77,6 +80,7 @@ export interface LightSymbolRecord {
   lastSeen: number;
   parentSymbolId: number | null;
   qualifiedName: string | null;
+  visibility?: SymbolVisibility;
 }
 
 export interface EdgeRecord {
@@ -221,6 +225,7 @@ export interface ParsedSymbol {
   docComment: string | null;
   parentName?: string;
   decorators?: ParsedDecorator[];
+  visibility?: SymbolVisibility;
 }
 
 export interface ParsedImport {

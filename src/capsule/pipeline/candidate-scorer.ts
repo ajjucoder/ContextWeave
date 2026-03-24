@@ -21,6 +21,25 @@ import {
   tokenizeCoverageTerms,
 } from "./pivot-resolver.js";
 
+function getVisibilityPenalty(
+  visibility: LightSymbolRecord["visibility"],
+  sameFileAsPivot: boolean,
+  distance: number
+): number {
+  if (sameFileAsPivot || distance <= 0) return 1;
+  if (visibility === "private") return 0.15;
+  if (visibility === "protected") return 0.45;
+  if (visibility === "internal") return 0.65;
+  return 1;
+}
+
+function visibilityRank(visibility?: LightSymbolRecord["visibility"]): number {
+  if (visibility === "public" || visibility === undefined) return 0;
+  if (visibility === "internal") return 1;
+  if (visibility === "protected") return 2;
+  return 3;
+}
+
 type Statement = Database.Statement;
 
 const EDGE_BATCH_CHUNK_SIZE = 400;
@@ -153,6 +172,8 @@ export function ensureBroadFileSpread(
         ),
       }))
       .sort((a, b) => {
+        const visibilityDiff = visibilityRank(a.symbol.visibility) - visibilityRank(b.symbol.visibility);
+        if (visibilityDiff !== 0) return visibilityDiff;
         if (a.symbol.isExported !== b.symbol.isExported) return a.symbol.isExported ? -1 : 1;
         if (b.lexicalScore !== a.lexicalScore) return b.lexicalScore - a.lexicalScore;
         return b.symbol.centrality - a.symbol.centrality;
@@ -594,6 +615,7 @@ export function scoreCandidates(
           lexicalBoost,
           localityBoost,
           hubPenalty,
+          visibilityMultiplier: getVisibilityPenalty(candidate.symbol.visibility, sameFileAsPivot, candidate.distance),
           mode: context.mode,
         }) * getRuntimeKindWeight(candidate.symbol.kind, pivot.preferRuntimeKinds) * exactPivotBoost,
     };

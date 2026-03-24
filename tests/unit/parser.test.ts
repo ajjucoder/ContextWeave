@@ -390,6 +390,60 @@ class Service:
     expect(names).toContain("NewUserService");
   });
 
+  it("detects symbol visibility across supported language conventions", () => {
+    const tsParsed = parseFile(
+      "visibility.ts",
+      `
+class Service {
+  public greet() {
+    return "hi";
+  }
+
+  private secret() {
+    return "hidden";
+  }
+
+  protected hydrate() {
+    return true;
+  }
+}
+`,
+      "typescript"
+    );
+    const pyParsed = parseFile(
+      "visibility.py",
+      `
+class Service:
+  def __secret(self):
+    return 1
+
+  def _hydrate(self):
+    return 2
+`,
+      "python"
+    );
+    const rustParsed = parseFile(
+      "visibility.rs",
+      `
+pub(crate) fn register_service() {}
+fn private_helper() {}
+`,
+      "rust"
+    );
+
+    const tsByName = new Map(tsParsed.symbols.map((symbol) => [symbol.name, symbol.visibility]));
+    const pyByName = new Map(pyParsed.symbols.map((symbol) => [symbol.name, symbol.visibility]));
+    const rustByName = new Map(rustParsed.symbols.map((symbol) => [symbol.name, symbol.visibility]));
+
+    expect(tsByName.get("greet")).toBe("public");
+    expect(tsByName.get("secret")).toBe("private");
+    expect(tsByName.get("hydrate")).toBe("protected");
+    expect(pyByName.get("__secret")).toBe("private");
+    expect(pyByName.get("_hydrate")).toBe("protected");
+    expect(rustByName.get("register_service")).toBe("internal");
+    expect(rustByName.get("private_helper")).toBe("private");
+  });
+
   it("parses rust macro invocation contexts without parse failures", () => {
     const path = resolve(__dirname, "../fixtures/sample.rs");
     const content = readFileSync(path, "utf-8");

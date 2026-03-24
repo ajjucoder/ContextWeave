@@ -547,6 +547,21 @@ const migrations: Migration[] = [
       }
     },
   },
+  {
+    version: 22,
+    up(db) {
+      const symbolColumns = db.prepare("PRAGMA table_info(symbols)").all() as Array<{ name: string }>;
+      if (!symbolColumns.some((column) => column.name === "visibility")) {
+        db.exec("ALTER TABLE symbols ADD COLUMN visibility TEXT NOT NULL DEFAULT 'public'");
+      }
+    },
+    down(db) {
+      const symbolColumns = db.prepare("PRAGMA table_info(symbols)").all() as Array<{ name: string }>;
+      if (symbolColumns.some((column) => column.name === "visibility")) {
+        db.exec("ALTER TABLE symbols DROP COLUMN visibility");
+      }
+    },
+  },
 ];
 
 function ensureSchemaMigrationsTable(db: Database.Database): void {

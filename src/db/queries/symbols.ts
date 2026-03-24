@@ -1,5 +1,5 @@
 import type Database from "better-sqlite3";
-import type { LightSymbolRecord, SymbolRecord } from "../../core/types.js";
+import type { LightSymbolRecord, SymbolRecord, SymbolVisibility } from "../../core/types.js";
 import { sanitizeFTS5Term } from "../../utils/fts5-sanitize.js";
 import { createLogger } from "../../utils/logger.js";
 import { validateRow, type RowSchema } from "./row-validator.js";
@@ -24,6 +24,7 @@ type RawSymbolRow = {
   last_seen: number;
   parent_symbol_id: number | null;
   qualified_name: string | null;
+  visibility: SymbolVisibility;
 };
 
 type RawLightSymbolRow = Omit<RawSymbolRow, "full_source" | "parent_symbol_id" | "qualified_name"> & {
@@ -55,6 +56,8 @@ const symbolRowSchema: RowSchema<RawSymbolRow> = {
   last_seen: (value): value is number => typeof value === "number",
   parent_symbol_id: isNullableNumber,
   qualified_name: isNullableString,
+  visibility: (value): value is SymbolVisibility =>
+    value === "public" || value === "private" || value === "protected" || value === "internal",
 };
 
 const lightSymbolRowSchema: RowSchema<RawLightSymbolRow> = {
@@ -72,6 +75,7 @@ const lightSymbolRowSchema: RowSchema<RawLightSymbolRow> = {
   last_seen: symbolRowSchema.last_seen,
   parent_symbol_id: isOptionalNullableNumber,
   qualified_name: isOptionalNullableString,
+  visibility: symbolRowSchema.visibility,
 };
 
 export function symbolQueries(db: Database.Database): SymbolQueriesResult {
@@ -84,22 +88,22 @@ export function symbolQueries(db: Database.Database): SymbolQueriesResult {
 
 function symbolQueriesImpl(db: Database.Database) {
   const insert = db.prepare(`
-    INSERT INTO symbols (file_id, name, kind, start_line, end_line, signature, body_hash, full_source, is_exported, doc_comment, centrality, last_seen, parent_symbol_id, qualified_name)
-    VALUES (@fileId, @name, @kind, @startLine, @endLine, @signature, @bodyHash, @fullSource, @isExported, @docComment, @centrality, @lastSeen, @parentSymbolId, @qualifiedName)
+    INSERT INTO symbols (file_id, name, kind, start_line, end_line, signature, body_hash, full_source, is_exported, doc_comment, centrality, last_seen, parent_symbol_id, qualified_name, visibility)
+    VALUES (@fileId, @name, @kind, @startLine, @endLine, @signature, @bodyHash, @fullSource, @isExported, @docComment, @centrality, @lastSeen, @parentSymbolId, @qualifiedName, @visibility)
   `);
 
   const updateCentrality = db.prepare("UPDATE symbols SET centrality = @centrality WHERE id = @id");
   const updateBetweenness = db.prepare("UPDATE symbols SET betweenness = @betweenness WHERE id = @id");
   const getByFileId = db.prepare("SELECT * FROM symbols WHERE file_id = ?");
   const getByFileIdLight = db.prepare(
-    "SELECT id, file_id, name, kind, start_line, end_line, signature, body_hash, is_exported, doc_comment, centrality, last_seen FROM symbols WHERE file_id = ?"
+    "SELECT id, file_id, name, kind, start_line, end_line, signature, body_hash, is_exported, doc_comment, centrality, last_seen, visibility FROM symbols WHERE file_id = ?"
   );
   const getByNameLight = db.prepare(
-    "SELECT id, file_id, name, kind, start_line, end_line, signature, body_hash, is_exported, doc_comment, centrality, last_seen FROM symbols WHERE name = ?"
+    "SELECT id, file_id, name, kind, start_line, end_line, signature, body_hash, is_exported, doc_comment, centrality, last_seen, visibility FROM symbols WHERE name = ?"
   );
   const getById = db.prepare("SELECT * FROM symbols WHERE id = ?");
   const getByIdLight = db.prepare(
-    "SELECT id, file_id, name, kind, start_line, end_line, signature, body_hash, is_exported, doc_comment, centrality, last_seen FROM symbols WHERE id = ?"
+    "SELECT id, file_id, name, kind, start_line, end_line, signature, body_hash, is_exported, doc_comment, centrality, last_seen, visibility FROM symbols WHERE id = ?"
   );
   const getByName = db.prepare("SELECT * FROM symbols WHERE name = ?");
   const getByNameCI = db.prepare("SELECT * FROM symbols WHERE name = ? COLLATE NOCASE");
@@ -156,6 +160,7 @@ function symbolQueriesImpl(db: Database.Database) {
       lastSeen: r.last_seen,
       parentSymbolId: r.parent_symbol_id ?? null,
       qualifiedName: r.qualified_name ?? null,
+      visibility: r.visibility,
     };
   }
 
@@ -177,6 +182,7 @@ function symbolQueriesImpl(db: Database.Database) {
       lastSeen: r.last_seen,
       parentSymbolId: r.parent_symbol_id ?? null,
       qualifiedName: r.qualified_name ?? null,
+      visibility: r.visibility,
     };
   }
 
@@ -197,6 +203,7 @@ function symbolQueriesImpl(db: Database.Database) {
         lastSeen: symbol.lastSeen,
         parentSymbolId: symbol.parentSymbolId ?? null,
         qualifiedName: symbol.qualifiedName ?? null,
+        visibility: symbol.visibility ?? "public",
       });
       return Number(result.lastInsertRowid);
     },

@@ -29,7 +29,8 @@ CREATE TABLE IF NOT EXISTS symbols (
   betweenness       REAL    NOT NULL DEFAULT 0.0,
   last_seen         INTEGER NOT NULL,
   parent_symbol_id  INTEGER REFERENCES symbols(id),
-  qualified_name    TEXT
+  qualified_name    TEXT,
+  visibility        TEXT    NOT NULL DEFAULT 'public'
 );
 
 CREATE TABLE IF NOT EXISTS edges (

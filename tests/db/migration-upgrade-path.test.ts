@@ -43,7 +43,7 @@ describe("DB migration upgrade path", () => {
       .all() as Array<{ version: number }>;
     const versions = applied.map((r) => r.version);
 
-    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21]);
+    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]);
 
     db.close();
   });
@@ -73,12 +73,12 @@ describe("DB migration upgrade path", () => {
         .get() as { cnt: number }
     ).cnt;
 
-    expect(count).toBe(21);
+    expect(count).toBe(22);
 
     db.close();
   });
 
-  it("rolls back migrations 16-21 to version 15", () => {
+  it("rolls back migrations 16-22 to version 15", () => {
     const db = new Database(":memory:");
     db.pragma("foreign_keys = ON");
     runMigrations(db);
@@ -165,7 +165,7 @@ describe("DB migration upgrade path", () => {
     const versions = db
       .prepare("SELECT version FROM rollback_order ORDER BY rowid")
       .all() as Array<{ version: number }>;
-    expect(versions.map((row) => row.version)).toEqual([21, 20, 19, 18, 17, 16]);
+    expect(versions.map((row) => row.version)).toEqual([22, 21, 20, 19, 18, 17, 16]);
 
     db.close();
   });
@@ -204,6 +204,20 @@ describe("DB migration upgrade path", () => {
 
     expect(strengthColumn).toBeDefined();
     expect(strengthColumn?.dflt_value).toBe("1.0");
+
+    db.close();
+  });
+
+  it("adds visibility to symbols in v22", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    runMigrations(db);
+
+    const columns = db.prepare("PRAGMA table_info(symbols)").all() as Array<{ name: string; dflt_value: string | null }>;
+    const visibilityColumn = columns.find((column) => column.name === "visibility");
+
+    expect(visibilityColumn).toBeDefined();
+    expect(visibilityColumn?.dflt_value).toBe("'public'");
 
     db.close();
   });
