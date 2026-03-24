@@ -2,10 +2,77 @@ import type Database from "better-sqlite3";
 import type { LightSymbolRecord, SymbolRecord } from "../../core/types.js";
 import { sanitizeFTS5Term } from "../../utils/fts5-sanitize.js";
 import { createLogger } from "../../utils/logger.js";
+import { validateRow, type RowSchema } from "./row-validator.js";
 
 type SymbolQueriesResult = ReturnType<typeof symbolQueriesImpl>;
 const symbolQueriesCache = new WeakMap<Database.Database, SymbolQueriesResult>();
 const logger = createLogger("symbols-query");
+
+type RawSymbolRow = {
+  id: number;
+  file_id: number;
+  name: string;
+  kind: SymbolRecord["kind"];
+  start_line: number;
+  end_line: number;
+  signature: string;
+  body_hash: string;
+  full_source: string;
+  is_exported: number;
+  doc_comment: string | null;
+  centrality: number;
+  last_seen: number;
+  parent_symbol_id: number | null;
+  qualified_name: string | null;
+};
+
+type RawLightSymbolRow = Omit<RawSymbolRow, "full_source" | "parent_symbol_id" | "qualified_name"> & {
+  parent_symbol_id?: number | null;
+  qualified_name?: string | null;
+};
+
+const isNullableString = (value: unknown): value is string | null => value === null || typeof value === "string";
+const isNullableNumber = (value: unknown): value is number | null => value === null || typeof value === "number";
+const isOptionalNullableString = (value: unknown): value is string | null | undefined =>
+  value === undefined || value === null || typeof value === "string";
+const isOptionalNullableNumber = (value: unknown): value is number | null | undefined =>
+  value === undefined || value === null || typeof value === "number";
+const isRowBoolean = (value: unknown): value is number => value === 0 || value === 1;
+
+const symbolRowSchema: RowSchema<RawSymbolRow> = {
+  id: (value): value is number => typeof value === "number",
+  file_id: (value): value is number => typeof value === "number",
+  name: (value): value is string => typeof value === "string",
+  kind: (value): value is SymbolRecord["kind"] => typeof value === "string",
+  start_line: (value): value is number => typeof value === "number",
+  end_line: (value): value is number => typeof value === "number",
+  signature: (value): value is string => typeof value === "string",
+  body_hash: (value): value is string => typeof value === "string",
+  full_source: (value): value is string => typeof value === "string",
+  is_exported: isRowBoolean,
+  doc_comment: isNullableString,
+  centrality: (value): value is number => typeof value === "number",
+  last_seen: (value): value is number => typeof value === "number",
+  parent_symbol_id: isNullableNumber,
+  qualified_name: isNullableString,
+};
+
+const lightSymbolRowSchema: RowSchema<RawLightSymbolRow> = {
+  id: symbolRowSchema.id,
+  file_id: symbolRowSchema.file_id,
+  name: symbolRowSchema.name,
+  kind: symbolRowSchema.kind,
+  start_line: symbolRowSchema.start_line,
+  end_line: symbolRowSchema.end_line,
+  signature: symbolRowSchema.signature,
+  body_hash: symbolRowSchema.body_hash,
+  is_exported: symbolRowSchema.is_exported,
+  doc_comment: symbolRowSchema.doc_comment,
+  centrality: symbolRowSchema.centrality,
+  last_seen: symbolRowSchema.last_seen,
+  parent_symbol_id: isOptionalNullableNumber,
+  qualified_name: isOptionalNullableString,
+};
 
 export function symbolQueries(db: Database.Database): SymbolQueriesResult {
   const cached = symbolQueriesCache.get(db);
@@ -70,45 +137,45 @@ function symbolQueriesImpl(db: Database.Database) {
   );
 
   function mapRow(row: unknown): SymbolRecord | undefined {
-    if (!row) return undefined;
-    const r = row as Record<string, unknown>;
+    const r = validateRow(row, symbolRowSchema);
+    if (!r) return undefined;
     return {
-      id: r["id"] as number,
-      fileId: r["file_id"] as number,
-      name: r["name"] as string,
-      kind: r["kind"] as SymbolRecord["kind"],
-      startLine: r["start_line"] as number,
-      endLine: r["end_line"] as number,
-      signature: r["signature"] as string,
-      bodyHash: r["body_hash"] as string,
-      fullSource: r["full_source"] as string,
-      isExported: (r["is_exported"] as number) === 1,
-      docComment: r["doc_comment"] as string | null,
-      centrality: r["centrality"] as number,
-      lastSeen: r["last_seen"] as number,
-      parentSymbolId: (r["parent_symbol_id"] as number | null) ?? null,
-      qualifiedName: (r["qualified_name"] as string | null) ?? null,
+      id: r.id,
+      fileId: r.file_id,
+      name: r.name,
+      kind: r.kind,
+      startLine: r.start_line,
+      endLine: r.end_line,
+      signature: r.signature,
+      bodyHash: r.body_hash,
+      fullSource: r.full_source,
+      isExported: r.is_exported === 1,
+      docComment: r.doc_comment,
+      centrality: r.centrality,
+      lastSeen: r.last_seen,
+      parentSymbolId: r.parent_symbol_id ?? null,
+      qualifiedName: r.qualified_name ?? null,
     };
   }
 
   function mapRowLight(row: unknown): LightSymbolRecord | undefined {
-    if (!row) return undefined;
-    const r = row as Record<string, unknown>;
+    const r = validateRow(row, lightSymbolRowSchema);
+    if (!r) return undefined;
     return {
-      id: r["id"] as number,
-      fileId: r["file_id"] as number,
-      name: r["name"] as string,
-      kind: r["kind"] as LightSymbolRecord["kind"],
-      startLine: r["start_line"] as number,
-      endLine: r["end_line"] as number,
-      signature: r["signature"] as string,
-      bodyHash: r["body_hash"] as string,
-      isExported: (r["is_exported"] as number) === 1,
-      docComment: r["doc_comment"] as string | null,
-      centrality: r["centrality"] as number,
-      lastSeen: r["last_seen"] as number,
-      parentSymbolId: (r["parent_symbol_id"] as number | null) ?? null,
-      qualifiedName: (r["qualified_name"] as string | null) ?? null,
+      id: r.id,
+      fileId: r.file_id,
+      name: r.name,
+      kind: r.kind,
+      startLine: r.start_line,
+      endLine: r.end_line,
+      signature: r.signature,
+      bodyHash: r.body_hash,
+      isExported: r.is_exported === 1,
+      docComment: r.doc_comment,
+      centrality: r.centrality,
+      lastSeen: r.last_seen,
+      parentSymbolId: r.parent_symbol_id ?? null,
+      qualifiedName: r.qualified_name ?? null,
     };
   }
 

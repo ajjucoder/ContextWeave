@@ -1,10 +1,31 @@
 import type Database from "better-sqlite3";
 import type { ObservationRecord } from "../core/types.js";
 import { observationQueries } from "../db/queries/observations.js";
+import { validateRow, type RowSchema } from "../db/queries/row-validator.js";
 import { BM25Index } from "./bm25.js";
 import { symbolQueries } from "../db/queries/symbols.js";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+const observationRecordSchema: RowSchema<ObservationRecord> = {
+  id: (value): value is number => typeof value === "number",
+  sessionId: (value): value is string => typeof value === "string",
+  agentId: (value): value is string => typeof value === "string",
+  symbolId: (value): value is number | null => value === null || typeof value === "number",
+  fileId: (value): value is number | null => value === null || typeof value === "number",
+  scope: (value): value is string => typeof value === "string",
+  note: (value): value is string => typeof value === "string",
+  confidence: (value): value is number => typeof value === "number",
+  createdAt: (value): value is number => typeof value === "number",
+  updatedAt: (value): value is number => typeof value === "number",
+  stale: (value): value is boolean => typeof value === "boolean",
+  staleReason: (value): value is string | null => value === null || typeof value === "string",
+  archived: (value): value is boolean => typeof value === "boolean",
+};
+
+function validateObservationRecord(row: ObservationRecord | undefined): ObservationRecord | undefined {
+  return validateRow(row, observationRecordSchema);
+}
 
 export function promoteFrequentObservations(db: Database.Database): number {
   const result = db.prepare(`
@@ -179,6 +200,7 @@ export class ObservationStore {
     for (const { observationId } of bm25Results) {
       const obs = this.queries.getById(observationId);
       if (!obs) continue;
+      if (!validateObservationRecord(obs)) continue;
       if (obs.archived) continue;
       if (!includeStale && obs.stale) continue;
       if (scope !== undefined && obs.scope !== scope) continue;
@@ -219,6 +241,7 @@ export class ObservationStore {
     for (const { observationId, score } of bm25Results) {
       const obs = this.queries.getById(observationId);
       if (!obs || obs.archived) continue;
+      if (!validateObservationRecord(obs)) continue;
       results.push({ observation: obs, bm25Score: score });
     }
 

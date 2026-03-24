@@ -1,8 +1,45 @@
 import type Database from "better-sqlite3";
 import type { ObservationRecord } from "../../core/types.js";
+import { validateRow, type RowSchema } from "./row-validator.js";
 
 type ObservationQueriesResult = ReturnType<typeof observationQueriesImpl>;
 const observationQueriesCache = new WeakMap<Database.Database, ObservationQueriesResult>();
+
+type RawObservationRow = {
+  id: number;
+  session_id: string;
+  agent_id: string;
+  symbol_id: number | null;
+  file_id: number | null;
+  scope: string;
+  note: string;
+  confidence: number;
+  created_at: number;
+  updated_at: number;
+  stale: number;
+  stale_reason: string | null;
+  archived: number;
+};
+
+const isNullableNumber = (value: unknown): value is number | null => value === null || typeof value === "number";
+const isNullableString = (value: unknown): value is string | null => value === null || typeof value === "string";
+const isRowBoolean = (value: unknown): value is number => value === 0 || value === 1;
+
+const observationRowSchema: RowSchema<RawObservationRow> = {
+  id: (value): value is number => typeof value === "number",
+  session_id: (value): value is string => typeof value === "string",
+  agent_id: (value): value is string => typeof value === "string",
+  symbol_id: isNullableNumber,
+  file_id: isNullableNumber,
+  scope: (value): value is string => typeof value === "string",
+  note: (value): value is string => typeof value === "string",
+  confidence: (value): value is number => typeof value === "number",
+  created_at: (value): value is number => typeof value === "number",
+  updated_at: (value): value is number => typeof value === "number",
+  stale: isRowBoolean,
+  stale_reason: isNullableString,
+  archived: isRowBoolean,
+};
 
 export function observationQueries(db: Database.Database): ObservationQueriesResult {
   const cached = observationQueriesCache.get(db);
@@ -38,22 +75,22 @@ function observationQueriesImpl(db: Database.Database) {
   const countStale = db.prepare("SELECT COUNT(*) as count FROM observations WHERE stale = 1 AND archived = 0");
 
   function mapRow(row: unknown): ObservationRecord | undefined {
-    if (!row) return undefined;
-    const r = row as Record<string, unknown>;
+    const r = validateRow(row, observationRowSchema);
+    if (!r) return undefined;
     return {
-      id: r["id"] as number,
-      sessionId: r["session_id"] as string,
-      agentId: r["agent_id"] as string,
-      symbolId: r["symbol_id"] as number | null,
-      fileId: r["file_id"] as number | null,
-      scope: r["scope"] as string,
-      note: r["note"] as string,
-      confidence: r["confidence"] as number,
-      createdAt: r["created_at"] as number,
-      updatedAt: r["updated_at"] as number,
-      stale: (r["stale"] as number) === 1,
-      staleReason: r["stale_reason"] as string | null,
-      archived: (r["archived"] as number) === 1,
+      id: r.id,
+      sessionId: r.session_id,
+      agentId: r.agent_id,
+      symbolId: r.symbol_id,
+      fileId: r.file_id,
+      scope: r.scope,
+      note: r.note,
+      confidence: r.confidence,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      stale: r.stale === 1,
+      staleReason: r.stale_reason,
+      archived: r.archived === 1,
     };
   }
 
