@@ -27,6 +27,8 @@ export type EdgeKind =
   | "route-handler"
   | "event";
 
+export type ParsedCallEdgeKind = Exclude<EdgeKind, "import" | "reexport" | "reference" | "event">;
+
 export type CompressionLevel = 0 | 1 | 2 | 3;
 
 export type CapsuleMode = "debug" | "refactor" | "feature" | "review";
@@ -237,7 +239,7 @@ export interface ParsedCall {
   callerSymbol: string;
   calleeName: string;
   line: number;
-  edgeKind?: "call" | "dynamic_dispatch" | "jsx_render" | "type_usage" | "inheritance" | "implements" | "framework_entry" | "callback" | "server-action" | "route-handler";
+  edgeKind?: ParsedCallEdgeKind;
   receiverName?: string;
 }
 
