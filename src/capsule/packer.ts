@@ -1,7 +1,7 @@
 import type { ScoredNode, CompressionLevel } from "../core/types.js";
 import { renderSymbol, renderFileSummary } from "./compressor.js";
 import { countTokens } from "../utils/tokens.js";
-import { EXTENDED_ACTION_SIGNAL_TERMS as ACTION_SIGNAL_TERMS, isUiLikePath } from "./signals.js";
+import { isUiLikePath } from "./signals.js";
 
 export interface PackResult {
   packed: ScoredNode[];
@@ -12,17 +12,6 @@ export interface PackResult {
 
 const COMPRESSION_LEVELS: CompressionLevel[] = [0, 1, 2, 3];
 const FILE_SUMMARY_MIN_SYMBOLS = 3;
-
-function hasActionSignal(name: string, signature: string): boolean {
-  const tokens = `${name} ${signature}`
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .split(/\s+/)
-    .filter(Boolean);
-
-  return tokens.some((token) => ACTION_SIGNAL_TERMS.has(token));
-}
 
 function computeGroupPriority(nodes: ScoredNode[]): number {
   const topScore = nodes.reduce((max, node) => Math.max(max, node.score), Number.NEGATIVE_INFINITY);

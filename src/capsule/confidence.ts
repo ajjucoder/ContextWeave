@@ -85,11 +85,6 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
       )
       : 0;
   const lexicalSurface = Math.min(queryTermCoverage, retrievalSurfaceScore);
-  const structurallyGrounded =
-    retrievalSurfaceScore >= 0.75 &&
-    relevantCoverage >= 0.6 &&
-    dependencyCoverage >= 0.7 &&
-    noiseRatio <= 0.2;
 
   let confidence = clamp(
     relevantCoverage * 0.5 +

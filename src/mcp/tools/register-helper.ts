@@ -2,9 +2,8 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { z } from "zod/v3";
 
 /**
- * Compatible Zod shape type for parameter schemas.
+ * Compatible Zod shape type matching SDK's internal ZodRawShapeCompat.
  * Record of field names to Zod schema types.
- * This matches the SDK's internal ZodRawShapeCompat type.
  */
 export type ZodRawShapeCompat = Record<string, z.ZodTypeAny>;
 
@@ -16,35 +15,21 @@ export type ToolResult = {
   isError?: boolean;
 };
 
-/**
- * Infers the shape of a Zod raw schema into a typed object.
- * Maps each field's Zod type to its inferred TypeScript type.
- */
-export type InferZodShape<Shape extends ZodRawShapeCompat> = {
-  [K in keyof Shape]: Shape[K] extends z.ZodTypeAny ? z.infer<Shape[K]> : never;
-};
+// Re-export the SDK's ToolCallback type for use in tool implementations
+export type { ToolCallback } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 /**
- * Tool callback type matching MCP SDK's expected handler signature.
- * The args type is derived from the Zod schema shape.
+ * Get a typed registerTool function from the MCP server.
+ * This helper avoids complex generic overload issues by accepting any callback
+ * and letting the schema validation happen at runtime.
  */
-export type ToolCallback<Args extends ZodRawShapeCompat = ZodRawShapeCompat> = (
-  args: InferZodShape<Args>,
-  extra: unknown
-) => Promise<ToolResult> | ToolResult;
-
-/**
- * Type for the registerTool function returned by getRegisterTool.
- * This matches the McpServer.tool() signature for the common 4-argument overload:
- * tool(name, description, paramsSchema, callback)
- */
-export type RegisterToolFn = <Args extends ZodRawShapeCompat>(
+export function getRegisterTool(server: McpServer): (
   name: string,
   description: string,
-  paramsSchema: Args,
-  callback: ToolCallback<Args>
-) => void;
-
-export function getRegisterTool(server: McpServer): RegisterToolFn {
-  return (server.tool as RegisterToolFn).bind(server);
+  paramsSchema: ZodRawShapeCompat,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  callback: (args: any, extra: any) => Promise<ToolResult> | ToolResult
+) => void {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return server.tool.bind(server) as any;
 }
