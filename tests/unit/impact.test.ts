@@ -220,12 +220,12 @@ describe("traceImpact", () => {
     expect(barrelResult.map((n) => n.name)).toContain("EditPage");
   });
 
-  it("follows same-directory barrel aliases for file:symbol targets in cw_impact", async () => {
+  it("keeps file:symbol targets pinned to the requested symbol in cw_impact", async () => {
     const originalFileId = makeFile(db, "src/hooks/useDataLayer.ts");
     const barrelFileId = makeFile(db, "src/hooks/index.ts");
     const consumerFileId = makeFile(db, "src/components/EditPage.tsx");
 
-    const originalId = makeSymbol(db, originalFileId, "useDataLayer", 0.8);
+    makeSymbol(db, originalFileId, "useDataLayer", 0.8);
     const barrelId = makeSymbol(db, barrelFileId, "useDataLayer", 0.2);
     const editPageId = makeSymbol(db, consumerFileId, "EditPage");
 
@@ -252,7 +252,44 @@ describe("traceImpact", () => {
       depth: 3,
     });
     const text = response.content[0]?.text ?? "";
+    expect(text).not.toContain("EditPage");
+    expect(text).toContain("No dependents found for \"src/hooks/useDataLayer.ts:useDataLayer\"");
+  });
+
+  it("still merges same-directory barrel aliases for unqualified cw_impact targets", async () => {
+    const originalFileId = makeFile(db, "src/hooks/useDataLayer.ts");
+    const barrelFileId = makeFile(db, "src/hooks/index.ts");
+    const consumerFileId = makeFile(db, "src/components/EditPage.tsx");
+
+    makeSymbol(db, originalFileId, "useDataLayer", 0.8);
+    const barrelId = makeSymbol(db, barrelFileId, "useDataLayer", 0.2);
+    const editPageId = makeSymbol(db, consumerFileId, "EditPage");
+
+    edgeQueries(db).insert({ sourceSymbolId: editPageId, targetSymbolId: barrelId, kind: "import", createdAt: NOW });
+
+    let handler:
+      | ((args: { target: string; depth?: number }) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>)
+      | undefined;
+    const fakeServer = {
+      tool: (
+        _name: string,
+        _description: string,
+        _schema: unknown,
+        fn: (args: { target: string; depth?: number }) => Promise<{ content: Array<{ type: string; text: string }>; isError?: boolean }>
+      ) => {
+        handler = fn;
+      },
+    };
+    registerImpactTool(fakeServer as any, db);
+    expect(handler).toBeDefined();
+
+    const response = await handler!({
+      target: "useDataLayer",
+      depth: 3,
+    });
+    const text = response.content[0]?.text ?? "";
     expect(text).toContain("EditPage");
+    expect(text).toContain("Note: traced 2 symbols with this name");
   });
 });
 
