@@ -95,4 +95,46 @@ describe("cw_recall output grouping", () => {
     expect(text).toContain("Passive observations:");
     expect(text).toContain("Passive auth query telemetry");
   });
+
+  it("surfaces passive observations when include_stale is enabled", async () => {
+    const store = new ObservationStore(db);
+    store.create({
+      sessionId: "session-1",
+      scope: "passive",
+      note: "Passive auth query telemetry",
+      confidence: 0.8,
+    });
+    store.create({
+      sessionId: "session-1",
+      scope: "architecture",
+      note: "Auth middleware validates JWT in route handlers",
+      confidence: 1.0,
+    });
+
+    let handler:
+      | ((args: { query: string; scope?: string; include_stale?: boolean; limit?: number }) => Promise<{ content: Array<{ text: string }> }>)
+      | undefined;
+
+    const fakeServer = {
+      tool: (
+        _name: string,
+        _description: string,
+        _schema: unknown,
+        fn: (args: { query: string; scope?: string; include_stale?: boolean; limit?: number }) => Promise<{ content: Array<{ text: string }> }>
+      ) => {
+        handler = fn;
+      },
+    };
+
+    registerRecallTool(fakeServer as any, db);
+    expect(handler).toBeDefined();
+
+    const result = await handler!({ query: "auth", include_stale: true, limit: 10 });
+    const text = result.content[0]?.text ?? "";
+
+    expect(text).toContain("Intentional observations:");
+    expect(text).toContain("Passive observations:");
+    expect(text).toContain("Passive auth query telemetry");
+    expect(text).toContain("Auth middleware validates JWT in route handlers");
+  });
 });

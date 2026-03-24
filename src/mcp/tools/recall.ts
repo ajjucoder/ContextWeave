@@ -20,12 +20,13 @@ export function registerRecallTool(server: McpServer, db: Database.Database): vo
       try {
         const search = new MemorySearch(db);
         search.ensureBm25Consistent();
-        const showPassive = scope === "passive";
+        const requestedLimit = limit ?? 10;
+        const showPassive = scope === "passive" || include_stale === true;
         const results = search.search(query, {
           scope,
           includeStale: include_stale,
-          includePassive: showPassive,
-          limit: limit ?? 10,
+          includePassive: true,
+          limit: showPassive ? requestedLimit : Math.max(requestedLimit * 3, requestedLimit),
         });
 
         if (results.length === 0) {
@@ -38,9 +39,13 @@ export function registerRecallTool(server: McpServer, db: Database.Database): vo
           };
         }
 
-        const intentional = results.filter(({ observation }) => observation.scope !== "passive");
+        const intentional = results
+          .filter(({ observation }) => observation.scope !== "passive")
+          .slice(0, requestedLimit);
         const passive = results.filter(({ observation }) => observation.scope === "passive");
-        const lines = [`Memory recall for "${query}" (${results.length} results):\n`];
+        const displayedPassive = showPassive ? passive : [];
+        const displayedCount = intentional.length + displayedPassive.length;
+        const lines = [`Memory recall for "${query}" (${displayedCount} results):\n`];
 
         const renderGroup = (
           title: string,
@@ -61,7 +66,7 @@ export function registerRecallTool(server: McpServer, db: Database.Database): vo
 
         renderGroup("Intentional observations", intentional);
         if (showPassive) {
-          renderGroup("Passive observations", passive);
+          renderGroup("Passive observations", displayedPassive);
         }
 
         return {
