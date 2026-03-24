@@ -52,7 +52,7 @@ beforeAll(async () => {
   registerOverviewTool(server, db, FIXTURE_DIR);
   registerFilesTool(server, db, FIXTURE_DIR);
   registerSearchTool(server, db, FIXTURE_DIR);
-  registerReadTool(server, db, FIXTURE_DIR);
+  registerReadTool(server, db, FIXTURE_DIR, "session-1");
   registerImpactTool(server, db);
 }, 60000);
 

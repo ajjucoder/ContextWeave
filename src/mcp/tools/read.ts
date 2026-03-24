@@ -1,4 +1,5 @@
 import { readFileSync, statSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 import { relative, resolve } from "node:path";
 import type Database from "better-sqlite3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -6,15 +7,82 @@ import { z } from "zod/v3";
 import { getRegisterTool } from "./register-helper.js";
 import { isSafeProjectPath } from "./path-filters.js";
 import { fileQueries } from "../../db/queries/files.js";
+import { sessionQueries } from "../../db/queries/sessions.js";
 import { symbolQueries } from "../../db/queries/symbols.js";
 import type { SymbolRecord } from "../../core/types.js";
 import { fuzzyMatch } from "../../utils/fuzzy.js";
 
 const MAX_READ_BYTES = 2 * 1024 * 1024;
+export const DEFAULT_READ_CHAR_BUDGET = 20_000;
+const sessionReadChars = new Map<string, number>();
 
 interface ResolvedSymbol {
   symbol: SymbolRecord;
   filePath: string;
+}
+
+interface BudgetedExcerpt {
+  lines: string[];
+  charsUsed: number;
+  truncated: boolean;
+}
+
+export function getSessionReadChars(sessionId: string): number {
+  return sessionReadChars.get(sessionId) ?? 0;
+}
+
+export function applyCharBudget(
+  excerpt: string[],
+  remainingChars: number
+): BudgetedExcerpt {
+  const fullText = excerpt.join("\n");
+  if (remainingChars >= fullText.length) {
+    return {
+      lines: excerpt,
+      charsUsed: fullText.length,
+      truncated: false,
+    };
+  }
+
+  if (remainingChars <= 0) {
+    return {
+      lines: [],
+      charsUsed: 0,
+      truncated: excerpt.length > 0,
+    };
+  }
+
+  const lines: string[] = [];
+  let charsUsed = 0;
+
+  for (const line of excerpt) {
+    const newlineCost = lines.length > 0 ? 1 : 0;
+    const fullLineCost = newlineCost + line.length;
+    if (fullLineCost <= remainingChars - charsUsed) {
+      if (newlineCost > 0) {
+        charsUsed += newlineCost;
+      }
+      lines.push(line);
+      charsUsed += line.length;
+      continue;
+    }
+
+    const remainingForLine = remainingChars - charsUsed - newlineCost;
+    if (remainingForLine > 0) {
+      if (newlineCost > 0) {
+        charsUsed += newlineCost;
+      }
+      lines.push(line.slice(0, remainingForLine));
+      charsUsed += remainingForLine;
+    }
+    break;
+  }
+
+  return {
+    lines,
+    charsUsed,
+    truncated: true,
+  };
 }
 
 function resolveSymbolTarget(
@@ -117,8 +185,15 @@ export function parseSymbolTarget(
   return { fileSuffix: filePart, symbolName: input.slice(lastColon + 1) };
 }
 
-export function registerReadTool(server: McpServer, db: Database.Database, projectRoot: string): void {
+export function registerReadTool(
+  server: McpServer,
+  db: Database.Database,
+  projectRoot: string,
+  sessionId?: string,
+  charBudget = DEFAULT_READ_CHAR_BUDGET
+): void {
   const registerTool = getRegisterTool(server);
+  const readSessionId = sessionId ?? `cw-read-${randomUUID()}`;
   const inputSchema: Record<string, z.ZodTypeAny> = {
     path: z.string().optional().describe("File path to read (absolute or relative to project root)"),
     file: z.string().optional().describe("Alias for path (accepted for compatibility)"),
@@ -158,6 +233,7 @@ export function registerReadTool(server: McpServer, db: Database.Database, proje
 
         const resolvedRoot = resolve(projectRoot);
         const maxLines = max_lines ?? 200;
+        sessionQueries(db).ensureSession(readSessionId, resolvedRoot);
 
         let requestedPath: string | undefined;
         if (path) {
@@ -284,10 +360,18 @@ export function registerReadTool(server: McpServer, db: Database.Database, proje
         }
 
         const excerpt = allLines.slice(start - 1, end);
+        const rawExcerptChars = excerpt.join("\n").length;
+        const remainingChars = Math.max(0, charBudget - getSessionReadChars(readSessionId));
+        const budgetedExcerpt = applyCharBudget(excerpt, remainingChars);
+        const budgetTruncated = budgetedExcerpt.truncated;
+        sessionReadChars.set(readSessionId, getSessionReadChars(readSessionId) + budgetedExcerpt.charsUsed);
+        const displayedEnd = budgetedExcerpt.lines.length > 0 ? start + budgetedExcerpt.lines.length - 1 : start;
         const width = String(end).length;
         const displayPath = relative(resolvedRoot, targetPath).replace(/\\/g, "/") || targetPath;
 
-        const lines = [`Read ${displayPath}:${start}-${end} (${excerpt.length} line${excerpt.length === 1 ? "" : "s"})`];
+        const lines = [
+          `Read ${displayPath}:${start}-${displayedEnd} (${budgetedExcerpt.lines.length} line${budgetedExcerpt.lines.length === 1 ? "" : "s"})`,
+        ];
         if (resolvedSymbol) {
           lines.push(`Symbol: ${resolvedSymbol.symbol.kind} ${resolvedSymbol.symbol.name} (${resolvedSymbol.symbol.startLine}-${resolvedSymbol.symbol.endLine})`);
         }
@@ -297,11 +381,16 @@ export function registerReadTool(server: McpServer, db: Database.Database, proje
         if (truncatedByMaxLines) {
           lines.push(`Truncated to max_lines=${maxLines}`);
         }
+        if (budgetTruncated) {
+          lines.push(
+            `Warning: Budget exceeded for this session; returned ${budgetedExcerpt.charsUsed} of ${rawExcerptChars} requested chars (${getSessionReadChars(readSessionId)}/${charBudget} chars used).`
+          );
+        }
         lines.push("");
 
-        for (let i = 0; i < excerpt.length; i++) {
+        for (let i = 0; i < budgetedExcerpt.lines.length; i++) {
           const lineNo = start + i;
-          lines.push(`${String(lineNo).padStart(width, " ")} | ${excerpt[i] ?? ""}`);
+          lines.push(`${String(lineNo).padStart(width, " ")} | ${budgetedExcerpt.lines[i] ?? ""}`);
         }
 
         return {

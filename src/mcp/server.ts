@@ -110,7 +110,7 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
   registerOverviewTool(server, db, projectRoot, embeddingRuntime);
   registerFilesTool(server, db, projectRoot);
   registerSearchTool(server, db, projectRoot);
-  registerReadTool(server, db, projectRoot);
+  registerReadTool(server, db, projectRoot, serverSessionId);
   registerStatsTool(server, db, projectRoot, serverSessionId);
   registerExportTool(server, db, projectRoot);
 

@@ -74,7 +74,7 @@ export async function openFieldProject(
 
   const server = new McpServer({ name: `contextweave-field-${fixtureName}`, version: "0.0.0" });
   registerOverviewTool(server, db, fixtureRoot);
-  registerReadTool(server, db, fixtureRoot);
+  registerReadTool(server, db, fixtureRoot, sessionId);
   registerFlowTool(server, db);
   registerImpactTool(server, db);
   registerRecallTool(server, db);
