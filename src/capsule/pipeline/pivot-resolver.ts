@@ -207,8 +207,39 @@ export function isExactSymbolNameMatch(name: string, exactQueryTermSet: Set<stri
   return nameTokens.length > 1 && nameTokens.every((token) => exactQueryTermSet.has(token));
 }
 
+function resolveAnchorSymbolIds(
+  context: CapsuleContext,
+  anchorSymbols: string[],
+  suppressTypeDeclarations: boolean
+): Set<number> {
+  const resolved = new Set<number>();
+
+  for (const anchor of anchorSymbols) {
+    const trimmed = anchor.trim();
+    if (!trimmed) continue;
+
+    const exactQualified = context.symbols.getByQualifiedName(trimmed);
+    const exactName = context.symbols.getByName(trimmed);
+    const fallbackCaseInsensitive =
+      exactQualified.length === 0 && exactName.length === 0
+        ? context.symbols.getByNameCI(trimmed)
+        : [];
+    const matches = [...exactQualified, ...exactName, ...fallbackCaseInsensitive];
+
+    for (const match of matches) {
+      const file = context.files.getById(match.fileId);
+      if (!file) continue;
+      if (suppressTypeDeclarations && isTypeDeclarationPath(file.path)) continue;
+      resolved.add(match.id);
+    }
+  }
+
+  return resolved;
+}
+
 export function resolvePivots(context: CapsuleContext): PivotResolution {
   const { db, files, symbols, query, tokenBudget } = context;
+  const anchorSymbols = context.params.anchorSymbols?.map((symbol) => symbol.trim()).filter(Boolean) ?? [];
   const classified = classifyQueryIntent(query);
   const intent = classified.intent;
   const retrievalBudget = Math.max(tokenBudget, Math.round(tokenBudget * classified.suggestedBudgetMultiplier));
@@ -738,6 +769,20 @@ export function resolvePivots(context: CapsuleContext): PivotResolution {
     }
   }
 
+  const anchorPivotIds = resolveAnchorSymbolIds(context, anchorSymbols, suppressTypeDeclarations);
+  const anchorBoostBySymbolId = new Map<number, number>();
+  if (anchorPivotIds.size > 0) {
+    const rankedEntries = [...rankedPivots.entries()].sort((a, b) => b[1] - a[1]);
+    const topScore = rankedEntries[0]?.[1] ?? 1;
+    const anchorFloorScore = Math.max(1, topScore * 0.4);
+    for (const anchorId of anchorPivotIds) {
+      const existing = rankedPivots.get(anchorId) ?? 0;
+      rankedPivots.set(anchorId, Math.max(existing * 1.5, anchorFloorScore * 1.5));
+      anchorBoostBySymbolId.set(anchorId, 1.5);
+    }
+    pivotScores = [...rankedPivots.values()].sort((a, b) => b - a);
+  }
+
   const pivotSymbolIds = new Set(rankedPivots.keys());
   const topLocalityPivotIds = new Set(
     [...rankedPivots.entries()].sort((a, b) => b[1] - a[1]).slice(0, intent === "narrow" ? 20 : 12).map(([id]) => id)
@@ -774,6 +819,9 @@ export function resolvePivots(context: CapsuleContext): PivotResolution {
     rankedPivots,
     pivotScores,
     pivotSymbolIds,
+    anchorSymbols,
+    anchorPivotIds,
+    anchorBoostBySymbolId,
     exactPivotIds,
     relevantPivotIds,
     topLocalityPivotIds,

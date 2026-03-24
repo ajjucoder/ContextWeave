@@ -27,6 +27,7 @@ export interface CapsuleParams {
   maxQueryTimeMs?: number;
   path?: string;
   glob?: string;
+  anchorSymbols?: string[];
   queryEmbedding?: Float32Array;
   hybridSearchResults?: HybridSearchResult[];
 }
@@ -36,6 +37,7 @@ export interface RankedCandidate {
   file: FileRecord;
   score: number;
   distance: number;
+  traversalBoost: number;
   isPivot: boolean;
   lexicalScore: number;
   degree: number;
@@ -86,6 +88,9 @@ export interface PivotResolution {
   rankedPivots: Map<number, number>;
   pivotScores: number[];
   pivotSymbolIds: Set<number>;
+  anchorSymbols: string[];
+  anchorPivotIds: Set<number>;
+  anchorBoostBySymbolId: Map<number, number>;
   exactPivotIds: Set<number>;
   relevantPivotIds: Set<number>;
   topLocalityPivotIds: Set<number>;

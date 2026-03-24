@@ -316,6 +316,7 @@ export function ensureBroadFileSpread(
       file,
       score: bestSymbol.lexicalScore * 5 + 0.25,
       distance: 2,
+      traversalBoost: 1,
       isPivot: false,
       lexicalScore: bestSymbol.lexicalScore,
       degree: 0,
@@ -609,7 +610,7 @@ function backfillWithinSelectedFiles(
         const lexicalScore = getLexicalScore(symbol, file, pivot.expandedQueryTerms, pivot.exactQueryTermSet);
         const score = scoreBackfillCandidate(symbol, lexicalScore, fallbackFilePath);
         if (score <= 0) continue;
-        extras.push({ symbol, file, score, distance: 2, isPivot: false, lexicalScore, degree: 0 });
+        extras.push({ symbol, file, score, distance: 2, traversalBoost: 1, isPivot: false, lexicalScore, degree: 0 });
         extraIds.add(symbol.id);
       }
     }
@@ -743,7 +744,7 @@ export function scoreCandidates(
           hubPenalty,
           visibilityMultiplier: getVisibilityPenalty(candidate.symbol.visibility, sameFileAsPivot, candidate.distance),
           mode: context.mode,
-        }) * getRuntimeKindWeight(candidate.symbol.kind, pivot.preferRuntimeKinds) * exactPivotBoost,
+        }) * getRuntimeKindWeight(candidate.symbol.kind, pivot.preferRuntimeKinds) * exactPivotBoost * candidate.traversalBoost,
     };
 
     if (context.mode !== "debug" && scored.lexicalScore === 0 && scored.distance > 1) {

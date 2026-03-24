@@ -153,4 +153,23 @@ describe("weightedBfsTraversal", () => {
     expect(importNode).toBeDefined();
     expect(callNode!.distance).toBeLessThan(importNode!.distance);
   });
+
+  it("propagates anchor seed weight boosts through the traversed subgraph", () => {
+    const syms = symbolQueries(db);
+    const mainSym = syms.getByName("processData")[0]!;
+    const helperSym = syms.getByName("validateInput")[0]!;
+
+    const nodes = weightedBfsTraversal(db, [
+      { symbolId: mainSym.id, weightBoost: 1.5 },
+      helperSym.id,
+    ], 5);
+
+    const mainNode = nodes.find((n) => n.symbolId === mainSym.id);
+    const localCallNode = nodes.find((n) => syms.getById(n.symbolId)?.name === "computeResult");
+    const helperNode = nodes.find((n) => n.symbolId === helperSym.id);
+
+    expect(mainNode?.weightBoost).toBe(1.5);
+    expect(localCallNode?.weightBoost).toBe(1.5);
+    expect(helperNode?.weightBoost).toBe(1);
+  });
 });

@@ -79,14 +79,19 @@ export function expandGraph(context: CapsuleContext, pivot: PivotResolution): Gr
     : maxVisitedBase;
   const effectiveBfsDepth = skipBfs ? 1 : maxDepth;
   const bfsIncomingMult = pivot.intent === "broad" ? 4.0 : 1.5;
+  const bfsSeeds = [...pivot.pivotSymbolIds].map((symbolId) => ({
+    symbolId,
+    weightBoost: pivot.anchorBoostBySymbolId.get(symbolId) ?? 1,
+  }));
   const bfsNodes = weightedBfsTraversal(
     context.db,
-    [...pivot.pivotSymbolIds],
+    bfsSeeds,
     effectiveBfsDepth,
     scopeDirs,
     { maxVisitedNodes, maxHops: MAX_BFS_HOPS, incomingEdgeCostMultiplier: bfsIncomingMult }
   );
   const visited = new Map<number, number>(bfsNodes.map((node) => [node.symbolId, node.distance]));
+  const traversalBoosts = new Map<number, number>(bfsNodes.map((node) => [node.symbolId, node.weightBoost]));
 
   context.logger.debug("bfs traversal complete", { nodesVisited: visited.size });
 
@@ -137,6 +142,7 @@ export function expandGraph(context: CapsuleContext, pivot: PivotResolution): Gr
       file,
       score: 0,
       distance,
+      traversalBoost: traversalBoosts.get(symbolId) ?? 1,
       isPivot: pivot.pivotSymbolIds.has(symbolId),
       lexicalScore,
       degree,

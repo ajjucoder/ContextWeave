@@ -50,8 +50,21 @@ describe("MCP tool schema compatibility", () => {
       query: "UserService",
       token_budget: 4000,
       mode: "feature",
+      anchor_symbols: ["AuthService", "UserService"],
     });
     expect(parseResult?.success).toBe(true);
+  });
+
+  it("cw_capsule input schema rejects more than 20 anchor symbols", async () => {
+    const server = new McpServer({ name: "contextweave-test", version: "0.0.0" });
+
+    registerCapsuleTool(server, null as never, "/tmp/project");
+
+    const parseResult = await getRegisteredTool(server, "cw_capsule").inputSchema?.safeParseAsync({
+      query: "UserService",
+      anchor_symbols: Array.from({ length: 21 }, (_, index) => `Anchor${index}`),
+    });
+    expect(parseResult?.success).toBe(false);
   });
 
   it("cw_flow input schema parses valid args", async () => {

@@ -62,13 +62,14 @@ export function registerCapsuleTool(
     mode: z.enum(["debug", "refactor", "feature", "review"]).optional().describe(`Task mode affecting scoring weights (default: ${defaultMode})`),
     path: pathSchema.describe("Restrict results to files within this directory (relative to project root)"),
     glob: globSchema.describe("Restrict results to files matching this glob pattern, e.g. **/*.ts"),
+    anchor_symbols: z.array(z.string().min(1).max(512)).max(20).optional().describe("Optional symbol anchors to seed retrieval from related subgraphs"),
   };
 
   registerTool(
     "cw_capsule",
     "Generate token-budgeted code context for a query. Returns compressed AST-aware context capsule with multi-level compression.",
     inputSchema,
-    async ({ query, token_budget, mode, path, glob }: { query: string; token_budget?: number; mode?: CapsuleMode; path?: string; glob?: string }) => {
+    async ({ query, token_budget, mode, path, glob, anchor_symbols }: { query: string; token_budget?: number; mode?: CapsuleMode; path?: string; glob?: string; anchor_symbols?: string[] }) => {
       // Runtime security validation: Zod .refine() and .max() errors are not preserved by MCP SDK schema conversion
       // So we validate path/glob traversal AND length here at runtime
       if (path !== undefined) {
@@ -123,6 +124,7 @@ export function registerCapsuleTool(
           projectRoot,
           path,
           glob,
+          anchorSymbols: anchor_symbols,
         }, embeddingRuntime);
 
         const contentParts: Array<{ type: "text"; text: string }> = [
