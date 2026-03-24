@@ -1,0 +1,28 @@
+{
+  "featureId": "pre-existing-build",
+  "status": "pass",
+  "summary": "Build succeeded. npm run build (tsup) completed successfully in 53ms, producing all expected dist/ artifacts: index.js (719.66 KB), parser-worker.js (111.94 KB), pagerank-worker.js (14.44 KB), and corresponding source maps for all three.",
+  "issues": [],
+  "sharedStateObservations": [
+    {
+      "target": "AGENTS.md",
+      "observation": "cw_capsule, cw_impact, cw_flow, cw_remember, cw_recall, cw_status, cw_reindex tools documented. Build pipeline is a prerequisite for tool runtime.",
+      "rationale": "Build must succeed for all ContextWeave MCP tools to function. Verified dist/ artifacts match expected entry points."
+    },
+    {
+      "target": "library",
+      "observation": "dist/index.js is the main entry point (package.json bin.cw maps to dist/index.js). All three workers compiled.",
+      "rationale": "Build output confirms complete TypeScript compilation with source maps. No dangling imports or unresolved symbols."
+    }
+  ],
+  "evidence": [
+    "npm run build exited with code 0",
+    "dist/index.js (719.66 KB) present",
+    "dist/parser-worker.js (111.94 KB) present",
+    "dist/pagerank-worker.js (14.44 KB) present",
+    "dist/index.js.map (1.25 MB) present",
+    "dist/parser-worker.js.map (194.12 KB) present",
+    "dist/pagerank-worker.js.map (40.32 KB) present",
+    "Build completed in 53ms"
+  ]
+}

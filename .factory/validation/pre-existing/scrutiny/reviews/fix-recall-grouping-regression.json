@@ -1,0 +1,47 @@
+{
+  "featureId": "fix-recall-grouping-regression",
+  "status": "fail",
+  "summary": "Feature branch 17524e6 partially addressed the passive-observation grouping regression in recall.ts but introduced a new regression: the include_stale flag no longer surfaces passive observations. Additionally, the test file (tests/integration/recall-tool-grouping.test.ts) was NOT modified in this branch — the test assertion flip from toContain to not.toContain happened in a later unrelated commit (3ab8987). The feature is incomplete: (1) the include_stale passthrough is missing, (2) the test file update needed for this feature was done separately.",
+  "issues": [
+    {
+      "severity": "blocking",
+      "description": "New regression introduced: include_stale=true no longer shows passive observations. In 17524e6 showPassive = scope === 'passive' || include_stale === true. But in current HEAD (3ab8987) it was simplified to showPassive = scope === 'passive', losing the include_stale case. This means calling cw_recall with include_stale=true will NOT display passive observations, which contradicts the documented behavior. Reference: src/mcp/tools/recall.ts line ~27, search.ts lines 152 and 244 both skip passive when includePassive=false."
+    },
+    {
+      "severity": "blocking",
+      "description": "Test file was NOT updated in feature branch 17524e6. The test file tests/integration/recall-tool-grouping.test.ts was only changed in commit 3ab8987 (an unrelated 'fix-capsule' commit), which flipped the assertion from expect(text).toContain('Passive observations:') to expect(text).not.toContain('Passive observations:'). This means the feature branch did not carry its own test fixes — they were applied by a different commit on main."
+    },
+    {
+      "severity": "blocking",
+      "description": "The core fix in 17524e6 (includePassive:true in search call + displayedPassive filtering) was partially reverted in 3ab8987. The search call went from includePassive:true back to includePassive:showPassive (which is false for default case), making passive observations never enter the results pipeline at all for default invocations. This undermines the stated goal of 'always searching with includePassive=true then filtering during display'."
+    },
+    {
+      "severity": "non_blocking",
+      "description": "Two different groupings behaviors are now in play: (a) when scope=passive, passive observations are shown in a dedicated section; (b) when include_stale=true, passive observations are NOT shown (broken). The inconsistency means the API behavior is unpredictable depending on which flag is used."
+    },
+    {
+      "severity": "suggestion",
+      "description": "The commit 17524e6 modified .factory/init.sh, .factory/services.yaml, and added .factory/library/contextweave-v2-implementation.md alongside the recall.ts fix. These changes are unrelated to the recall grouping fix and should have been in a separate commit for clarity."
+    }
+  ],
+  "sharedStateObservations": [
+    {
+      "target": "services.yaml",
+      "observation": "Modified in 17524e6 to add eval/bench/test:field commands. These changes are unrelated to recall grouping fix.",
+      "rationale": "The feature branch bundled infrastructure/service changes with a bug fix, reducing commit atomicity."
+    },
+    {
+      "target": "AGENTS.md",
+      "observation": "No changes in this branch. The cw_recall/cw_remember documentation does not reflect the new includePassive default behavior or the grouping changes.",
+      "rationale": "Documentation alignment gap: AGENTS.md documents the tools but the behavioral changes (passive exclusion by default, section grouping) are not reflected."
+    }
+  ],
+  "evidence": [
+    "git diff 17524e6..3ab8987 -- src/mcp/tools/recall.ts: shows showPassive logic changed from 'scope === \"passive\" || include_stale === true' to 'scope === \"passive\"', losing include_stale passthrough",
+    "git show 17524e6 --format=\"\" -- tests/integration/recall-tool-grouping.test.ts: returns empty (no changes to test file in this commit)",
+    "git show 3ab8987 --format=\"\" -- tests/integration/recall-tool-grouping.test.ts: shows the test assertion flip from toContain to not.toContain",
+    "src/memory/search.ts lines 152 and 244: 'if (!includePassive && obs.scope === \"passive\") continue' — when includePassive is false, passive observations are completely excluded from results, not just from display",
+    "git log --oneline 17524e6^..3ab8987 -- src/mcp/tools/recall.ts: shows 17524e6 then 3ab8987 are consecutive commits on the same file",
+    "npm test -- tests/integration/recall-tool-grouping.test.ts: 2 tests pass on current HEAD, but this is because the test was separately updated to expect the broken behavior"
+  ]
+}

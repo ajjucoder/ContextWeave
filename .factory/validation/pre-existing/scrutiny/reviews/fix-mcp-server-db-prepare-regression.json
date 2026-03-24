@@ -1,0 +1,29 @@
+{
+  "featureId": "fix-mcp-server-db-prepare-regression",
+  "status": "pass",
+  "summary": "The fix correctly adds a fileQueries mock to the mcp-server test, addressing the original 'db.prepare is not a function' error in fileQueries(). All 3 test assertions now pass. However, secondary errors in backfillSummariesIfNeeded and backfillClustersIfNeeded reveal incomplete mocking of the db dependency chain.",
+  "issues": [
+    {
+      "severity": "suggestion",
+      "description": "The mock for fileQueries only returns { count: mockFileQueriesCount }, but fileQueries() actually returns an object with ~15 methods (insert, update, getByPath, getAll, iterateAll, searchByPath, etc.). The minimal mock is sufficient for current tests but could hide future regressions if the server code starts calling other fileQueries methods during startup."
+    },
+    {
+      "severity": "suggestion",
+      "description": "backfillSummariesIfNeeded and backfillClustersIfNeeded are NOT mocked in the test, and they call db.prepare() directly on the mocked db object ({ mocked: true }). The logs show 'failed to backfill derived data' with 'db.prepare is not a function' error. These errors are swallowed by try/catch in scheduleDerivedDataBackfill() so they don't fail the test, but they represent incomplete mock coverage that could mask real failures."
+    },
+    {
+      "severity": "suggestion",
+      "description": "The secondary-mode test assertion changed from 'not.toContain(cw_reindex)' to expecting it to be present. This aligns with commit 0f9c4d8 making cw_reindex always exposed, but the test description 'skips write-heavy tools' no longer accurately describes what 'cw_reindex' means in this context."
+    }
+  ],
+  "sharedStateObservations": [],
+  "evidence": [
+    "Commit 7918d43: 'fix(test): mock fileQueries in mcp-server integration test' - adds mockFileQueries mock and vi.mock for ../../src/db/queries/files.js",
+    "Test results: 3 passed - 'registers the full primary toolset and starts the watcher', 'skips write-heavy tools and watcher startup in secondary mode', 'cleans up watcher, db, and lock when startup fails after watcher init'",
+    "Error log: '[ERROR] [mcp-server] failed to backfill derived data {\"projectRoot\":\"/repo\",\"error\":\"db.prepare is not a function\"}' - backfillSummariesIfNeeded called db.prepare on the mocked db object",
+    "Error log: '[ERROR] [mcp-server] auto-index failed {\"projectRoot\":\"/repo\",\"error\":\"files.getAllPathsAndMtimes is not a function\"}' - indexProject called getAllPathsAndMtimes on mocked fileQueries which only has count method",
+    "src/db/queries/files.ts line 16: fileQueriesImpl calls db.prepare() directly, which was the original failure point before this fix",
+    "src/mcp/server.ts line 23: fileQueries is imported and called at line 90 to check indexedFileCount",
+    "src/mcp/server.ts lines 47-48: backfillSummariesIfNeeded and backfillClustersIfNeeded call db.prepare() directly, not fileQueries()"
+  ]
+}

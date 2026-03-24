@@ -1,0 +1,38 @@
+{
+  "featureId": "pre-existing-impact-barrel",
+  "status": "pass",
+  "summary": "Feature correctly fixes the barrel alias resolution issue for file-qualified cw_impact targets. The fix ensures traceImpactWithBarrelAliases is always called regardless of pinToExactSymbol flag, so consumers importing via barrel (index.ts) are found even when querying with file:symbol syntax. All 18 tests pass, TypeScript compiles clean, lint passes, and build succeeds.",
+  "issues": [],
+  "sharedStateObservations": [
+    {
+      "target": "services.yaml",
+      "observation": "No changes to services.yaml",
+      "rationale": "This feature modifies only src/mcp/tools/impact.ts"
+    },
+    {
+      "target": "library",
+      "observation": "No changes to shared library",
+      "rationale": "The barrel alias resolution function traceImpactWithBarrelAliases was already present in impact.ts; the fix was a one-line behavioral change to always use it"
+    },
+    {
+      "target": "AGENTS.md",
+      "observation": "No changes to AGENTS.md",
+      "rationale": "This is a bug fix that does not change the public API or tool behavior contract"
+    },
+    {
+      "target": "skills",
+      "observation": "No changes to skills",
+      "rationale": "Backend worker skill was appropriate for this fix"
+    }
+  ],
+  "evidence": [
+    "Commit 1e8036e: fix(impact): always trace barrel aliases even when pinned to exact symbol — 4 lines changed in src/mcp/tools/impact.ts",
+    "npm test -- tests/unit/impact.test.ts: 18 tests pass (1 test file, 1 passed)",
+    "npx tsc --noEmit: exits 0, no TypeScript errors",
+    "npm run lint: exits 0, no lint errors",
+    "npm run build: Build success in 42ms, dist/ artifacts produced (index.js, pagerank-worker.js, parser-worker.js)",
+    "The fix changed lines 177-179 in src/mcp/tools/impact.ts from conditional (pinToExactSymbol ? traceImpact : traceImpactWithBarrelAliases) to always use traceImpactWithBarrelAliases",
+    "The failing test 'follows same-directory barrel aliases for file:symbol targets in cw_impact' was the target of this fix; it now passes with all other 17 tests",
+    "Verification commands from worker handoff all returned exitCode 0: npm test (18 pass), npx tsc --noEmit (0 errors), npm run build (success)"
+  ]
+}

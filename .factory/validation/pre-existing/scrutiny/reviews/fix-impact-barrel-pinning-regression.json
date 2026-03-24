@@ -1,0 +1,24 @@
+{
+  "featureId": "fix-impact-barrel-pinning-regression",
+  "status": "pass",
+  "summary": "The file-qualified cw_impact barrel-pinning regression has been correctly fixed in HEAD commit e73dfe5. The implementation in src/mcp/tools/impact.ts now uses plain traceImpact() for file-qualified targets (pinToExactSymbol=true) and preserves traceImpactWithBarrelAliases() only for unqualified name lookups. All relevant tests pass.",
+  "issues": [],
+  "sharedStateObservations": [
+    {
+      "target": "services.yaml",
+      "observation": "skillName backend-worker correctly assigned; worker session 0ac200ce verified the fix in a prior session.",
+      "rationale": "The feature's worker session ran before this scrutiny and confirmed the same fix state."
+    }
+  ],
+  "evidence": [
+    "Commit e73dfe5 (fix(impact): keep file-qualified targets pinned) modifies src/mcp/tools/impact.ts lines 171-173 to use pinToExactSymbol conditional: traceImpact(db, pivot.id, maxDepth) when pinned, traceImpactWithBarrelAliases otherwise.",
+    "tests/integration/mcp-navigation-tools.test.ts line 152: test 'cw_impact keeps file-qualified targets pinned to the requested file' asserts target='impact-primary.ts:syncProfile' should contain 'runPrimarySync' and should NOT contain 'runBarrelSync'.",
+    "tests/unit/impact.test.ts: test 'keeps file:symbol targets pinned to the requested symbol in cw_impact' explicitly validates pinned behavior returns 'No dependents found' when the barrel alias has dependents but the file-qualified target does not.",
+    "tests/unit/impact.test.ts: test 'still merges same-directory barrel aliases for unqualified cw_impact targets' validates that unqualified 'useDataLayer' DOES include barrel-aliased dependents with the note about 2 symbols.",
+    "npx vitest run tests/integration/mcp-navigation-tools.test.ts: all 15 tests pass, including the pinning test (0ms).",
+    "npx vitest run tests/unit/impact.test.ts: all 18 tests pass, including both pinning and barrel-merge tests.",
+    "src/mcp/tools/impact.ts resolveTargetSymbols() correctly sets pinToExactSymbol=true when parsed.fileSuffix is present (file-qualified reference).",
+    "traceImpactWithBarrelAliases() (lines 73-105) correctly builds traceIds including barrel aliases, but is now only called when pinToExactSymbol=false.",
+    "The test fixture tests/fixtures/impact-primary.ts defines syncProfile() returning 'primary' and runPrimarySync() calling it. tests/fixtures/index.ts defines syncProfile() returning 'barrel' and runBarrelSync() calling it. These are intentionally parallel but distinct."
+  ]
+}

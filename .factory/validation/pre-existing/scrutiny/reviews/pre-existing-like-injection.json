@@ -1,0 +1,26 @@
+{
+  "featureId": "pre-existing-like-injection",
+  "status": "pass",
+  "summary": "LIKE injection fix (VAL-SEC-003) correctly implemented in contentFallbackSearch. All 33 tests pass. The fix properly escapes %, _, and backslash characters using the correct regex pattern with ESCAPE clause. Implementation matches the reference pattern from files.ts and the security assertions in VAL-SEC-003-LIKE-injection-assertions.md.",
+  "issues": [
+    {
+      "severity": "suggestion",
+      "description": "The test file contains inline copies of escapeLikePattern function for unit testing. Consider extracting this to a shared test utility to avoid divergence between implementation and test helper."
+    }
+  ],
+  "sharedStateObservations": [
+    {
+      "target": "library",
+      "observation": "escapeLikePattern implementation in src/capsule/content-fallback.ts follows the same pattern referenced in VAL-SEC-003 documentation (src/db/queries/files.ts line 81)",
+      "rationale": "Both use term.replace(/[\\\\%_]/g, \"\\\\:&\") with ESCAPE '\\\\' clause, ensuring consistent behavior across the codebase"
+    }
+  ],
+  "evidence": [
+    "src/capsule/content-fallback.ts:21 - escapeLikePattern function uses correct regex: /[\\\\%_]/g with \\\\$& replacement",
+    "src/capsule/content-fallback.ts:37 - SQL query includes ESCAPE '\\\\' clause",
+    "src/capsule/content-fallback.ts:39 - Tracks symbol hits instead of file hits for precise matching",
+    "commit b4b205c - fix(security): escape LIKE wildcards in contentFallbackSearch",
+    "Tests pass: 33 passed in tests/security/content-fallback-like-escape.test.ts",
+    "VAL-SEC-003-LIKE-injection-assertions.md compliance verified against implementation"
+  ]
+}

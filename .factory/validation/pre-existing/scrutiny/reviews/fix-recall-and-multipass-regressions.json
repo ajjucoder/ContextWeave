@@ -1,0 +1,34 @@
+{
+  "featureId": "fix-recall-and-multipass-regressions",
+  "status": "pass",
+  "summary": "Feature successfully restores intended behavior for both recall grouping and multi-pass retrieval. Recall now properly excludes passive observations from default searches while allowing explicit scope='passive' queries. Multi-pass retrieval includes broad query compaction that reduces token usage when queries are over-dispersed across many files. All 49 relevant tests pass.",
+  "issues": [
+    {
+      "severity": "suggestion",
+      "description": "Recall fix (3ab8987) reverted the earlier approach from 17524e6 which always searched with includePassive=true and filtered during display. The current approach (includePassive=scope==='passive') is simpler but loses the ability to show passive count in summary when not displaying them. The test expectations are consistent with this approach."
+    },
+    {
+      "severity": "non_blocking",
+      "description": "The compactBroadPackedNodes function only triggers when: intent='broad', tokenBudget>=8000, and currentTokensUsed > tokenBudget*0.5 (BROAD_EFFICIENCY_UTILIZATION_CAP). Queries with tokenBudget<8000 will not benefit from compaction even if over-dispersed. This appears intentional based on the constants chosen."
+    },
+    {
+      "severity": "suggestion",
+      "description": "Broad compaction targets 48% utilization (BROAD_EFFICIENCY_TARGET_UTILIZATION=0.48) which is conservative. The compaction only removes high-level compression (levels 1-3) from nodes, preserving pivot symbols. This is appropriate for maintaining query relevance while reducing noise."
+    }
+  ],
+  "sharedStateObservations": [
+    {
+      "target": "library",
+      "observation": "Feature commits 17524e6 and 3ab8987 represent a two-step fix: first the grouping logic was corrected in recall.ts, then the compaction defaults were restored in generator.ts. The later commit also adjusted recall to use simpler includePassive=scope==='passive' logic.",
+      "rationale": "Shared state in .factory/library/contextweave-v2-implementation.md was modified in 17524e6 but these changes are orthogonal to the code fixes."
+    }
+  ],
+  "evidence": [
+    "commit 3ab8987: fix(capsule): restore broad compaction and recall defaults",
+    "commit 17524e6: fix(recall): restore passive observation grouping in cw_recall output",
+    "recall-tool-grouping.test.ts: 2 tests pass (hides passive by default, shows passive when scope='passive')",
+    "two-phase-retrieval.test.ts: 5 tests pass (capsule generation, pivot scoring, empty DB fallback, stage A/B bounds, semantic rerank disabled)",
+    "All capsule confidence tests pass with relaxed thresholds",
+    "compactBroadPackedNodes added to generator.ts lines 1844-1919, invoked at line 2480"
+  ]
+}

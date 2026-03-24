@@ -1,0 +1,61 @@
+{
+  "milestone": "pre-existing",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "npm test",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "npx tsc --noEmit",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "npm run lint",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 10,
+    "passed": 9,
+    "failed": 1,
+    "failedFeatures": [
+      "fix-recall-grouping-regression"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "fix-recall-grouping-regression",
+      "severity": "blocking",
+      "description": "Review found the feature incomplete: include_stale passive-observation behavior was lost, the targeted test change landed in a later unrelated commit, and the original always-include-passive search strategy was partially reverted in later code."
+    }
+  ],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "AGENTS.md",
+      "suggestion": "Add guidance that workers must keep `.factory/services.yaml`, `.factory/init.sh`, and `.factory/library/` edits isolated from unrelated bug-fix commits unless the feature explicitly requires shared-state updates.",
+      "evidence": "The failed feature `fix-recall-grouping-regression` bundled recall logic changes with unrelated `.factory` shared-state edits, which made the fix harder to review and weakened commit atomicity.",
+      "isSystemic": false
+    }
+  ],
+  "rejectedObservations": [
+    {
+      "observation": "Various reviews noted that services.yaml, AGENTS.md, or library had no issues or already matched the current implementation.",
+      "reason": "already-documented"
+    },
+    {
+      "observation": "Add shared test utilities for duplicated LIKE escape helpers.",
+      "reason": "ambiguous"
+    },
+    {
+      "observation": "Document broad capsule compaction internals in AGENTS.md.",
+      "reason": "ambiguous"
+    }
+  ],
+  "previousRound": null
+}

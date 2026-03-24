@@ -1,0 +1,37 @@
+{
+  "featureId": "pre-existing-capsule-path-validation",
+  "status": "pass",
+  "summary": "Feature 'pre-existing-capsule-path-validation' PASSES review. The fix correctly implements path traversal and absolute path validation in src/mcp/tools/capsule.ts. All 27 tests in tests/security/capsule-path-validation.test.ts pass. The implementation uses containsTraversal(), isAbsolutePath(), and isPathWithinRoot() to return proper error objects with isError: true for all security violations. Zod schema validation via .refine() and .max() is complemented by runtime validation in the handler to ensure errors are properly returned when path/glob parameters contain '..' segments, exceed 4096 characters, or represent absolute paths outside the project root.",
+  "issues": [
+    {
+      "severity": "suggestion",
+      "description": "Test file comment at line 7-9 states 'Tests will FAIL until the vulnerability is fixed' which is now outdated. The comment should be updated to reflect that tests now pass."
+    },
+    {
+      "severity": "suggestion",
+      "description": "The test file path in features.json description references 'tests/capsule/capsule-path-validation.test.ts' but the actual test file is at 'tests/security/capsule-path-validation.test.ts'. This mismatch should be corrected for documentation accuracy."
+    }
+  ],
+  "sharedStateObservations": [
+    {
+      "target": "services.yaml",
+      "observation": "Services.yaml correctly maps milestone 'pre-existing' to features including 'pre-existing-capsule-path-validation'. Command definitions are accurate (npm test, npm run lint, etc.).",
+      "rationale": "services.yaml provides infrastructure configuration for mission tracking and is consistent with current project structure."
+    },
+    {
+      "target": "AGENTS.md",
+      "observation": "AGENTS.md documents cw_capsule tool with path and glob parameters. The feature implementation aligns with these documented parameters and their intended security behavior.",
+      "rationale": "AGENTS.md defines the tool contract; the implementation correctly enforces security constraints on these parameters."
+    }
+  ],
+  "evidence": [
+    "Test run: npm test -- tests/security/capsule-path-validation.test.ts -> 27 tests passed",
+    "Test run: npm run lint (tsc --noEmit) -> 0 errors, exit code 0",
+    "Test run: npm test -- tests/security/ -> 9 test files, 105 tests passed",
+    "Test run: npm test -- tests/capsule/ -> 34 test files, 235 tests passed",
+    "Implementation review: src/mcp/tools/capsule.ts contains containsTraversal() helper (line 10-13), isAbsolutePath() helper (line 16-24), pathSchema with .max(4096) and .refine() for traversal (line 27-33), globSchema with .max(4096) and .refine() for traversal (line 36-41), runtime validation blocks for path length (line 64-67), traversal (line 68-71), absolute path (line 72-76), and isPathWithinRoot() check (line 77-81)",
+    "Validation assertions: SEC-007-capsule-path-validation-assertions.md defines 5 validation assertions (VAL-SEC-007a through VAL-SEC-007e) covering path traversal, glob traversal, path length, glob length, and absolute path rejection",
+    "Test coverage: 7 traversal path tests (VAL-SEC-007a), 8 traversal glob tests (VAL-SEC-007b), 2 path length tests (VAL-SEC-007c), 2 glob length tests (VAL-SEC-007d), 6 absolute path tests + 1 within-root test (VAL-SEC-007e), 2 combined validation tests",
+    "Security implementation pattern follows existing codebase conventions: uses isPathWithinRoot() from src/core/indexer.ts, similar to read.ts, search.ts, and reindex.ts implementations"
+  ]
+}
