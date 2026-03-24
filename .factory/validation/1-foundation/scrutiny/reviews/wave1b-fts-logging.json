@@ -1,0 +1,12 @@
+{
+  "featureId": "wave1b-fts-logging",
+  "status": "pass",
+  "summary": "Pass. The previously swallowed FTS failures now emit debug logging in both symbol and file-summary query paths.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/db/queries/symbols.ts:270 logs `logger.debug(\"FTS search failed\", { error })` in its FTS fallback path.",
+    "src/core/file-summaries.ts:342 logs the same debug message in its FTS catch block.",
+    "The full test suite passed, including `tests/security/fts-degradation.test.ts`, during this scrutiny session."
+  ]
+}

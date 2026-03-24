@@ -1,0 +1,12 @@
+{
+  "featureId": "wave1c-reindex-idempotency",
+  "status": "pass",
+  "summary": "Pass. The reindex idempotency test verifies repeated indexing preserves counts and avoids duplicate symbol ids.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "tests/core/reindex-idempotency.test.ts indexes a fixture project twice and compares symbol counts before and after.",
+    "The test also asserts `new Set(secondSymbolIds).size === secondSymbolIds.length` to guard against duplicate ids.",
+    "The full validator run passed in this scrutiny session."
+  ]
+}

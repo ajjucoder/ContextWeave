@@ -1,0 +1,12 @@
+{
+  "featureId": "wave1b-parsed-call-edgekind",
+  "status": "pass",
+  "summary": "Pass. `ParsedCall.edgeKind` is derived from `EdgeKind` via a constrained exclude type.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/core/types.ts:30 defines `ParsedCallEdgeKind = Exclude<EdgeKind, \"import\" | \"reexport\" | \"reference\" | \"event\">`.",
+    "The same file uses the derived type for `ParsedCall.edgeKind`, keeping the relationship type-safe.",
+    "Both `npx tsc --noEmit` and `npm run lint` passed in this scrutiny session."
+  ]
+}

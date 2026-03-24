@@ -1,0 +1,13 @@
+{
+  "featureId": "wave1a-sql-caching",
+  "status": "pass",
+  "summary": "Pass. Dynamic SQL caching is present for repeated degree lookups and connected-symbol fetches, avoiding repeated statement preparation on hot paths.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/core/graph.ts:208-264 defines `degreeStmtCache` with `Map<number, Statement>` caches for outgoing and incoming degree queries keyed by chunk size.",
+    "src/db/queries/edges.ts:13-18 and 31-44 cache the connected-symbol prepared statement in `connectedSymbolsStmtCache` via `WeakMap<Database.Database, Statement<...>>`.",
+    "src/db/queries/edges.ts exports `getConnectedSymbols`, confirming the helper moved out of generator-era inline logic into shared query code.",
+    "Validator run `npm test` passed with the full suite green during this scrutiny session."
+  ]
+}

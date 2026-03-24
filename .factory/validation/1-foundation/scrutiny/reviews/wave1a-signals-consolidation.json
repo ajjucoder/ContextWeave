@@ -1,0 +1,13 @@
+{
+  "featureId": "wave1a-signals-consolidation",
+  "status": "pass",
+  "summary": "Pass. Shared signal constants are centralized in `src/capsule/signals.ts`, and downstream consumers import them from that single source.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/capsule/signals.ts defines `RUNTIME_QUERY_TERMS` and related shared regex/path constants.",
+    "src/capsule/pivot-scorer.ts imports from `./signals.js` instead of redefining the constants.",
+    "src/core/file-summaries.ts imports `RUNTIME_CODE_PATH_RE`, `RUNTIME_QUERY_TERMS`, and `TYPE_DECLARATION_PATH_RE` from `../capsule/signals.js`.",
+    "Validator run `npm test` passed in this scrutiny session, covering the related `tests/capsule/signals.test.ts` suite."
+  ]
+}

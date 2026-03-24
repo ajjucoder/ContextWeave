@@ -1,0 +1,67 @@
+{
+  "milestone": "1-foundation",
+  "round": 1,
+  "status": "fail",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "npm test",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "npx tsc --noEmit",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "npm run lint",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 22,
+    "passed": 0,
+    "failed": 22,
+    "failedFeatures": [
+      "wave1a-generator-decomposition",
+      "wave1a-signals-consolidation",
+      "wave1a-sql-caching",
+      "wave1a-threshold-naming",
+      "wave1a-parse-timeout",
+      "wave1a-migration-rollback",
+      "wave1b-lru-eviction",
+      "wave1b-observations-index",
+      "wave1b-isSafeProjectPath",
+      "wave1b-fts-logging",
+      "wave1b-passive-dedup",
+      "wave1b-passive-ttl-config",
+      "wave1b-parsed-call-edgekind",
+      "wave1b-gc-scheduling",
+      "wave1b-row-validator",
+      "wave1c-framework-plugin-tests",
+      "wave1c-packer-tests",
+      "wave1c-signals-modes-tests",
+      "wave1c-budget-assertion-fix",
+      "wave1c-fts-degradation-test",
+      "wave1c-reindex-idempotency",
+      "wave1c-utils-tests"
+    ]
+  },
+  "blockingIssues": [
+    {
+      "featureId": "scrutiny-validator-1-foundation",
+      "severity": "blocking",
+      "description": "Scrutiny feature reviewers could not be spawned. Every Task invocation for the scrutiny-feature-reviewer droid failed before producing a report because its configured model string is invalid: \"custom:GPT-5.4-Medium-[VibeProxy]-25\"."
+    }
+  ],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [],
+  "rejectedObservations": [
+    {
+      "observation": "Feature-level scrutiny findings were unavailable because no reviewer reports were generated.",
+      "reason": "blocked-by-subagent-model-configuration"
+    }
+  ],
+  "previousRound": null
+}

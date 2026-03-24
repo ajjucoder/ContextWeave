@@ -1,0 +1,12 @@
+{
+  "featureId": "wave1c-budget-assertion-fix",
+  "status": "pass",
+  "summary": "Pass. The broad-query budget expectation now asserts a 50% minimum utilization instead of the misleading old threshold check.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "tests/capsule/budget-filling.test.ts:43-49 asserts `expect(utilization).toBeGreaterThanOrEqual(0.50)` for the 4K broad query case.",
+    "tests/capsule/budget-filling.test.ts:51-60 keeps the 0.85 target commentary but uses the corrected `>= 0.50` assertion for actual verification.",
+    "The full validator run passed, confirming the updated assertion is green."
+  ]
+}

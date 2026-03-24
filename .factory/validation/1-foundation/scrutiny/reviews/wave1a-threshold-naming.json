@@ -1,0 +1,12 @@
+{
+  "featureId": "wave1a-threshold-naming",
+  "status": "pass",
+  "summary": "Pass. The fallback thresholds are explicitly named constants in `generator.ts` rather than anonymous literals.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/capsule/generator.ts:14-16 defines `MULTI_PASS_FILL_THRESHOLD`, `DEEP_EXPAND_THRESHOLD`, and `POOL_EXTRAS_THRESHOLD`.",
+    "src/capsule/generator.ts:24-28 passes those named constants into `fillBudgetAndFinalize`.",
+    "The full validator run passed, confirming the renamed constants did not break capsule generation paths."
+  ]
+}

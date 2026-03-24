@@ -1,0 +1,12 @@
+{
+  "featureId": "wave1a-migration-rollback",
+  "status": "pass",
+  "summary": "Pass. Migrations support rollback hooks and expose a rollback helper for reversing later migrations.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/db/migrations.ts:11 adds `down?: (db: Database.Database) => void` to the migration interface.",
+    "src/db/migrations.ts:557+ exports `rollbackMigration(db, targetVersion)` to reverse applied migrations.",
+    "The project validators passed in this scrutiny run, and migration tests remain green under `npm test`."
+  ]
+}

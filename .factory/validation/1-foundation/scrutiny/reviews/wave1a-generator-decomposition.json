@@ -1,0 +1,13 @@
+{
+  "featureId": "wave1a-generator-decomposition",
+  "status": "pass",
+  "summary": "Pass. `generateCapsule` is now a thin orchestrator that delegates to pipeline stages, and the pipeline stages are independently test-covered.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/capsule/generator.ts:19-29 shows `generateCapsule` as an 11-line orchestrator that creates context, resolves pivots, expands graph, scores candidates, and finalizes budget.",
+    "src/capsule/pipeline/types.ts exports `CapsuleContext`, and each stage file imports it (`pivot-resolver.ts`, `graph-expander.ts`, `candidate-scorer.ts`, `budget-filler.ts`).",
+    "tests/capsule/pipeline/pivot-resolver.test.ts, graph-expander.test.ts, candidate-scorer.test.ts, and budget-filler.test.ts provide direct stage-level coverage without going through the full generator.",
+    "Validator run `npm test` passed with 200 test files and 1371 tests green during this scrutiny session."
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "featureId": "wave1b-row-validator",
+  "status": "pass",
+  "summary": "Pass. Row validation is centralized in a helper and applied in symbol and observation query paths.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/db/queries/row-validator.ts exports `validateRow` and its `RowSchema` support types.",
+    "src/db/queries/symbols.ts imports and uses `validateRow` on query results.",
+    "src/memory/observations.ts imports `validateRow` for observation row handling.",
+    "The full validator run passed, showing the runtime validation layer is integrated cleanly."
+  ]
+}

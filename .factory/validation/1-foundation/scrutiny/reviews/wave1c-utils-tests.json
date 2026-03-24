@@ -1,0 +1,12 @@
+{
+  "featureId": "wave1c-utils-tests",
+  "status": "pass",
+  "summary": "Pass. Utility coverage exists for config loading, directory weights, project profiling, and hashing behavior.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "tests/utils/config.test.ts covers defaults, sanitization, parse failures, and `passiveTtlDays` behavior.",
+    "tests/utils/directory-weights.test.ts, project-profile.test.ts, and hash.test.ts all exist with focused assertions for their respective utilities.",
+    "The full validator run `npm test` passed, confirming the utility suites are green."
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "featureId": "wave1c-fts-degradation-test",
+  "status": "pass",
+  "summary": "Pass. The FTS graceful-degradation suite verifies dropped/corrupted FTS tables return an empty array without throwing.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "tests/security/fts-degradation.test.ts covers both a dropped FTS table and a corrupted plain-table replacement.",
+    "Each test asserts `searchFTS` does not throw and returns `[]`.",
+    "The full validator run passed during scrutiny."
+  ]
+}

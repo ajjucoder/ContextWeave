@@ -1,0 +1,12 @@
+{
+  "featureId": "wave1a-parse-timeout",
+  "status": "pass",
+  "summary": "Pass. The indexer configures a per-file parse timeout and retains the indexing flow around that guard.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/core/indexer.ts:103 defines `PARSE_TIMEOUT_MICROS = 5_000_000`.",
+    "src/core/indexer.ts:1065 calls `parser.setTimeoutMicros(PARSE_TIMEOUT_MICROS)` before parsing.",
+    "The full validator run `npm test` passed, indicating the timeout integration did not regress indexing behavior."
+  ]
+}

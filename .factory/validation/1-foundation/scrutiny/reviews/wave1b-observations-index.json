@@ -1,0 +1,12 @@
+{
+  "featureId": "wave1b-observations-index",
+  "status": "pass",
+  "summary": "Pass. Migration v20 creates the `observations(file_id)` index and test coverage verifies its presence.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/db/migrations.ts:507 creates `idx_observations_file ON observations(file_id)`.",
+    "tests/db/migrations.test.ts:45 includes a dedicated assertion for the `idx_observations_file` index.",
+    "The full test suite passed during scrutiny, so the migration/index expectation remains satisfied."
+  ]
+}

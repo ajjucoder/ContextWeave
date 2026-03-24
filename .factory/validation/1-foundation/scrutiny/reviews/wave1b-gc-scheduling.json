@@ -1,0 +1,13 @@
+{
+  "featureId": "wave1b-gc-scheduling",
+  "status": "pass",
+  "summary": "Pass. Database maintenance scheduling runs on a 30-minute interval with an overlap guard, matching the milestone requirement.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/db/connection.ts:13 sets `MAINTENANCE_INTERVAL_MS = 30 * 60 * 1000`.",
+    "src/db/connection.ts:87-97 uses `activeMaintenance` in `runMaintenanceWithGuard()` to prevent overlapping maintenance runs.",
+    "src/db/connection.ts:101-109 installs the interval in `ensureMaintenanceSchedule()` and `getDb()` wires it when `scheduleMaintenance` is requested.",
+    "The full validator run passed during scrutiny."
+  ]
+}

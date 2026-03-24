@@ -1,0 +1,12 @@
+{
+  "featureId": "wave1b-passive-ttl-config",
+  "status": "pass",
+  "summary": "Pass. Passive TTL is now configurable through project config and consumed by memory search logic instead of a hardcoded constant.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/utils/config.ts declares `passiveTtlDays` in `ProjectConfig` and default config coverage exists in tests/utils/config.test.ts.",
+    "src/memory/search.ts:141 derives passive TTL from `loadConfig(projectRoot).passiveTtlDays`.",
+    "The full validator run passed, covering config loading and recall/search behavior."
+  ]
+}

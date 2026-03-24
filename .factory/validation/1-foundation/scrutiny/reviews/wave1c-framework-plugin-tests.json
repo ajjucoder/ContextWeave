@@ -1,0 +1,12 @@
+{
+  "featureId": "wave1c-framework-plugin-tests",
+  "status": "pass",
+  "summary": "Pass. The framework-plugin regression suite exists and exercises all planned plugin fixtures.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "tests/core/framework-plugins.test.ts defines `pluginCases` and fixture-backed assertions for framework edge extraction.",
+    "The file includes cases for django, spring, axum, rails, flask, fastapi, gin, convex, aspnet, celery-sidekiq, laravel, express, and next.",
+    "The full validator run `npm test` passed in this scrutiny session, so the framework plugin test suite is green."
+  ]
+}

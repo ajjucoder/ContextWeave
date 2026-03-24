@@ -1,0 +1,12 @@
+{
+  "featureId": "wave1c-signals-modes-tests",
+  "status": "pass",
+  "summary": "Pass. Dedicated tests exist for signal exports and mode-weight normalization.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "tests/capsule/signals.test.ts verifies non-empty signal sets and `isUiLikePath` behavior for UI and runtime paths.",
+    "tests/capsule/modes.test.ts checks all four capsule modes and verifies the weights normalize to 1.0.",
+    "The full validator run passed, keeping both suites green."
+  ]
+}

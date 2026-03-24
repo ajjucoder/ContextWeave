@@ -1,0 +1,40 @@
+{
+  "milestone": "1-foundation",
+  "round": 2,
+  "status": "pass",
+  "validatorsRun": {
+    "test": {
+      "passed": true,
+      "command": "npm test",
+      "exitCode": 0
+    },
+    "typecheck": {
+      "passed": true,
+      "command": "npx tsc --noEmit",
+      "exitCode": 0
+    },
+    "lint": {
+      "passed": true,
+      "command": "npm run lint",
+      "exitCode": 0
+    }
+  },
+  "reviewsSummary": {
+    "total": 22,
+    "passed": 22,
+    "failed": 0,
+    "failedFeatures": []
+  },
+  "blockingIssues": [],
+  "appliedUpdates": [],
+  "suggestedGuidanceUpdates": [
+    {
+      "target": "skill",
+      "suggestion": "Repair the configured model strings for `scrutiny-feature-reviewer` and fallback reviewer droids used by scrutiny so Task-based reviewer launches succeed in future milestones.",
+      "evidence": "During this rerun, every Task launch for both `scrutiny-feature-reviewer`, `codebase-validation-specialist`, and even `worker` failed immediately with `Invalid model: custom:GPT-5.4-Medium-[VibeProxy]-25`, so review artifacts had to be produced manually in the validator session.",
+      "isSystemic": true
+    }
+  ],
+  "rejectedObservations": [],
+  "previousRound": ".factory/validation/1-foundation/scrutiny/synthesis.round1.json"
+}

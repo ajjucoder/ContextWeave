@@ -1,0 +1,12 @@
+{
+  "featureId": "wave1b-passive-dedup",
+  "status": "pass",
+  "summary": "Pass. Passive observation creation checks for an existing active observation before writing a duplicate row.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/memory/passive.ts:9-18 defines `hasActiveObservation()` which queries existing unarchived rows by scope and note.",
+    "src/memory/passive.ts:41 and 84 short-circuit both passive capture flows when `hasActiveObservation(...)` returns true.",
+    "The full validator run passed, so the dedup logic is compatible with the rest of the memory pipeline."
+  ]
+}

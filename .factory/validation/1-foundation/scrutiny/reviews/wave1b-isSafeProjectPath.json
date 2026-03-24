@@ -1,0 +1,13 @@
+{
+  "featureId": "wave1b-isSafeProjectPath",
+  "status": "pass",
+  "summary": "Pass. `isSafeProjectPath` lives in the shared path-filter helper and is consumed by both read and search tools.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/mcp/tools/path-filters.ts:63 exports `isSafeProjectPath`.",
+    "src/mcp/tools/read.ts imports `isSafeProjectPath` from `./path-filters.js`.",
+    "src/mcp/tools/search.ts imports `isSafeProjectPath` from the same shared helper.",
+    "The full validator run passed, confirming the shared helper wiring is valid."
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "featureId": "wave1b-lru-eviction",
+  "status": "pass",
+  "summary": "Pass. Token caching now uses least-recently-used style eviction helpers instead of simple FIFO deletion.",
+  "issues": [],
+  "sharedStateObservations": [],
+  "evidence": [
+    "src/utils/tokens.ts defines `evictLeastRecentlyUsedEntries()` to remove the oldest slice of cache entries once over limit.",
+    "src/utils/tokens.ts updates cache order on retrieval/insertion rather than only appending blindly, matching LRU semantics.",
+    "The full validator run passed, covering the token utility behavior through project tests."
+  ]
+}
