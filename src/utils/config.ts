@@ -9,6 +9,7 @@ export interface ProjectConfig {
   stalenessDepth: number;
   confidenceDecay: number;
   gcThreshold: number;
+  passiveTtlDays: number;
   embeddingModel?: string;
   primaryDirs: string[];
   archiveDirs: string[];
@@ -23,6 +24,7 @@ const DEFAULTS: ProjectConfig = {
   stalenessDepth: 7,
   confidenceDecay: 0.9,
   gcThreshold: 0.5,
+  passiveTtlDays: 7,
   primaryDirs: [],
   archiveDirs: [],
 };
@@ -33,6 +35,7 @@ const BOUNDS = {
   confidenceDecay: { min: 0, max: 1 },
   stalenessDepth: { min: 0, max: 10 },
   gcThreshold: { min: 0, max: 1 },
+  passiveTtlDays: { min: 1, max: 3650 },
 };
 
 const VALID_MODES: ProjectConfig["defaultMode"][] = ["debug", "refactor", "feature", "review"];
@@ -113,6 +116,12 @@ export function loadConfig(projectRoot: string): ProjectConfig {
         BOUNDS.gcThreshold.min,
         BOUNDS.gcThreshold.max,
         DEFAULTS.gcThreshold
+      ),
+      passiveTtlDays: clampNumber(
+        raw.passiveTtlDays,
+        BOUNDS.passiveTtlDays.min,
+        BOUNDS.passiveTtlDays.max,
+        DEFAULTS.passiveTtlDays
       ),
       embeddingModel: sanitizeOptionalString(raw.embeddingModel),
       primaryDirs: sanitizePatterns(raw.primaryDirs),

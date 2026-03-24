@@ -81,6 +81,7 @@ describe("config validation security", () => {
         "stalenessDepth",
         "confidenceDecay",
         "gcThreshold",
+        "passiveTtlDays",
         "embeddingModel",
         "primaryDirs",
         "archiveDirs",
@@ -348,6 +349,57 @@ describe("config validation security", () => {
 
         const result = loadConfig(testDir);
         expect(result.gcThreshold).toBe(0.5);
+      });
+    });
+
+    describe("passiveTtlDays", () => {
+      it("defaults passiveTtlDays to 7 when config is missing", () => {
+        const result = loadConfig(testDir);
+        expect(result.passiveTtlDays).toBe(7);
+      });
+
+      it("accepts configured passiveTtlDays within bounds", () => {
+        writeFileSync(
+          join(testDir, ".contextweave", "config.json"),
+          JSON.stringify({
+            version: 1,
+            tokenBudget: 10000,
+            defaultMode: "feature",
+            stalenessDepth: 7,
+            confidenceDecay: 0.9,
+            gcThreshold: 0.5,
+            passiveTtlDays: 14,
+            ignore: [],
+            primaryDirs: [],
+            archiveDirs: [],
+          }),
+          "utf8"
+        );
+
+        const result = loadConfig(testDir);
+        expect(result.passiveTtlDays).toBe(14);
+      });
+
+      it("clamps passiveTtlDays to minimum 1", () => {
+        writeFileSync(
+          join(testDir, ".contextweave", "config.json"),
+          JSON.stringify({
+            version: 1,
+            tokenBudget: 10000,
+            defaultMode: "feature",
+            stalenessDepth: 7,
+            confidenceDecay: 0.9,
+            gcThreshold: 0.5,
+            passiveTtlDays: 0,
+            ignore: [],
+            primaryDirs: [],
+            archiveDirs: [],
+          }),
+          "utf8"
+        );
+
+        const result = loadConfig(testDir);
+        expect(result.passiveTtlDays).toBe(1);
       });
     });
   });

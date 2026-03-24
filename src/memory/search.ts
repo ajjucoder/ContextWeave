@@ -5,6 +5,7 @@ import { observationQueries } from "../db/queries/observations.js";
 import { countTokens } from "../utils/tokens.js";
 import { expandQueryWithSynonyms } from "../utils/synonyms.js";
 import { trigramSimilarity } from "../utils/fuzzy.js";
+import { loadConfig } from "../utils/config.js";
 
 interface SearchOptions {
   scope?: string;
@@ -25,8 +26,6 @@ export interface AutoPopulateInput {
   symbolsIncluded: string[];
 }
 
-const PASSIVE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
-
 const AUTO_POPULATE_CONFIDENCE_THRESHOLD = 0.65;
 
 const SCOPE_WEIGHTS: Record<string, number> = {
@@ -39,10 +38,6 @@ const SCOPE_WEIGHTS: Record<string, number> = {
 
 function getScopeWeight(scope: string): number {
   return SCOPE_WEIGHTS[scope] ?? 1.0;
-}
-
-function isExpiredPassive(obs: ObservationRecord): boolean {
-  return obs.scope === "passive" && Date.now() - obs.updatedAt > PASSIVE_TTL_MS;
 }
 
 function formatObservation(obs: ObservationRecord): string {
@@ -69,12 +64,14 @@ function isBroadNaturalQuery(query: string): boolean {
 export class MemorySearch {
   private readonly store: ObservationStore;
   private readonly db: Database.Database;
+  private readonly passiveTtlMs: number;
   private stmtCheckExisting: Database.Statement | null = null;
   private stmtLatestSession: Database.Statement | null = null;
 
   constructor(db: Database.Database) {
     this.store = new ObservationStore(db);
     this.db = db;
+    this.passiveTtlMs = this.resolvePassiveTtlMs();
   }
 
   hasObservations(): boolean {
@@ -133,6 +130,21 @@ export class MemorySearch {
     return observationQueries(this.db).getActive().slice(0, 500);
   }
 
+  private resolvePassiveTtlMs(): number {
+    const sessionRow = this.db
+      .prepare("SELECT project_root FROM sessions ORDER BY started_at DESC LIMIT 1")
+      .get() as { project_root: string | null } | undefined;
+
+    const projectRoot = sessionRow?.project_root;
+    if (!projectRoot) return 7 * 24 * 60 * 60 * 1000;
+
+    return loadConfig(projectRoot).passiveTtlDays * 24 * 60 * 60 * 1000;
+  }
+
+  private isExpiredPassive(obs: ObservationRecord): boolean {
+    return obs.scope === "passive" && Date.now() - obs.updatedAt > this.passiveTtlMs;
+  }
+
   private fuzzyFallbackSearch(
     query: string,
     options: SearchOptions,
@@ -147,7 +159,7 @@ export class MemorySearch {
 
     for (const obs of allObs) {
       if (!includeStale && obs.stale) continue;
-      if (isExpiredPassive(obs)) continue;
+      if (this.isExpiredPassive(obs)) continue;
       if (scope !== undefined && obs.scope !== scope) continue;
       if (!includePassive && obs.scope === "passive") continue;
 
@@ -239,7 +251,7 @@ export class MemorySearch {
 
     for (const { observation: obs, bm25Score } of rawResults) {
       if (!includeStale && obs.stale) continue;
-      if (isExpiredPassive(obs)) continue;
+      if (this.isExpiredPassive(obs)) continue;
       if (scope !== undefined && obs.scope !== scope) continue;
       if (!includePassive && obs.scope === "passive") continue;
 

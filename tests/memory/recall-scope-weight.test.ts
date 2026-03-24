@@ -1,19 +1,31 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import Database from "better-sqlite3";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { runMigrations } from "../../src/db/migrations.js";
 import { MemorySearch } from "../../src/memory/search.js";
 import { observationQueries } from "../../src/db/queries/observations.js";
 import { BM25Index } from "../../src/memory/bm25.js";
 
 let db: Database.Database;
+let projectRoot: string;
 
 beforeAll(() => {
+  projectRoot = join(tmpdir(), `memory-search-config-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+  mkdirSync(join(projectRoot, ".contextweave"), { recursive: true });
+  writeFileSync(
+    join(projectRoot, ".contextweave", "config.json"),
+    JSON.stringify({ passiveTtlDays: 14 }),
+    "utf8"
+  );
+
   db = new Database(":memory:");
   runMigrations(db);
 
   db.prepare(
     "INSERT OR IGNORE INTO sessions (id, agent_id, project_root, started_at) VALUES (?, ?, ?, ?)"
-  ).run("s1", "a1", "/tmp", Date.now());
+  ).run("s1", "a1", projectRoot, Date.now());
 
   const queries = observationQueries(db);
   const bm25 = new BM25Index(db);
@@ -70,7 +82,10 @@ beforeAll(() => {
   bm25.indexObservation(oldPassiveId, "JWT configuration details passive");
 });
 
-afterAll(() => db?.close());
+afterAll(() => {
+  db?.close();
+  rmSync(projectRoot, { recursive: true, force: true });
+});
 
 describe("MemorySearch scope weighting", () => {
   it("ranks architecture scope above passive scope for same query", () => {
@@ -89,20 +104,15 @@ describe("MemorySearch scope weighting", () => {
     expect(archIndex).toBeLessThan(passiveIndex);
   });
 
-  it("auto-expires passive observations older than 7 days", () => {
+  it("respects configured passive TTL from project config", () => {
     const search = new MemorySearch(db);
     const results = search.search("JWT configuration", { limit: 10 });
 
-    // The old passive observation should either be excluded or marked stale
     const oldPassive = results.find(
       (r) => r.observation.note.includes("JWT configuration")
     );
 
-    // Either not returned (excluded) or returned as stale
-    if (oldPassive) {
-      expect(oldPassive.observation.stale).toBe(true);
-    } else {
-      expect(oldPassive).toBeUndefined();
-    }
+    expect(oldPassive).toBeDefined();
+    expect(oldPassive?.observation.note).toContain("JWT configuration details");
   });
 });
