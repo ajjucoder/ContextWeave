@@ -11,6 +11,9 @@ import { scoreCandidates } from "./pipeline/candidate-scorer.js";
 import { fillBudgetAndFinalize } from "./pipeline/budget-filler.js";
 
 const logger = createLogger("generator");
+export const MULTI_PASS_FILL_THRESHOLD = 0.50;
+export const DEEP_EXPAND_THRESHOLD = 0.75;
+export const POOL_EXTRAS_THRESHOLD = 0.40;
 
 export { computeCoverageConfidence } from "./pipeline/budget-filler.js";
 export { computeTermIDF } from "./pipeline/pivot-resolver.js";
@@ -20,7 +23,11 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const pivotState = resolvePivots(context);
   const graphState = expandGraph(context, pivotState);
   const scoringState = scoreCandidates(context, pivotState, graphState);
-  return fillBudgetAndFinalize(context, pivotState, graphState, scoringState);
+  return fillBudgetAndFinalize(context, pivotState, graphState, scoringState, {
+    multiPassFillThreshold: MULTI_PASS_FILL_THRESHOLD,
+    deepExpandThreshold: DEEP_EXPAND_THRESHOLD,
+    poolExtrasThreshold: POOL_EXTRAS_THRESHOLD,
+  });
 }
 
 export async function generateCapsuleWithRuntime(

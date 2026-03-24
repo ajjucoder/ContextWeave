@@ -78,13 +78,24 @@ const logger = createLogger("generator");
 
 export { computeCoverageConfidence } from "../confidence.js";
 
+interface FallbackThresholds {
+  multiPassFillThreshold: number;
+  deepExpandThreshold: number;
+  poolExtrasThreshold: number;
+}
+
 export function fillBudgetAndFinalize(
   context: CapsuleContext,
   _pivot: PivotResolution,
   _graph: GraphExpansion,
-  _scoring: CandidateScoringResult
+  _scoring: CandidateScoringResult,
+  fallbackThresholds: FallbackThresholds
 ): CapsuleOutput {
-  return runCanonicalPipelineFinalizer(context.db, context.params as CapsuleParams);
+  return runCanonicalPipelineFinalizer(
+    context.db,
+    context.params as CapsuleParams,
+    fallbackThresholds
+  );
 }
 
 
@@ -311,13 +322,22 @@ function coverageTermsMatch(queryTerm: string, candidate: string): boolean {
   return prefix >= minPrefix;
 }
 
-function runCanonicalPipelineFinalizer(db: Database.Database, params: CapsuleParams): CapsuleOutput {
+function runCanonicalPipelineFinalizer(
+  db: Database.Database,
+  params: CapsuleParams,
+  fallbackThresholds: FallbackThresholds
+): CapsuleOutput {
   const tokenBudget = params.tokenBudget ?? DEFAULT_TOKEN_BUDGET;
   const mode = params.mode ?? "feature";
   const { query } = params;
   const maxQueryTimeMs = params.maxQueryTimeMs ?? DEFAULT_MAX_QUERY_TIME_MS;
   const startTime = Date.now();
   const elapsed = () => Date.now() - startTime;
+  const {
+    multiPassFillThreshold: MULTI_PASS_FILL_THRESHOLD,
+    deepExpandThreshold: DEEP_EXPAND_THRESHOLD,
+    poolExtrasThreshold: POOL_EXTRAS_THRESHOLD,
+  } = fallbackThresholds;
   const isOverBudget = (fraction: number) => elapsed() > maxQueryTimeMs * fraction;
 
   logger.info("generating capsule", { query, tokenBudget, mode });
@@ -2011,7 +2031,7 @@ function runCanonicalPipelineFinalizer(db: Database.Database, params: CapsulePar
 
   if (
     (intent === "broad" || intent === "task") &&
-    tokensUsed < tokenBudget * 0.4 &&
+    tokensUsed < tokenBudget * POOL_EXTRAS_THRESHOLD &&
     scoredNodes.length > packed.length
   ) {
     const denseFallback = packNodes(scoredNodes, tokenBudget, codeRatio, 0.5);
@@ -2130,7 +2150,7 @@ function runCanonicalPipelineFinalizer(db: Database.Database, params: CapsulePar
     }
 
     if (
-      tokensUsed < tokenBudget * 0.50 &&
+      tokensUsed < tokenBudget * MULTI_PASS_FILL_THRESHOLD &&
       tokenBudget >= 4000 &&
       candidates.length > selected.length
     ) {
@@ -2166,7 +2186,7 @@ function runCanonicalPipelineFinalizer(db: Database.Database, params: CapsulePar
       }
     }
 
-    if (tokensUsed < tokenBudget * 0.50 && selected.length > 0) {
+    if (tokensUsed < tokenBudget * MULTI_PASS_FILL_THRESHOLD && selected.length > 0) {
       const fileScores = new Map<number, number>();
       for (const candidate of selected) {
         const current = fileScores.get(candidate.file.id) ?? 0;
@@ -2194,7 +2214,7 @@ function runCanonicalPipelineFinalizer(db: Database.Database, params: CapsulePar
       }
     }
 
-    if (tokensUsed < tokenBudget * 0.75 && candidates.length > selected.length) {
+    if (tokensUsed < tokenBudget * DEEP_EXPAND_THRESHOLD && candidates.length > selected.length) {
       const topCandidateScore = ranked[0]?.score ?? 0;
       const scoreFloor = topCandidateScore * 0.3;
       const selectedIds = new Set(selected.map((c) => c.symbol.id));
@@ -2222,7 +2242,7 @@ function runCanonicalPipelineFinalizer(db: Database.Database, params: CapsulePar
       }
     }
 
-    if (tokensUsed < tokenBudget * 0.4 && selected.length > 0) {
+    if (tokensUsed < tokenBudget * POOL_EXTRAS_THRESHOLD && selected.length > 0) {
       const selectedIds = new Set(selected.map((c) => c.symbol.id));
       const selectedFileIds = new Set(selected.map((c) => c.file.id));
       const selectedDirs = new Set(
@@ -2321,7 +2341,7 @@ function runCanonicalPipelineFinalizer(db: Database.Database, params: CapsulePar
   if (
     (intent === "broad" || intent === "task") &&
     !isOverBudget(0.8) &&
-    tokensUsed < tokenBudget * 0.50 &&
+    tokensUsed < tokenBudget * MULTI_PASS_FILL_THRESHOLD &&
     packed.length > 0 &&
     packed.length < 8
   ) {
