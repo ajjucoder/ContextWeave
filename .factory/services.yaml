@@ -4,7 +4,52 @@ commands:
   build: npm run build
   test: npm test
   lint: npm run lint
+  eval: npm run eval
+  bench: npm run bench
+  test:field: npm run test:field
 
 services:
-  # No persistent services needed for security fix mission
-  # All work is code-only with SQLite in-memory tests
+  # No persistent services needed - all work is code-only with SQLite in-memory tests
+  # Phase 4+ may require ONNX runtime for embeddings (optional, configurable)
+  # Git CLI required for git-lineage feature (must be available on system)
+
+mission:
+  name: ContextWeave v2 Implementation
+  description: Full implementation of ContextWeave v2 - 50 items across 4 milestones
+  milestones: 4
+  total_items: 50
+  current_milestone: pre-existing
+
+milestones:
+  pre-existing:
+    name: Pre-Existing Fixes
+    features: [pre-existing-ts-errors, pre-existing-capsule-path-validation, pre-existing-like-injection, pre-existing-impact-barrel, pre-existing-build]
+  milestone_1:
+    name: Foundation
+    waves: [1A, 1B, 1C]
+    items: [1-22]
+    focus: Fix 22 open audit findings + decompose generator.ts
+    migrations: [v20]
+  milestone_2:
+    name: Graph & Search + UX
+    waves: [2A, 2B, 2C, 2D]
+    items: [23-37]
+    focus: Graph algorithms, search improvements, budget controls, file watching
+    migrations: [v21, v22]
+  milestone_3:
+    name: Hybrid Retrieval + History + Reranking
+    waves: [3A, 3B, 3C]
+    items: [38-45]
+    focus: Embeddings, git lineage, cross-encoder reranking
+    migrations: [v23, v24]
+  milestone_4:
+    name: Advanced Features
+    waves: [3D, 3E]
+    items: [46-50]
+    focus: Iterative retrieval, auto-remember, docs, multi-repo
+
+validation:
+  baseline_tests: 1260
+  baseline_failures: 42
+  target: all tests pass (1308+)
+  typecheck_target: 0 errors

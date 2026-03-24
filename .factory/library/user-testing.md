@@ -1,44 +1,43 @@
 # User Testing Guide
 
-**What belongs here:** How to manually test security fixes, required testing tools, and resource constraints.
+**What belongs here:** Validation surfaces, testing tools, resource constraints, and manual verification procedures for ContextWeave v2.
 **What does NOT belong here:** Automated test procedures (those are in test files).
 
 ---
 
 ## Validation Surfaces
 
-This security fix mission has one validation surface:
+This ContextWeave v2 mission has two validation surfaces:
 
-### 1. Code Review + Automated Tests
+### 1. Automated Tests (vitest)
 - **Surface:** Backend code with SQLite in-memory tests
-- **Tools:** Jest/Vitest test runner, TypeScript compiler
+- **Tools:** vitest test runner, TypeScript compiler
 - **Setup:** `npm install` provides all dependencies
 - **Cost:** Low (no browser, no external services)
+
+### 2. MCP Tool Interface (CLI)
+- **Surface:** MCP server tool responses via CLI
+- **Tools:** `node dist/index.js` commands
+- **Setup:** `npm run build` produces dist/index.js
+- **Cost:** Low (server starts on-demand)
+
+### 3. Eval Suite (capsule quality)
+- **Surface:** Capsule quality via eval-runner.ts
+- **Tools:** `npm run eval`
+- **Setup:** Tests against fixture projects
+- **Cost:** Medium (~5 min runtime)
 
 ## Resource Cost Classification
 
 **Test execution:**
-- Single test process
+- Single vitest process
 - SQLite in-memory (no external DB)
 - Estimated: ~200MB RAM, 1-2 CPU cores
-- Full test suite runtime: < 30 seconds
+- Full test suite runtime: ~60 seconds
 
-**Max concurrent validators:** 1 (sequential testing is sufficient)
+**Build:**
+- tsup TypeScript bundler
+- Estimated: ~38ms
+- dist/ artifacts: 715KB index.js, 111KB parser-worker.js, 14KB pagerank-worker.js
 
-## Manual Verification Steps
-
-For each security fix, manually verify:
-
-1. **Read the fix** - Code clearly patches the vulnerability
-2. **Run specific tests** - `npm test -- --grep 'feature-name'`
-3. **Check type safety** - `npm run typecheck` passes
-4. **Verify no regressions** - Full test suite passes
-
-## Security Testing Checklist
-
-Per fix:
-- [ ] Test demonstrates vulnerability is patched
-- [ ] Edge cases covered (empty, null, boundary values)
-- [ ] Valid inputs still work correctly
-- [ ] Error messages are descriptive
-- [ ] No changes to unrelated code
+**Max concurrent validators:** 5 (lightweight backend-only)
