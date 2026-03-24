@@ -41,4 +41,19 @@ describe("migrations", () => {
     const indexes = db.prepare("PRAGMA index_list(files)").all() as Array<{ name: string }>;
     expect(indexes.some((idx) => idx.name === "idx_files_basename_path")).toBe(true);
   });
+
+  it("v20: idx_observations_file index exists on observations(file_id)", () => {
+    const indexes = db.prepare("PRAGMA index_list(observations)").all() as Array<{ name: string }>;
+    expect(indexes.some((idx) => idx.name === "idx_observations_file")).toBe(true);
+  });
+
+  it("v20: EXPLAIN QUERY PLAN uses idx_observations_file for file_id lookup", () => {
+    const plan = db
+      .prepare("EXPLAIN QUERY PLAN SELECT * FROM observations WHERE file_id = ?")
+      .all(1) as Array<{ detail: string }>;
+    const usesIndex = plan.some(
+      (row) => row.detail && row.detail.includes("idx_observations_file")
+    );
+    expect(usesIndex).toBe(true);
+  });
 });

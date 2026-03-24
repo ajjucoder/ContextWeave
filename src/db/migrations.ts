@@ -500,6 +500,17 @@ const migrations: Migration[] = [
       }
     },
   },
+  {
+    version: 20,
+    up(db) {
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_observations_file ON observations(file_id);
+      `);
+    },
+    down(db) {
+      db.exec("DROP INDEX IF EXISTS idx_observations_file");
+    },
+  },
 ];
 
 function ensureSchemaMigrationsTable(db: Database.Database): void {
