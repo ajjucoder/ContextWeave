@@ -129,6 +129,20 @@ describe("generateCapsule", () => {
     expect(result.content).toContain("Retrieval: stageA");
   });
 
+  it("includes confidence tiers and recommended supplementary reads in structured output", () => {
+    const result = generateCapsule(db, {
+      query: "validateEmail",
+      tokenBudget: 2000,
+    });
+
+    expect(result.structured).toBeDefined();
+    expect(["high", "medium", "low"]).toContain(result.structured!.confidence);
+    expect([2, 5, 10]).toContain(result.structured!.recommended_supplementary_reads);
+    expect(result.structured!.suggestedReads.length).toBeLessThanOrEqual(
+      result.structured!.recommended_supplementary_reads
+    );
+  });
+
   it("supports different modes", () => {
     const debugResult = generateCapsule(db, {
       query: "User",

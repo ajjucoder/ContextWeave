@@ -22,6 +22,21 @@ const DOC_QUERY_RE = /\b(docs?|documentation|architecture|convention|workflow|gu
 const UI_QUERY_RE = /\b(ui|ux|component|components|view|views|page|pages|modal|form)\b/i;
 const ACTION_SIGNAL_RE = /\b(handle|submit|create|send|post|get|load|exchange|verify|persist|callback|refresh|route)\b/i;
 
+type StructuredConfidenceTier = StructuredCapsuleOutput["confidence"];
+
+function getStructuredConfidenceTier(
+  metadata: CapsuleMetadata
+): { confidence: StructuredConfidenceTier; recommendedSupplementaryReads: 2 | 5 | 10 } {
+  const topPivotScore = metadata.diagnostics?.pivotStats.topPivotScores[0] ?? 0;
+  if (topPivotScore >= 10) {
+    return { confidence: "high", recommendedSupplementaryReads: 2 };
+  }
+  if (topPivotScore >= 4) {
+    return { confidence: "medium", recommendedSupplementaryReads: 5 };
+  }
+  return { confidence: "low", recommendedSupplementaryReads: 10 };
+}
+
 function estimateObservationTokens(note: string): number {
   return Math.max(1, Math.ceil(note.split(/\s+/).filter(Boolean).length * 1.3));
 }
@@ -348,8 +363,7 @@ export function buildStructuredOutput(
   text: string
 ): StructuredCapsuleOutput {
   const intent = metadata.strategy?.intent ?? "narrow";
-  const confidenceScore = metadata.quality.coverageConfidence;
-  const confidence = confidenceToLabel(confidenceScore);
+  const { confidence, recommendedSupplementaryReads } = getStructuredConfidenceTier(metadata);
   const tokenUtilization = metadata.tokenBudget > 0 ? metadata.tokensUsed / metadata.tokenBudget : 0;
 
   // Build per-file data
@@ -428,7 +442,7 @@ export function buildStructuredOutput(
       if (b.uncoveredHits !== a.uncoveredHits) return b.uncoveredHits - a.uncoveredHits;
       return (b.node.score ?? 0) - (a.node.score ?? 0);
     })
-    .slice(0, 4)
+    .slice(0, recommendedSupplementaryReads)
     .map((item) => ({
       tool: "cw_read" as const,
       args: { path: item.node.file.path, symbol: item.node.symbol!.name },
@@ -441,6 +455,7 @@ export function buildStructuredOutput(
     query: metadata.query,
     intent,
     confidence,
+    recommended_supplementary_reads: recommendedSupplementaryReads,
     uncertainty: metadata.quality.uncertainty,
     tokenBudget: metadata.tokenBudget,
     tokensUsed: metadata.tokensUsed,

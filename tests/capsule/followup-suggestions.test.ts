@@ -57,6 +57,31 @@ function makeMetadata(query: string): CapsuleMetadata {
       reasons: [],
       retrieval: { stageACandidateCount: 10, stageBSelectedCount: 5 },
     },
+    diagnostics: {
+      queryClass: "narrow",
+      pivotStats: {
+        rawCandidates: 10,
+        afterRanking: 2,
+        afterPacking: 2,
+        topPivotScores: [10],
+        bottomPivotScores: [10],
+      },
+      coverageStats: {
+        filesRetrieved: 2,
+        filesRelevant: 2,
+        symbolsRetrieved: 5,
+        symbolsPacked: 5,
+        tokenBudgetUsed: 0.25,
+        l0Count: 2,
+        l1Count: 2,
+        l2Count: 1,
+        l3Count: 0,
+      },
+      bottleneck: "none",
+      bottlenecks: [],
+      bottleneckDetail: "none",
+      suggestion: "none",
+    },
     strategy: {
       intent: "narrow",
       mode: "single-pass",
@@ -78,6 +103,18 @@ function makeNode(name: string, compressionLevel: 0 | 1 | 2 | 3, score: number, 
 }
 
 describe("buildStructuredOutput follow-up suggestions", () => {
+  it("includes lowercase confidence tier and recommended supplementary reads from top pivot score", () => {
+    const result = buildStructuredOutput(
+      [makeNode("validateEmail", 0, 1.0)],
+      [],
+      makeMetadata("validate email"),
+      "text"
+    );
+
+    expect(result.confidence).toBe("high");
+    expect(result.recommended_supplementary_reads).toBe(2);
+  });
+
   it("includes suggestedReads only for compressed nodes with query-term overlap", () => {
     const query = "validate email user auth";
     const nodes: ScoredNode[] = [
@@ -134,6 +171,37 @@ describe("buildStructuredOutput follow-up suggestions", () => {
 
     const result = buildStructuredOutput(nodes, [], makeMetadata(query), "text");
 
+    expect(result.suggestedReads.length).toBeLessThanOrEqual(2);
+  });
+
+  it("expands suggestedReads cap for medium-confidence pivot tiers", () => {
+    const query = "user auth login password validate token refresh";
+    const nodes: ScoredNode[] = [
+      makeNode("userAuth", 0, 1.0),
+      makeNode("loginUser", 1, 0.9),
+      makeNode("validateToken", 1, 0.8),
+      makeNode("refreshToken", 1, 0.7),
+      makeNode("authMiddleware", 1, 0.75),
+      makeNode("validatePassword", 1, 0.85),
+      makeNode("userLogin", 2, 0.6),
+      makeNode("tokenExpiry", 1, 0.5),
+    ];
+    const metadata = {
+      ...makeMetadata(query),
+      diagnostics: {
+        ...makeMetadata(query).diagnostics!,
+        pivotStats: {
+          ...makeMetadata(query).diagnostics!.pivotStats,
+          topPivotScores: [8],
+          bottomPivotScores: [8],
+        },
+      },
+    };
+
+    const result = buildStructuredOutput(nodes, [], metadata, "text");
+
+    expect(result.confidence).toBe("medium");
+    expect(result.recommended_supplementary_reads).toBe(5);
     expect(result.suggestedReads.length).toBeLessThanOrEqual(5);
   });
 

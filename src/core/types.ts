@@ -321,7 +321,8 @@ export interface StructuredCapsuleSuggestedRead {
 export interface StructuredCapsuleOutput {
   query: string;
   intent: QueryIntent;
-  confidence: "HIGH" | "MEDIUM" | "LOW";
+  confidence: "high" | "medium" | "low";
+  recommended_supplementary_reads: 2 | 5 | 10;
   uncertainty: string;
   tokenBudget: number;
   tokensUsed: number;
