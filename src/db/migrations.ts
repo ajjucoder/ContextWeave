@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import { createSchema } from "./schema.js";
 import { createLogger } from "../utils/logger.js";
 import { stem } from "../utils/stemmer.js";
+import { getEdgeStrength } from "../core/edge-strength.js";
 
 const log = createLogger("migrations");
 
@@ -514,15 +515,35 @@ const migrations: Migration[] = [
   {
     version: 21,
     up(db) {
-      const columns = db.prepare("PRAGMA table_info(symbols)").all() as Array<{ name: string }>;
-      if (!columns.some((column) => column.name === "betweenness")) {
+      const symbolColumns = db.prepare("PRAGMA table_info(symbols)").all() as Array<{ name: string }>;
+      if (!symbolColumns.some((column) => column.name === "betweenness")) {
         db.exec("ALTER TABLE symbols ADD COLUMN betweenness REAL NOT NULL DEFAULT 0.0");
       }
+
+      const edgeColumns = db.prepare("PRAGMA table_info(edges)").all() as Array<{ name: string }>;
+      if (!edgeColumns.some((column) => column.name === "strength")) {
+        db.exec("ALTER TABLE edges ADD COLUMN strength REAL NOT NULL DEFAULT 1.0");
+      }
+
+      const updateStrength = db.prepare(`
+        UPDATE edges
+        SET strength = @strength
+        WHERE kind = @kind
+      `);
+      updateStrength.run({ kind: "call", strength: getEdgeStrength("call") });
+      updateStrength.run({ kind: "import", strength: getEdgeStrength("import") });
+      updateStrength.run({ kind: "reference", strength: getEdgeStrength("reference") });
+      updateStrength.run({ kind: "type_usage", strength: getEdgeStrength("type_usage") });
     },
     down(db) {
-      const columns = db.prepare("PRAGMA table_info(symbols)").all() as Array<{ name: string }>;
-      if (columns.some((column) => column.name === "betweenness")) {
+      const symbolColumns = db.prepare("PRAGMA table_info(symbols)").all() as Array<{ name: string }>;
+      if (symbolColumns.some((column) => column.name === "betweenness")) {
         db.exec("ALTER TABLE symbols DROP COLUMN betweenness");
+      }
+
+      const edgeColumns = db.prepare("PRAGMA table_info(edges)").all() as Array<{ name: string }>;
+      if (edgeColumns.some((column) => column.name === "strength")) {
+        db.exec("ALTER TABLE edges DROP COLUMN strength");
       }
     },
   },

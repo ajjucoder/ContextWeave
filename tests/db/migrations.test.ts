@@ -61,4 +61,11 @@ describe("migrations", () => {
     const info = db.prepare("PRAGMA table_info(symbols)").all() as Array<{ name: string }>;
     expect(info.some((col) => col.name === "betweenness")).toBe(true);
   });
+
+  it("v21: edges table has strength column with default 1.0", () => {
+    const info = db.prepare("PRAGMA table_info(edges)").all() as Array<{ name: string; dflt_value: string | null }>;
+    const strengthColumn = info.find((col) => col.name === "strength");
+    expect(strengthColumn).toBeDefined();
+    expect(strengthColumn?.dflt_value).toBe("1.0");
+  });
 });

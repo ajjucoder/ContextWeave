@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS edges (
   source_symbol_id INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE,
   target_symbol_id INTEGER NOT NULL REFERENCES symbols(id) ON DELETE CASCADE,
   kind             TEXT    NOT NULL,
+  strength         REAL    NOT NULL DEFAULT 1.0,
   created_at       INTEGER NOT NULL,
   UNIQUE(source_symbol_id, target_symbol_id, kind)
 );

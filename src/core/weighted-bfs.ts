@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { dirname } from "node:path";
+import type { EdgeKind } from "./types.js";
 
 export interface WeightedBfsNode {
   symbolId: number;
@@ -16,16 +17,13 @@ export interface BfsOptions {
 interface EdgeRow {
   symbol_id: number;
   kind: string;
+  strength: number;
   file_path: string;
 }
 
-const EDGE_WEIGHTS: Record<string, number> = {
-  import: 0.8,
+const EDGE_KIND_COST_MULTIPLIERS: Partial<Record<EdgeKind, number>> = {
   reexport: 0.1,
-  call: 1.0,
   dynamic_dispatch: 0.7,
-  type_usage: 0.9,
-  reference: 1.2,
   inheritance: 0.6,
   implements: 0.7,
   jsx_render: 0.8,
@@ -36,16 +34,17 @@ const EDGE_WEIGHTS: Record<string, number> = {
   event: 0.8,
 };
 
-function edgeCost(kind: string, sourceDir: string, targetDir: string, targetPath: string): number {
-  const base = EDGE_WEIGHTS[kind] ?? 1.0;
+function edgeCost(edge: EdgeRow, sourceDir: string, targetDir: string): number {
+  const strength = edge.strength > 0 ? edge.strength : 1.0;
+  const base = (EDGE_KIND_COST_MULTIPLIERS[edge.kind as EdgeKind] ?? 1.0) / strength;
 
   if (sourceDir === targetDir) return base * 0.6;
 
-  if (/(^|[/\\])(legacy|archive|old|prototype)[/\\]/i.test(targetPath)) return base * 3.0;
-  if (/_(legacy|demo|old|prototype|archive)[_/\\]/i.test(targetPath)) return base * 3.0;
-  if (/\/(tests?|__tests?__|spec)\//i.test(targetPath)) return base * 1.8;
-  if (/\/(vendor|third_party|external)\//i.test(targetPath)) return base * 2.5;
-  if (/(^|[/\\])(examples?|samples?|demo)[/\\]/i.test(targetPath)) return base * 3.0;
+  if (/(^|[/\\])(legacy|archive|old|prototype)[/\\]/i.test(edge.file_path)) return base * 3.0;
+  if (/_(legacy|demo|old|prototype|archive)[_/\\]/i.test(edge.file_path)) return base * 3.0;
+  if (/\/(tests?|__tests?__|spec)\//i.test(edge.file_path)) return base * 1.8;
+  if (/\/(vendor|third_party|external)\//i.test(edge.file_path)) return base * 2.5;
+  if (/(^|[/\\])(examples?|samples?|demo)[/\\]/i.test(edge.file_path)) return base * 3.0;
 
   return base;
 }
@@ -63,14 +62,14 @@ function getBfsStatements(db: Database.Database): BfsStatements {
   if (cached) return cached;
   const stmts: BfsStatements = {
     getOutgoing: db.prepare(`
-      SELECT e.target_symbol_id as symbol_id, e.kind, f.path as file_path
+      SELECT e.target_symbol_id as symbol_id, e.kind, e.strength, f.path as file_path
       FROM edges e
       JOIN symbols s ON s.id = e.target_symbol_id
       JOIN files f ON f.id = s.file_id
       WHERE e.source_symbol_id = ?
     `),
     getIncoming: db.prepare(`
-      SELECT e.source_symbol_id as symbol_id, e.kind, f.path as file_path
+      SELECT e.source_symbol_id as symbol_id, e.kind, e.strength, f.path as file_path
       FROM edges e
       JOIN symbols s ON s.id = e.source_symbol_id
       JOIN files f ON f.id = s.file_id
@@ -144,7 +143,7 @@ export function weightedBfsTraversal(
     for (const edge of outgoing) {
       if (!isInScope(edge.file_path)) continue;
       const targetDir = dirname(edge.file_path);
-      const cost = edgeCost(edge.kind, sourceDir, targetDir, edge.file_path);
+      const cost = edgeCost(edge, sourceDir, targetDir);
       const newDist = current.distance + cost;
       if (newDist >= maxCost) continue;
       const existing = visited.get(edge.symbol_id);
@@ -157,7 +156,7 @@ export function weightedBfsTraversal(
     for (const edge of incoming) {
       if (!isInScope(edge.file_path)) continue;
       const targetDir = dirname(edge.file_path);
-      const cost = edgeCost(edge.kind, sourceDir, targetDir, edge.file_path) * incomingMult;
+      const cost = edgeCost(edge, sourceDir, targetDir) * incomingMult;
       const newDist = current.distance + cost;
       if (newDist >= maxCost) continue;
       const existing = visited.get(edge.symbol_id);

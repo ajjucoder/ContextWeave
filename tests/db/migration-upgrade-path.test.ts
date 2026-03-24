@@ -134,9 +134,13 @@ describe("DB migration upgrade path", () => {
     const symbolColumns = db
       .prepare("PRAGMA table_info(symbols)")
       .all() as Array<{ name: string }>;
+    const edgeColumns = db
+      .prepare("PRAGMA table_info(edges)")
+      .all() as Array<{ name: string }>;
     expect(symbolColumns.some((column) => column.name === "parent_symbol_id")).toBe(false);
     expect(symbolColumns.some((column) => column.name === "qualified_name")).toBe(false);
     expect(symbolColumns.some((column) => column.name === "betweenness")).toBe(false);
+    expect(edgeColumns.some((column) => column.name === "strength")).toBe(false);
 
     db.close();
   });
@@ -186,6 +190,20 @@ describe("DB migration upgrade path", () => {
 
     expect(betweennessColumn).toBeDefined();
     expect(betweennessColumn?.dflt_value).toBe("0.0");
+
+    db.close();
+  });
+
+  it("adds strength to edges in v21", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    runMigrations(db);
+
+    const columns = db.prepare("PRAGMA table_info(edges)").all() as Array<{ name: string; dflt_value: string | null }>;
+    const strengthColumn = columns.find((column) => column.name === "strength");
+
+    expect(strengthColumn).toBeDefined();
+    expect(strengthColumn?.dflt_value).toBe("1.0");
 
     db.close();
   });

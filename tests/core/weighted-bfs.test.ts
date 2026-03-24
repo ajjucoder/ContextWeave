@@ -22,15 +22,18 @@ beforeAll(() => {
   const helperFileId = files.insert({ path: "src/core/helper.ts", hash: "b", lastIndexed: now, mtime: now, language: "typescript", symbolCount: 1, error: null });
   const testFileId = files.insert({ path: "tests/main.test.ts", hash: "c", lastIndexed: now, mtime: now, language: "typescript", symbolCount: 1, error: null });
   const barrelFileId = files.insert({ path: "src/core/barrel.ts", hash: "d", lastIndexed: now, mtime: now, language: "typescript", symbolCount: 1, error: null });
+  const localCallFileId = files.insert({ path: "src/core/local-call.ts", hash: "e", lastIndexed: now, mtime: now, language: "typescript", symbolCount: 1, error: null });
 
   const mainFn = syms.insert({ fileId: mainFileId, name: "processData", kind: "function", startLine: 1, endLine: 10, signature: "function processData()", bodyHash: "x1", fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now });
   const helperFn = syms.insert({ fileId: helperFileId, name: "validateInput", kind: "function", startLine: 1, endLine: 5, signature: "function validateInput()", bodyHash: "x2", fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now });
   const testFn = syms.insert({ fileId: testFileId, name: "testProcessData", kind: "function", startLine: 1, endLine: 20, signature: "function testProcessData()", bodyHash: "x3", fullSource: "", isExported: false, docComment: null, centrality: 0, lastSeen: now });
   const barrelFn = syms.insert({ fileId: barrelFileId, name: "barrelProxy", kind: "function", startLine: 1, endLine: 3, signature: "function barrelProxy()", bodyHash: "x4", fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now });
+  const localCallFn = syms.insert({ fileId: localCallFileId, name: "computeResult", kind: "function", startLine: 1, endLine: 3, signature: "function computeResult()", bodyHash: "x5", fullSource: "", isExported: true, docComment: null, centrality: 0, lastSeen: now });
 
   edges.insert({ sourceSymbolId: mainFn, targetSymbolId: helperFn, kind: "import", createdAt: now });
   edges.insert({ sourceSymbolId: testFn, targetSymbolId: mainFn, kind: "call", createdAt: now });
   edges.insert({ sourceSymbolId: mainFn, targetSymbolId: barrelFn, kind: "reexport", createdAt: now });
+  edges.insert({ sourceSymbolId: mainFn, targetSymbolId: localCallFn, kind: "call", createdAt: now });
 });
 
 afterAll(() => db?.close());
@@ -124,5 +127,30 @@ describe("weightedBfsTraversal", () => {
     expect(barrelNode).toBeDefined();
     expect(helperNode).toBeDefined();
     expect(barrelNode!.distance).toBeLessThan(helperNode!.distance);
+  });
+
+  it("stores strength per edge kind and keeps call edges closer than same-length import edges", () => {
+    const strengths = db.prepare(`
+      SELECT s.name AS targetName, e.kind, e.strength
+      FROM edges e
+      JOIN symbols s ON s.id = e.target_symbol_id
+      WHERE e.source_symbol_id = (
+        SELECT id FROM symbols WHERE name = 'processData'
+      )
+      ORDER BY s.name
+    `).all() as Array<{ targetName: string; kind: string; strength: number }>;
+
+    expect(strengths.find((row) => row.targetName === "computeResult")).toMatchObject({ kind: "call", strength: 1.0 });
+    expect(strengths.find((row) => row.targetName === "validateInput")).toMatchObject({ kind: "import", strength: 0.8 });
+
+    const syms = symbolQueries(db);
+    const mainSym = syms.getByName("processData")[0]!;
+    const nodes = weightedBfsTraversal(db, [mainSym.id], 5);
+    const callNode = nodes.find((n) => syms.getById(n.symbolId)?.name === "computeResult");
+    const importNode = nodes.find((n) => syms.getById(n.symbolId)?.name === "validateInput");
+
+    expect(callNode).toBeDefined();
+    expect(importNode).toBeDefined();
+    expect(callNode!.distance).toBeLessThan(importNode!.distance);
   });
 });

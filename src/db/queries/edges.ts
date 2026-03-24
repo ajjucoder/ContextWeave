@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import type { EdgeRecord, EdgeKind } from "../../core/types.js";
+import { getEdgeStrength } from "../../core/edge-strength.js";
 
 export interface EdgeRowStream {
   sourceSymbolId: number;
@@ -47,8 +48,8 @@ export function getConnectedSymbols(db: Database.Database, symbolId: number): Co
 
 function edgeQueriesImpl(db: Database.Database) {
   const insert = db.prepare(`
-    INSERT OR IGNORE INTO edges (source_symbol_id, target_symbol_id, kind, created_at)
-    VALUES (@sourceSymbolId, @targetSymbolId, @kind, @createdAt)
+    INSERT OR IGNORE INTO edges (source_symbol_id, target_symbol_id, kind, strength, created_at)
+    VALUES (@sourceSymbolId, @targetSymbolId, @kind, @strength, @createdAt)
   `);
 
   const getBySource = db.prepare("SELECT * FROM edges WHERE source_symbol_id = ?");
@@ -92,6 +93,7 @@ function edgeQueriesImpl(db: Database.Database) {
         sourceSymbolId: edge.sourceSymbolId,
         targetSymbolId: edge.targetSymbolId,
         kind: edge.kind,
+        strength: getEdgeStrength(edge.kind),
         createdAt: edge.createdAt,
       });
     },

@@ -20,8 +20,8 @@ beforeAll(() => {
   const now = Date.now();
 
   // Build a chain of 10 symbols: s0 → s1 → s2 → ... → s9
-  // Each edge is an import between same-dir files (cost = 0.8 * 0.6 = 0.48)
-  // With maxDepth=6 and no maxHops, all 10 can be reached (10 * 0.48 = 4.8 < 6)
+  // Each edge is an import between same-dir files with effective cost 0.6 / 0.8 = 0.75.
+  // With maxDepth=7 and no maxHops, deep nodes remain reachable by cost budget alone.
   for (let i = 0; i < 10; i++) {
     const fileId = files.insert({
       path: `src/chain/node${i}.ts`,
@@ -64,18 +64,18 @@ afterAll(() => db?.close());
 
 describe("BFS maxHops cap", () => {
   it("without maxHops reaches deep nodes via many cheap edges", () => {
-    // Same-dir import cost = 0.8 * 0.6 = 0.48 per hop
-    // With maxDepth=6, BFS can traverse 6/0.48 ≈ 12 hops
-    const nodes = weightedBfsTraversal(db, [chainIds[0]!], 6);
+    // Same-dir import cost = 0.6 / 0.8 = 0.75 per hop.
+    // With maxDepth=7, BFS can traverse 7/0.75 ≈ 9 hops.
+    const nodes = weightedBfsTraversal(db, [chainIds[0]!], 7);
     const reachedNames = nodes.map((n) => {
       return symbolQueries(db).getById(n.symbolId)?.name;
     });
-    // Should reach node 8 (hop 8, cost 8 * 0.48 = 3.84 < 6)
+    // Should reach node 8 (hop 8, cost 8 * 0.75 = 6.0 < 7)
     expect(reachedNames).toContain("chainNode8");
   });
 
   it("maxHops=4 stops traversal after 4 edges even if cost budget allows more", () => {
-    const nodes = weightedBfsTraversal(db, [chainIds[0]!], 6, null, { maxHops: 4 });
+    const nodes = weightedBfsTraversal(db, [chainIds[0]!], 7, null, { maxHops: 4 });
     const symsQ = symbolQueries(db);
     const reachedNames = nodes.map((n) => symsQ.getById(n.symbolId)?.name);
 
@@ -87,7 +87,7 @@ describe("BFS maxHops cap", () => {
   });
 
   it("maxHops=1 only includes the pivot and its direct neighbors", () => {
-    const nodes = weightedBfsTraversal(db, [chainIds[0]!], 6, null, { maxHops: 1 });
+    const nodes = weightedBfsTraversal(db, [chainIds[0]!], 7, null, { maxHops: 1 });
     const symsQ = symbolQueries(db);
     const reachedNames = nodes.map((n) => symsQ.getById(n.symbolId)?.name);
 
