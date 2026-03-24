@@ -93,6 +93,15 @@ interface DiscoverFilesResult {
   unsupportedByExtension: Map<string, number>;
 }
 
+interface IndexedRepoFile extends DiscoveredFile {
+  repo: string;
+}
+
+interface RepoRootDescriptor {
+  rootPath: string;
+  repo: string;
+}
+
 interface PickTargetsOptions {
   allowGlobalFallback?: boolean;
 }
@@ -105,6 +114,50 @@ const PARSE_TIMEOUT_MS = PARSE_TIMEOUT_MICROS / 1000;
 
 export interface IndexerOptions {
   embeddings?: EmbeddingRuntime | null;
+}
+
+function normalizeRepoLabel(projectRoot: string, repoRoot: string): string {
+  const relPath = relative(resolve(projectRoot), resolve(repoRoot)).replace(/\\/g, "/");
+  return relPath.length === 0 ? "." : relPath;
+}
+
+function describeRepoRoots(projectRoot: string, repoRoots: string[]): RepoRootDescriptor[] {
+  const descriptors = new Map<string, RepoRootDescriptor>();
+  const roots = repoRoots.length > 0 ? repoRoots : [projectRoot];
+  for (const root of roots) {
+    const resolvedRoot = resolve(root);
+    descriptors.set(resolvedRoot, {
+      rootPath: resolvedRoot,
+      repo: normalizeRepoLabel(projectRoot, resolvedRoot),
+    });
+  }
+  return [...descriptors.values()];
+}
+
+async function discoverRepoFiles(
+  projectRoot: string,
+  repoRoots: RepoRootDescriptor[],
+  extraIgnore?: string[]
+): Promise<{ files: IndexedRepoFile[]; unsupportedByExtension: Map<string, number> }> {
+  const files: IndexedRepoFile[] = [];
+  const unsupportedByExtension = new Map<string, number>();
+
+  for (const repoRoot of repoRoots) {
+    const discovery = await discoverFiles(repoRoot.rootPath, extraIgnore);
+    for (const [extension, count] of discovery.unsupportedByExtension) {
+      unsupportedByExtension.set(extension, (unsupportedByExtension.get(extension) ?? 0) + count);
+    }
+    for (const file of discovery.files) {
+      const absolutePath = resolve(repoRoot.rootPath, file.path);
+      files.push({
+        ...file,
+        path: relative(projectRoot, absolutePath).replace(/\\/g, "/"),
+        repo: repoRoot.repo,
+      });
+    }
+  }
+
+  return { files, unsupportedByExtension };
 }
 
 function normalizePathForIgnoreChecks(filePath: string, projectRoot?: string): string {
@@ -1084,6 +1137,7 @@ function writeParseResult(
   db: Database.Database,
   filePath: string,
   projectRoot: string,
+  repo: string,
   hash: string,
   fileMtime: number,
   language: string,
@@ -1135,6 +1189,7 @@ function writeParseResult(
 
     files.update({
       ...existingFile,
+      repo,
       hash,
       lastIndexed: now,
       mtime: fileMtime,
@@ -1145,6 +1200,7 @@ function writeParseResult(
   } else {
     fileId = files.insert({
       path: relativePath,
+      repo,
       hash,
       lastIndexed: now,
       mtime: fileMtime,
@@ -1260,19 +1316,27 @@ async function embedChunksForFiles(
   return chunks.length;
 }
 
-export async function indexProject(
+export async function indexProjectRoots(
   db: Database.Database,
   projectRoot: string,
+  repoRoots: string[],
   extraIgnore?: string[],
   options: IndexerOptions = {}
 ): Promise<{ filesIndexed: number; symbolsFound: number; errors: string[] }> {
   const allErrors: string[] = [];
   const tsconfigPaths = loadTsconfigPaths(projectRoot);
+  const repoDescriptors = describeRepoRoots(projectRoot, repoRoots);
 
-  log.info("starting parallel index", { projectRoot, workers: WORKER_CONCURRENCY });
-  const discovery = await discoverFiles(projectRoot, extraIgnore);
+  log.info("starting parallel index", {
+    projectRoot,
+    repoCount: repoDescriptors.length,
+    repos: repoDescriptors.map((repo) => repo.repo),
+    workers: WORKER_CONCURRENCY,
+  });
+  const discovery = await discoverRepoFiles(projectRoot, repoDescriptors, extraIgnore);
   const discoveredFiles = discovery.files;
   const filePaths = discoveredFiles.map((entry) => entry.path);
+  const repoByStoredPath = new Map(discoveredFiles.map((entry) => [entry.path, entry.repo]));
   const unsupportedSummary = summarizeUnsupportedFiles(discovery.unsupportedByExtension);
   if (unsupportedSummary) {
     allErrors.push(unsupportedSummary);
@@ -1392,16 +1456,17 @@ export async function indexProject(
 
         const result = writeParseResult(
           db,
-            parsed.filePath,
-            projectRoot,
-            parsed.hash,
-            parsed.mtime,
-            parsed.language,
-            parsed.parsedAt,
-            parsed.parseResult,
-            chunksByPath.get(parsed.filePath) ?? [],
-            false
-          );
+          parsed.filePath,
+          projectRoot,
+          repoByStoredPath.get(relative(projectRoot, parsed.filePath).replace(/\\/g, "/")) ?? ".",
+          parsed.hash,
+          parsed.mtime,
+          parsed.language,
+          parsed.parsedAt,
+          parsed.parseResult,
+          chunksByPath.get(parsed.filePath) ?? [],
+          false
+        );
         totalSymbols += result.symbolCount;
         allErrors.push(...result.errors);
         if (result.fileId && result.chunkCount > 0) {
@@ -1494,6 +1559,15 @@ export async function indexProject(
 
   log.info(`indexed ${toProcess.length} files, ${totalSymbols} symbols`);
   return { filesIndexed: filePaths.length, symbolsFound: totalSymbols, errors: allErrors };
+}
+
+export async function indexProject(
+  db: Database.Database,
+  projectRoot: string,
+  extraIgnore?: string[],
+  options: IndexerOptions = {}
+): Promise<{ filesIndexed: number; symbolsFound: number; errors: string[] }> {
+  return indexProjectRoots(db, projectRoot, [projectRoot], extraIgnore, options);
 }
 
 export async function indexDirectory(
@@ -1650,6 +1724,7 @@ export async function indexSingleFile(
     db,
     resolvedPath,
     projectRoot,
+    ".",
     hash,
     fileMtime,
     language,

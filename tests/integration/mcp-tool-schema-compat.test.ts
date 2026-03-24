@@ -126,6 +126,16 @@ describe("MCP tool schema compatibility", () => {
     expect(parseResult?.success).toBe(true);
   });
 
+  it("cw_reindex input schema parses multi-root args", async () => {
+    const server = new McpServer({ name: "contextweave-test", version: "0.0.0" });
+    registerReindexTool(server, null as never, "/tmp/project");
+
+    const parseResult = await getRegisteredTool(server, "cw_reindex").inputSchema?.safeParseAsync({
+      paths: [".", "../service-a", "../service-b"],
+    });
+    expect(parseResult?.success).toBe(true);
+  });
+
   it("cw_overview input schema parses valid args", async () => {
     const server = new McpServer({ name: "contextweave-test", version: "0.0.0" });
     registerOverviewTool(server, null as never, "/tmp/project");

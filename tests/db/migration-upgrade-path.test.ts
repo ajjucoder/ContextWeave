@@ -46,7 +46,7 @@ describe("DB migration upgrade path", () => {
       .all() as Array<{ version: number }>;
     const versions = applied.map((r) => r.version);
 
-    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]);
+    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25]);
 
     db.close();
   });
@@ -76,7 +76,7 @@ describe("DB migration upgrade path", () => {
         .get() as { cnt: number }
     ).cnt;
 
-    expect(count).toBe(24);
+    expect(count).toBe(25);
 
     db.close();
   });
@@ -176,7 +176,7 @@ describe("DB migration upgrade path", () => {
     const versions = db
       .prepare("SELECT version FROM rollback_order ORDER BY rowid")
       .all() as Array<{ version: number }>;
-    expect(versions.map((row) => row.version)).toEqual([24, 23, 22, 21, 20, 19, 18, 17, 16]);
+    expect(versions.map((row) => row.version)).toEqual([25, 24, 23, 22, 21, 20, 19, 18, 17, 16]);
 
     db.close();
   });

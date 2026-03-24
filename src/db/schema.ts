@@ -4,6 +4,7 @@ const TABLES = `
 CREATE TABLE IF NOT EXISTS files (
   id           INTEGER PRIMARY KEY AUTOINCREMENT,
   path         TEXT    NOT NULL UNIQUE,
+  repo         TEXT    NOT NULL DEFAULT '.',
   basename     TEXT    NOT NULL DEFAULT '',
   hash         TEXT    NOT NULL,
   last_indexed INTEGER NOT NULL,

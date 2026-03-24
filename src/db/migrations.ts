@@ -706,6 +706,19 @@ const migrations: Migration[] = [
       `);
     },
   },
+  {
+    version: 25,
+    up(db) {
+      const filesCols = db.prepare("PRAGMA table_info(files)").all() as Array<{ name: string }>;
+      if (!filesCols.some((col) => col.name === "repo")) {
+        db.exec("ALTER TABLE files ADD COLUMN repo TEXT NOT NULL DEFAULT '.'");
+      }
+      db.exec("CREATE INDEX IF NOT EXISTS idx_files_repo_path ON files(repo, path)");
+    },
+    down(db) {
+      db.exec("DROP INDEX IF EXISTS idx_files_repo_path");
+    },
+  },
 ];
 
 function ensureSchemaMigrationsTable(db: Database.Database): void {

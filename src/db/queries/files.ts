@@ -14,13 +14,13 @@ export function fileQueries(db: Database.Database): FileQueriesResult {
 
 function fileQueriesImpl(db: Database.Database) {
   const insert = db.prepare(`
-    INSERT INTO files (path, basename, hash, last_indexed, mtime, language, symbol_count, error)
-    VALUES (@path, @basename, @hash, @lastIndexed, @mtime, @language, @symbolCount, @error)
+    INSERT INTO files (path, repo, basename, hash, last_indexed, mtime, language, symbol_count, error)
+    VALUES (@path, @repo, @basename, @hash, @lastIndexed, @mtime, @language, @symbolCount, @error)
   `);
 
   const update = db.prepare(`
     UPDATE files
-    SET basename = @basename, hash = @hash, last_indexed = @lastIndexed, mtime = @mtime, symbol_count = @symbolCount, error = @error
+    SET repo = @repo, basename = @basename, hash = @hash, last_indexed = @lastIndexed, mtime = @mtime, symbol_count = @symbolCount, error = @error
     WHERE id = @id
   `);
 
@@ -65,6 +65,7 @@ function fileQueriesImpl(db: Database.Database) {
     return {
       id: r["id"] as number,
       path: r["path"] as string,
+      repo: (r["repo"] as string) ?? ".",
       hash: r["hash"] as string,
       lastIndexed: r["last_indexed"] as number,
       mtime: (r["mtime"] as number) ?? 0,
@@ -76,8 +77,10 @@ function fileQueriesImpl(db: Database.Database) {
 
   return {
     insert(file: Omit<FileRecord, "id">): number {
+      const repo = (file as Partial<FileRecord>).repo ?? ".";
       const result = insert.run({
         path: file.path,
+        repo,
         basename: basenameForPath(file.path),
         hash: file.hash,
         lastIndexed: file.lastIndexed,
@@ -90,8 +93,10 @@ function fileQueriesImpl(db: Database.Database) {
     },
 
     update(file: FileRecord): void {
+      const repo = (file as Partial<FileRecord>).repo ?? ".";
       update.run({
         id: file.id,
+        repo,
         basename: basenameForPath(file.path),
         hash: file.hash,
         lastIndexed: file.lastIndexed,

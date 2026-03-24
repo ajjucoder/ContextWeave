@@ -39,6 +39,7 @@ export type CapsuleMode = "debug" | "refactor" | "feature" | "review";
 export interface FileRecord {
   id: number;
   path: string;
+  repo: string;
   hash: string;
   lastIndexed: number;
   mtime: number;

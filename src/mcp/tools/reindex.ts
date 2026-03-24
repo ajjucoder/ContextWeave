@@ -1,9 +1,9 @@
 import { z } from "zod/v3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
-import { statSync } from "node:fs";
+import { existsSync, statSync } from "node:fs";
 import { resolve } from "node:path";
-import { indexDirectory, indexProject, indexSingleFile, isPathWithinRoot } from "../../core/indexer.js";
+import { indexDirectory, indexProject, indexProjectRoots, indexSingleFile, isPathWithinRoot } from "../../core/indexer.js";
 import type { EmbeddingRuntime } from "../../core/types.js";
 import { runPageRankInBackground } from "../../core/graph.js";
 import { createLogger } from "../../utils/logger.js";
@@ -27,11 +27,53 @@ export function registerReindexTool(
     "Force reindex a file, directory, or the entire project. Updates the AST graph and centrality scores.",
     {
       path: z.string().optional().describe("Specific file or directory to reindex (omit for full project)"),
+      paths: z.array(z.string()).min(1).optional().describe("Multiple project roots to index into the shared graph"),
     },
-    async ({ path }: { path?: string }) => {
+    async ({ path, paths }: { path?: string; paths?: string[] }) => {
       try {
         const startTime = Date.now();
         const dbPath = resolve(projectRoot, ".contextweave", "contextweave.db");
+
+        if (path && paths && paths.length > 0) {
+          return {
+            content: [{ type: "text" as const, text: "Error: provide either path or paths, not both" }],
+            isError: true,
+          };
+        }
+
+        if (paths && paths.length > 0) {
+          const resolvedRoots = paths.map((entry) => ({
+            input: entry,
+            fullPath: resolve(projectRoot, entry),
+          }));
+          for (const root of resolvedRoots) {
+            if (!existsSync(root.fullPath)) {
+              return {
+                content: [{ type: "text" as const, text: `Error: path "${root.input}" does not exist` }],
+                isError: true,
+              };
+            }
+            if (!statSync(root.fullPath).isDirectory()) {
+              return {
+                content: [{ type: "text" as const, text: `Error: path "${root.input}" is not a directory` }],
+                isError: true,
+              };
+            }
+          }
+
+          const result = await indexProjectRoots(db, projectRoot, resolvedRoots.map((root) => root.fullPath), config?.ignore, {
+            embeddings: embeddingRuntime,
+          });
+          syncBootstrapObservations(db, projectRoot);
+          runPageRankInBackground(dbPath);
+          const elapsed = Date.now() - startTime;
+          return {
+            content: [{
+              type: "text" as const,
+              text: `Reindexed ${resolvedRoots.length} repos: ${result.filesIndexed} files, ${result.symbolsFound} symbols (${elapsed}ms)${result.errors.length > 0 ? `\n${result.errors.length} errors` : ""}`,
+            }],
+          };
+        }
 
         if (path) {
           const fullPath = resolve(projectRoot, path);
