@@ -10,6 +10,51 @@ const SUMMARY_ITEM_LIMIT = 3;
 const FILE_CHANGE_RE = /^([A-Z])(\d+)?\t([^\t]+)(?:\t([^\t]+))?$/;
 const STRUCTURED_HEADER_RE = /^([0-9a-f]{7,40})\t([^\t]*)\t(\d+)\t(.+)$/i;
 const ONELINE_HEADER_RE = /^([0-9a-f]{7,40})\s+(.+)$/i;
+const TEMPORAL_GIT_TERMS = new Set([
+  "why",
+  "when",
+  "history",
+  "changed",
+  "broke",
+  "deprecated",
+  "introduced",
+  "who",
+]);
+const GIT_QUERY_STOP_WORDS = new Set([
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "to",
+  "for",
+  "of",
+  "in",
+  "on",
+  "by",
+  "with",
+  "was",
+  "is",
+  "are",
+  "be",
+  "been",
+  "it",
+  "this",
+  "that",
+  "did",
+]);
+const MAX_GIT_SEARCH_COMMITS = 200;
+
+export interface GitCommitSearchResult {
+  hash: string;
+  author: string | null;
+  timestamp: number | null;
+  message: string;
+  summary: string;
+  filesChanged: string[];
+  fileId: number | null;
+  score: number;
+}
 
 export interface GitCommitFileChange {
   changeType: string;
@@ -28,6 +73,135 @@ export interface GitLineageCommit {
 export interface GitLineageIndexResult {
   commitCount: number;
   fileChangeCount: number;
+}
+
+function normalizeGitQueryTerms(query: string): string[] {
+  const terms = query
+    .toLowerCase()
+    .replace(/[^a-z0-9_\-/\s]/g, " ")
+    .split(/\s+/)
+    .filter((term) => term.length >= 2)
+    .filter((term) => !GIT_QUERY_STOP_WORDS.has(term));
+
+  return [...new Set(terms)];
+}
+
+function scoreCommitAgainstQuery(
+  query: string,
+  terms: string[],
+  row: { message: string; summary: string; filesChanged: string[] }
+): number {
+  if (terms.length === 0) return 0;
+
+  const summaryLower = row.summary.toLowerCase();
+  const messageLower = row.message.toLowerCase();
+  const filesLower = row.filesChanged.map((file) => file.toLowerCase());
+  const combinedFiles = filesLower.join(" ");
+  const normalizedQuery = query.toLowerCase().trim();
+  let score = 0;
+
+  if (normalizedQuery.length >= 4) {
+    if (summaryLower.includes(normalizedQuery)) score += 8;
+    if (messageLower.includes(normalizedQuery)) score += 6;
+  }
+
+  for (const term of terms) {
+    if (TEMPORAL_GIT_TERMS.has(term)) {
+      score += summaryLower.includes(term) || messageLower.includes(term) ? 0.5 : 0;
+      continue;
+    }
+
+    if (summaryLower.includes(term)) score += 5;
+    if (messageLower.includes(term)) score += 4;
+    if (combinedFiles.includes(term)) score += 6;
+
+    const fileNameHits = filesLower.filter((file) => file.split("/").some((part) => part.includes(term))).length;
+    score += Math.min(fileNameHits, 2) * 2;
+  }
+
+  return score;
+}
+
+/**
+ * Detect whether a query is asking for temporal or causal history that should surface git context.
+ */
+export function isTemporalGitQuery(query: string): boolean {
+  return normalizeGitQueryTerms(query).some((term) => TEMPORAL_GIT_TERMS.has(term));
+}
+
+/**
+ * Search indexed git commits for the commits most relevant to a temporal/causal query.
+ */
+export function searchGitCommits(
+  db: Database.Database,
+  query: string,
+  limit = 3
+): GitCommitSearchResult[] {
+  if (limit <= 0 || !isTemporalGitQuery(query)) return [];
+
+  const terms = normalizeGitQueryTerms(query);
+  if (terms.length === 0) return [];
+
+  const rows = db.prepare(`
+    SELECT hash, author, timestamp, message, summary, files_changed
+    FROM git_commits
+    ORDER BY timestamp DESC, hash DESC
+    LIMIT ?
+  `).all(MAX_GIT_SEARCH_COMMITS) as Array<{
+    hash: string;
+    author: string | null;
+    timestamp: number | null;
+    message: string;
+    summary: string | null;
+    files_changed: string | null;
+  }>;
+
+  const resolvePrimaryFile = db.prepare(`
+    SELECT id, path
+    FROM files
+    WHERE path IN (SELECT value FROM json_each(?))
+    ORDER BY id ASC
+    LIMIT 1
+  `);
+
+  return rows
+    .map((row) => {
+      const filesChanged = (() => {
+        try {
+          const parsed = JSON.parse(row.files_changed ?? "[]");
+          return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : [];
+        } catch {
+          return [];
+        }
+      })();
+      const summary = row.summary?.trim() || row.message;
+      const score = scoreCommitAgainstQuery(query, terms, {
+        message: row.message,
+        summary,
+        filesChanged,
+      });
+      if (score <= 0) {
+        return null;
+      }
+
+      const fileRow = filesChanged.length > 0
+        ? resolvePrimaryFile.get(JSON.stringify(filesChanged)) as { id: number; path: string } | undefined
+        : undefined;
+
+      return {
+        hash: row.hash,
+        author: row.author,
+        timestamp: row.timestamp,
+        message: row.message,
+        summary,
+        filesChanged,
+        fileId: fileRow?.id ?? null,
+        score,
+      } satisfies GitCommitSearchResult;
+    })
+    .filter((row): row is GitCommitSearchResult => row !== null)
+    .sort((a, b) => b.score - a.score || (b.timestamp ?? 0) - (a.timestamp ?? 0) || a.hash.localeCompare(b.hash))
+    .slice(0, limit);
 }
 
 function finalizeCommit(commits: GitLineageCommit[], current: GitLineageCommit | null): void {

@@ -25,9 +25,10 @@ import { capsuleLogQueries } from "../../db/queries/capsule-log.js";
 import { sessionQueries } from "../../db/queries/sessions.js";
 import { edgeQueries, getConnectedSymbols } from "../../db/queries/edges.js";
 import { getRetrievalLanes } from "../../core/repo-profiler.js";
+import { searchGitCommits } from "../../core/git-lineage.js";
 import { contentFallbackSearch } from "../content-fallback.js";
 import { SessionContext } from "../session-context.js";
-import type { FileRecord } from "../../core/types.js";
+import type { FileRecord, ObservationRecord } from "../../core/types.js";
 import type { CapsuleContext, PivotCandidate, PivotResolution } from "./types.js";
 
 const FRAMEWORK_QUERY_HINT_TERMS = new Set([
@@ -69,6 +70,29 @@ const TYPE_FOCUSED_TERMS = new Set([
   "dts",
 ]);
 const idfStmtCache = new WeakMap<Database.Database, ReturnType<Database.Database["prepare"]>>();
+
+function formatGitTimestamp(timestamp: number | null): string {
+  if (!timestamp) return "unknown date";
+  return new Date(timestamp).toISOString().slice(0, 10);
+}
+
+function buildGitHistoryObservations(db: Database.Database, query: string): ObservationRecord[] {
+  return searchGitCommits(db, query, 3).map((commit, index) => ({
+    id: -(index + 1),
+    sessionId: "",
+    agentId: "git-lineage",
+    symbolId: null,
+    fileId: commit.fileId,
+    scope: "history",
+    note: `Commit ${commit.hash.slice(0, 7)} (${formatGitTimestamp(commit.timestamp)}${commit.author ? ` by ${commit.author}` : ""}): ${commit.summary}`,
+    confidence: Math.min(0.95, 0.78 + index * 0.04 + Math.min(0.12, commit.score / 40)),
+    createdAt: commit.timestamp ?? 0,
+    updatedAt: commit.timestamp ?? 0,
+    stale: false,
+    staleReason: null,
+    archived: false,
+  }));
+}
 
 export function computeTermIDF(db: Database.Database, terms: string[]): Map<string, number> {
   const normalizedTerms = decomposeTerms(terms);
@@ -261,7 +285,8 @@ export function resolvePivots(context: CapsuleContext): PivotResolution {
   const pivotQueryTerms = intent === "narrow" ? exactQueryTerms : expandedQueryTerms;
   const memorySearch = new MemorySearch(db);
   const observationBudget = Math.floor(tokenBudget * 0.2);
-  const { observations } = memorySearch.getRelevantForCapsule(query, observationBudget);
+  const { observations: memoryObservations } = memorySearch.getRelevantForCapsule(query, observationBudget);
+  const observations = [...memoryObservations, ...buildGitHistoryObservations(db, query)];
   const typeFocusedQuery = allQueryTerms.some((term) => TYPE_FOCUSED_TERMS.has(term));
   const runtimeFocusedQuery = pivotQueryTerms.some((term) => RUNTIME_QUERY_TERMS.has(term));
   const hasRuntimeCandidateFile = candidateFiles.some((candidate) => isRuntimeCodePath(candidate.path));

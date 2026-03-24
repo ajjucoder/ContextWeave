@@ -11,7 +11,9 @@ import { symbolQueries } from "../../src/db/queries/symbols.js";
 import {
   buildGitCommitSummary,
   indexGitLineage,
+  isTemporalGitQuery,
   parseGitLineageLog,
+  searchGitCommits,
 } from "../../src/core/git-lineage.js";
 
 const tempDirs: string[] = [];
@@ -180,6 +182,41 @@ R100\tsrc/legacy.ts\tsrc/current.ts
     expect(changedFiles).toHaveLength(2);
     expect(changedFiles.every((row) => row.file_path === "src/app.ts")).toBe(true);
     expect(changedFiles.every((row) => row.change_type === "A" || row.change_type === "M")).toBe(true);
+
+    db.close();
+  });
+
+  it("detects temporal git-history queries", () => {
+    expect(isTemporalGitQuery("why was auth changed")).toBe(true);
+    expect(isTemporalGitQuery("who introduced login retries")).toBe(true);
+    expect(isTemporalGitQuery("auth middleware flow")).toBe(false);
+  });
+
+  it("returns top git commits for temporal queries", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    createSchema(db);
+    runMigrations(db);
+    seedFileAndSymbols(db, "src/auth.ts", ["handleLogin"]);
+    seedFileAndSymbols(db, "src/payments.ts", ["chargeCard"]);
+
+    db.prepare(`
+      INSERT INTO git_commits (hash, author, timestamp, message, summary, files_changed)
+      VALUES
+        ('aaa1111', 'Ada', 1704067200000, 'fix(auth): revert oauth breakage', '[fix] Changed handleLogin in src/auth.ts — fix(auth): revert oauth breakage', '["src/auth.ts"]'),
+        ('bbb2222', 'Bea', 1704153600000, 'feat(auth): introduce session rotation', '[feat] Changed handleLogin in src/auth.ts — feat(auth): introduce session rotation', '["src/auth.ts"]'),
+        ('ccc3333', 'Cy', 1704240000000, 'fix(payments): retry charge failures', '[fix] Changed chargeCard in src/payments.ts — fix(payments): retry charge failures', '["src/payments.ts"]'),
+        ('ddd4444', 'Dee', 1704326400000, 'chore(core): update docs', '[chore] Changed docs in docs/auth.md — chore(core): update docs', '["docs/auth.md"]')
+    `).run();
+
+    const results = searchGitCommits(db, "why was auth changed", 3);
+
+    expect(results).toHaveLength(3);
+    expect(results[0]?.hash).toBe("bbb2222");
+    expect(results[1]?.hash).toBe("aaa1111");
+    expect(results[0]?.fileId).not.toBeNull();
+    expect(results[0]?.summary).toContain("src/auth.ts");
+    expect(results.every((result) => result.score > 0)).toBe(true);
 
     db.close();
   });
