@@ -1,0 +1,7 @@
+{
+  "featureId": "wave3d-discovered-symbols",
+  "status": "pass",
+  "summary": "Manual scrutiny confirmed formatter structured output now emits a deduplicated discoveredSymbols list derived from ranked packed nodes, and integration coverage verifies the emitted symbols can be fed back as anchor_symbols to enrich subsequent retrieval.",
+  "issues": [],
+  "sharedStateObservations": []
+}

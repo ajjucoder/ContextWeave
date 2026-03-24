@@ -1,0 +1,7 @@
+{
+  "featureId": "wave3d-anchor-symbols",
+  "status": "pass",
+  "summary": "Manual scrutiny confirmed cw_capsule now accepts up to 20 anchor_symbols, threads them through capsule context and pivot resolution, and uses weighted BFS seeding so anchored symbols start at distance 0 with the intended boost; targeted integration and schema-compat tests back the behavior.",
+  "issues": [],
+  "sharedStateObservations": []
+}

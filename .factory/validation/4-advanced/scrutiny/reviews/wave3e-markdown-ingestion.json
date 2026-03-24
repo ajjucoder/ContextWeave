@@ -1,0 +1,7 @@
+{
+  "featureId": "wave3e-markdown-ingestion",
+  "status": "pass",
+  "summary": "Manual scrutiny confirmed markdown and document parsing now recognize documentation inputs, emit heading-based documentation symbols with paragraph bodies, and feed the chunking/indexing pipeline so docs participate in BM25 and embedding retrieval with dedicated parser and indexer tests.",
+  "issues": [],
+  "sharedStateObservations": []
+}

@@ -1,0 +1,7 @@
+{
+  "featureId": "wave3e-auto-remember",
+  "status": "pass",
+  "summary": "Manual scrutiny confirmed architecture-oriented capsule queries now emit a valid cw_remember suggestion built from ranked capsule context, while non-architectural observation handling remains intact and regression coverage was added in formatter and capsule integration tests.",
+  "issues": [],
+  "sharedStateObservations": []
+}
