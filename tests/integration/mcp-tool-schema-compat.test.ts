@@ -14,6 +14,7 @@ import { registerReadTool } from "../../src/mcp/tools/read.js";
 import { registerStatsTool } from "../../src/mcp/tools/stats.js";
 import { registerExportTool } from "../../src/mcp/tools/export.js";
 import { registerSnapshotTool } from "../../src/mcp/tools/snapshot.js";
+import { registerHistoryTool } from "../../src/mcp/tools/history.js";
 
 type RegisteredTool = {
   inputSchema?: {
@@ -191,6 +192,17 @@ describe("MCP tool schema compatibility", () => {
     registerSnapshotTool(server, null as never, "/tmp/project", "session-default");
 
     const parseResult = await getRegisteredTool(server, "cw_snapshot").inputSchema?.safeParseAsync({});
+    expect(parseResult?.success).toBe(true);
+  });
+
+  it("cw_history input schema parses valid args", async () => {
+    const server = new McpServer({ name: "contextweave-test", version: "0.0.0" });
+    registerHistoryTool(server, null as never, "/tmp/project");
+
+    const parseResult = await getRegisteredTool(server, "cw_history").inputSchema?.safeParseAsync({
+      file: "src/auth.ts",
+      symbol: "handleLogin",
+    });
     expect(parseResult?.success).toBe(true);
   });
 });
