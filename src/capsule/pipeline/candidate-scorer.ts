@@ -12,6 +12,7 @@ import { getDirectoryWeight } from "../../utils/directory-weights.js";
 import { estimateTokens } from "../../utils/tokens.js";
 import { getExpectedLayers, getLaneWeightForPath, getRetrievalLanes } from "../../core/repo-profiler.js";
 import { getFileClusterId } from "../../core/clusters.js";
+import { embeddingBufferToFloat32 } from "../../core/vector-quantization.js";
 import { isTestFile, getLexicalScore, getCommonDisplayRoot, toDisplayPath } from "../generator-helpers.js";
 import type { FileRecord, LightSymbolRecord, ScoredNode } from "../../core/types.js";
 import type { CapsuleContext, GraphExpansion, PivotResolution, RankedCandidate } from "./types.js";
@@ -128,11 +129,6 @@ function getCandidateEmbeddingStatement(
   return stmt;
 }
 
-function embeddingBufferToVector(buffer: Buffer): Float32Array {
-  const bytes = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
-  return new Float32Array(bytes);
-}
-
 function cosineSimilarity(left: Float32Array, right: Float32Array): number {
   if (left.length === 0 || left.length !== right.length) return 0;
 
@@ -166,7 +162,10 @@ function scoreOverlappingEmbedding(
       row.end_line >= candidate.symbol.startLine;
     if (!overlapsSymbol) continue;
 
-    const cosine = cosineSimilarity(queryEmbedding, embeddingBufferToVector(row.embedding));
+    const cosine = cosineSimilarity(
+      queryEmbedding,
+      embeddingBufferToFloat32(row.embedding, queryEmbedding.length)
+    );
     if (cosine > bestScore) {
       bestScore = cosine;
     }

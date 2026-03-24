@@ -3,10 +3,6 @@ import Database from "better-sqlite3";
 import { runMigrations } from "../../src/db/migrations.js";
 import { VectorStore } from "../../src/core/vector-store.js";
 
-function toBuffer(values: number[]): Buffer {
-  return Buffer.from(new Float32Array(values).buffer);
-}
-
 function seedChunk(db: Database.Database, path: string, chunkIndex: number, entityName: string): number {
   const now = Date.now();
   const fileId = Number(
@@ -76,7 +72,7 @@ describe("VectorStore", () => {
     });
 
     const stored = db
-      .prepare("SELECT file_id, start_line, end_line, text_hash, model_name, vec_to_json(embedding) AS embedding FROM chunk_embeddings WHERE id = ?")
+      .prepare("SELECT file_id, start_line, end_line, text_hash, model_name, vec_to_json(vec_int8(embedding)) AS embedding, vec_type(vec_int8(embedding)) AS vector_type, length(embedding) AS byte_length FROM chunk_embeddings WHERE id = ?")
       .get(alphaChunkId) as {
         file_id: number;
         start_line: number;
@@ -84,15 +80,19 @@ describe("VectorStore", () => {
         text_hash: string;
         model_name: string;
         embedding: string;
+        vector_type: string;
+        byte_length: number;
       };
-    expect(stored.embedding).toBe("[1.000000,0.000000,0.000000]");
+    expect(stored.embedding).toBe("[127,0,0]");
     expect(stored).toEqual({
       file_id: 1,
       start_line: 1,
       end_line: 3,
       text_hash: "alpha-hash",
       model_name: "test-mini",
-      embedding: "[1.000000,0.000000,0.000000]",
+      embedding: "[127,0,0]",
+      vector_type: "int8",
+      byte_length: 3,
     });
 
     db.close();

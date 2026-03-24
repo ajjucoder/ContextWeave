@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 import * as sqliteVec from "sqlite-vec";
 import type { ChunkEmbeddingEntry, VectorSearchResult, VectorStoreStats } from "./types.js";
 import { DEFAULT_EMBEDDING_DIMENSIONS } from "./embedder.js";
+import { quantizeEmbeddingToInt8 } from "./vector-quantization.js";
 
 interface VectorStoreOptions {
   dimensions?: number;
@@ -10,9 +11,10 @@ interface VectorStoreOptions {
 
 const loadedExtensions = new WeakSet<Database.Database>();
 
-function toVectorBuffer(embedding: Float32Array): Buffer {
+function toQuantizedVectorBuffer(embedding: Float32Array): Buffer {
+  const quantized = quantizeEmbeddingToInt8(embedding);
   return Buffer.from(
-    embedding.buffer.slice(embedding.byteOffset, embedding.byteOffset + embedding.byteLength)
+    quantized.buffer.slice(quantized.byteOffset, quantized.byteOffset + quantized.byteLength)
   );
 }
 
@@ -69,7 +71,7 @@ export class VectorStore {
     const chunkMetadata = this.getChunkMetadata(chunkId);
     this.db.prepare(`
       INSERT INTO chunk_embeddings (id, file_id, start_line, end_line, text_hash, embedding, model_name)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, vec_int8(?), ?)
       ON CONFLICT(id) DO UPDATE SET
         file_id = excluded.file_id,
         start_line = excluded.start_line,
@@ -83,7 +85,7 @@ export class VectorStore {
       chunkMetadata.startLine,
       chunkMetadata.endLine,
       chunkMetadata.textHash,
-      toVectorBuffer(embedding),
+      toQuantizedVectorBuffer(embedding),
       this.modelName
     );
   }
@@ -92,7 +94,7 @@ export class VectorStore {
     this.initialize();
     const insert = this.db.prepare(`
       INSERT INTO chunk_embeddings (id, file_id, start_line, end_line, text_hash, embedding, model_name)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, vec_int8(?), ?)
       ON CONFLICT(id) DO UPDATE SET
         file_id = excluded.file_id,
         start_line = excluded.start_line,
@@ -112,7 +114,7 @@ export class VectorStore {
           chunkMetadata.startLine,
           chunkMetadata.endLine,
           chunkMetadata.textHash,
-          toVectorBuffer(row.embedding),
+          toQuantizedVectorBuffer(row.embedding),
           chunkMetadata.modelName
         );
       }
@@ -132,7 +134,7 @@ export class VectorStore {
   ): VectorSearchResult[] {
     this.initialize();
     this.validateEmbedding(queryEmbedding);
-    const vector = toVectorBuffer(queryEmbedding);
+    const vector = toQuantizedVectorBuffer(queryEmbedding);
 
     const rows = pathFilter
       ? this.db.prepare(`
@@ -142,7 +144,7 @@ export class VectorStore {
             f.path AS file_path,
             ce.start_line,
             ce.end_line,
-            vec_distance_cosine(ce.embedding, ?) AS distance,
+            vec_distance_cosine(vec_int8(ce.embedding), vec_int8(?)) AS distance,
             c.scope_chain,
             c.entity_context,
             c.token_count
@@ -160,7 +162,7 @@ export class VectorStore {
             f.path AS file_path,
             ce.start_line,
             ce.end_line,
-            vec_distance_cosine(ce.embedding, ?) AS distance,
+            vec_distance_cosine(vec_int8(ce.embedding), vec_int8(?)) AS distance,
             c.scope_chain,
             c.entity_context,
             c.token_count

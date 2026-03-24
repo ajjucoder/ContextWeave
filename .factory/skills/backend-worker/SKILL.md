@@ -18,9 +18,10 @@ None - this is a pure backend mission. No browser/UI validation needed.
 ## Work Procedure
 
 ### Step 1: Baseline Environment Check
-1. Run `cd /Users/aejjusingh/Developer/ContextWeave && npx tsc --noEmit` to confirm starting state
-2. Run `cd /Users/aejjusingh/Developer/ContextWeave && npm test 2>&1 | tail -10` to get current test count
-3. Run `cd /Users/aejjusingh/Developer/ContextWeave && npm run build 2>&1 | tail -5` to verify build
+1. Run `cd /Users/aejjusingh/Developer/ContextWeave && bash .factory/init.sh` if environment setup is needed; if the script is already executable, direct invocation is fine
+2. Run `cd /Users/aejjusingh/Developer/ContextWeave && npx tsc --noEmit` to confirm starting state
+3. Run `cd /Users/aejjusingh/Developer/ContextWeave && npm test` only when you need a full-suite baseline; do not pipe validator output because worker-base relies on real exit codes
+4. Run `cd /Users/aejjusingh/Developer/ContextWeave && npm run build` to verify build
 
 ### Step 2: Implement the Feature
 1. Read the relevant existing code to understand patterns
@@ -33,6 +34,7 @@ None - this is a pure backend mission. No browser/UI validation needed.
    - Run tests again to confirm pass (green)
 4. Run `npx tsc --noEmit` to verify no type errors
 5. Run `npm run build` to verify compilation
+6. If the assigned feature's targeted validators pass but the full suite is blocked only by other already-tracked pending features, record that explicitly in the handoff instead of treating unrelated pending work as a failure of the current feature.
 
 ### Step 3: Verify Against Validation Contract
 For each feature, verify the specific assertions it fulfills:
