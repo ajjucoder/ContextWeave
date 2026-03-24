@@ -331,6 +331,7 @@ export interface StructuredCapsuleOutput {
   intent: QueryIntent;
   confidence: "high" | "medium" | "low";
   recommended_supplementary_reads: 2 | 5 | 10;
+  discoveredSymbols: string[];
   uncertainty: string;
   tokenBudget: number;
   tokensUsed: number;

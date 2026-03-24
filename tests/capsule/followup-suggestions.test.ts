@@ -113,6 +113,21 @@ describe("buildStructuredOutput follow-up suggestions", () => {
 
     expect(result.confidence).toBe("high");
     expect(result.recommended_supplementary_reads).toBe(2);
+    expect(result.discoveredSymbols).toEqual(["validateEmail"]);
+  });
+
+  it("includes related edge targets in discoveredSymbols for anchor feedback", () => {
+    const result = buildStructuredOutput(
+      [{
+        ...makeNode("AuthController", 0, 1.0),
+        outgoingEdges: [{ targetName: "UserService", kind: "call" }],
+      }],
+      [],
+      makeMetadata("login"),
+      "text"
+    );
+
+    expect(result.discoveredSymbols).toEqual(["AuthController", "UserService"]);
   });
 
   it("includes suggestedReads only for compressed nodes with query-term overlap", () => {

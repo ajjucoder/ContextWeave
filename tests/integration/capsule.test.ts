@@ -138,6 +138,9 @@ describe("generateCapsule", () => {
     expect(result.structured).toBeDefined();
     expect(["high", "medium", "low"]).toContain(result.structured!.confidence);
     expect([2, 5, 10]).toContain(result.structured!.recommended_supplementary_reads);
+    expect(Array.isArray(result.structured!.discoveredSymbols)).toBe(true);
+    expect(result.structured!.discoveredSymbols.length).toBeGreaterThan(0);
+    expect(result.structured!.discoveredSymbols.length).toBeLessThanOrEqual(20);
     expect(result.structured!.suggestedReads.length).toBeLessThanOrEqual(
       result.structured!.recommended_supplementary_reads
     );

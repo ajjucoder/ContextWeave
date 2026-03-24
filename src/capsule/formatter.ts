@@ -41,6 +41,41 @@ function estimateObservationTokens(note: string): number {
   return Math.max(1, Math.ceil(note.split(/\s+/).filter(Boolean).length * 1.3));
 }
 
+function collectDiscoveredSymbols(packedNodes: ScoredNode[]): string[] {
+  const unique = new Set<string>();
+  const discovered: string[] = [];
+  const rankedNodes = [...packedNodes].sort((a, b) => {
+    if ((b.score ?? 0) !== (a.score ?? 0)) {
+      return (b.score ?? 0) - (a.score ?? 0);
+    }
+    return a.distance - b.distance;
+  });
+
+  const push = (name: string | null | undefined): void => {
+    const candidate = name?.trim();
+    if (!candidate || unique.has(candidate)) {
+      return;
+    }
+    unique.add(candidate);
+    discovered.push(candidate);
+  };
+
+  for (const node of rankedNodes) {
+    push(node.symbol?.name);
+    for (const edge of node.outgoingEdges ?? []) {
+      push(edge.targetName);
+      if (discovered.length >= 20) {
+        return discovered;
+      }
+    }
+    if (discovered.length >= 20) {
+      return discovered;
+    }
+  }
+
+  return discovered;
+}
+
 export function selectObservations(
   observations: ObservationRecord[],
   metadata: CapsuleMetadata
@@ -450,12 +485,14 @@ export function buildStructuredOutput(
     }));
 
   const visibleObs = observations.filter((o) => o.confidence >= 0.5);
+  const discoveredSymbols = collectDiscoveredSymbols(packedNodes);
 
   return {
     query: metadata.query,
     intent,
     confidence,
     recommended_supplementary_reads: recommendedSupplementaryReads,
+    discoveredSymbols,
     uncertainty: metadata.quality.uncertainty,
     tokenBudget: metadata.tokenBudget,
     tokensUsed: metadata.tokensUsed,
