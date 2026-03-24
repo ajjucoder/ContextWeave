@@ -7,6 +7,7 @@ export type SymbolKind =
   | "interface"
   | "type"
   | "variable"
+  | "documentation"
   | "enum"
   | "method"
   | "arrow";

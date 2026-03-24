@@ -324,6 +324,39 @@ window.startServer = startServer;
     expect(yaml.symbols[0]?.fullSource).toContain("approvalSource");
   });
 
+  it("parses markdown headings into documentation symbols with paragraph bodies", () => {
+    const markdown = parseFile(
+      "ADR/ADR-001-auth-tokens.md",
+      [
+        "# ADR-001: Auth Tokens",
+        "",
+        "Use refresh tokens for session continuity.",
+        "",
+        "## Decision",
+        "",
+        "Store refresh tokens in HttpOnly cookies.",
+        "",
+        "## Consequences",
+        "",
+        "Rotate tokens after refresh and revoke on logout.",
+        "",
+      ].join("\n"),
+      "markdown"
+    );
+
+    expect(markdown.errors).toHaveLength(0);
+    expect(markdown.symbols).toHaveLength(3);
+    expect(markdown.symbols.map((symbol) => symbol.kind)).toEqual([
+      "documentation",
+      "documentation",
+      "documentation",
+    ]);
+    expect(markdown.symbols[0]?.name).toContain("ADR-001");
+    expect(markdown.symbols[1]?.name).toContain("Decision");
+    expect(markdown.symbols[1]?.fullSource).toContain("HttpOnly cookies");
+    expect(markdown.symbols[2]?.fullSource).toContain("revoke on logout");
+  });
+
   it("parses python decorators without dropping class and method symbols", () => {
     const path = resolve(__dirname, "../fixtures/sample.py");
     const content = readFileSync(path, "utf-8");

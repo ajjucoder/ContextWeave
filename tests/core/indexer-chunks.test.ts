@@ -119,7 +119,7 @@ export class UserService {
     db.close();
   });
 
-  it("does not fail indexing when a file language is unsupported by code-chunk", async () => {
+  it("indexes markdown files with document chunks instead of failing code chunking", async () => {
     const root = makeTempProject();
     const filePath = join(root, "notes.md");
     writeFileSync(filePath, "# Notes\n\nRemember the retry budget.\n");
@@ -133,7 +133,13 @@ export class UserService {
 
     expect(result.errors).toEqual([]);
     const count = (db.prepare("SELECT COUNT(*) as count FROM chunks").get() as { count: number }).count;
-    expect(count).toBe(0);
+    expect(count).toBe(1);
+    const row = db.prepare("SELECT text, contextualized_text FROM chunks LIMIT 1").get() as {
+      text: string;
+      contextualized_text: string;
+    };
+    expect(row.text).toContain("Notes");
+    expect(row.contextualized_text).toContain("notes.md");
 
     db.close();
   });

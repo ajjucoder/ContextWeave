@@ -19,6 +19,7 @@ const defaultChunker = createChunker({
   siblingDetail: "signatures",
   overlapLines: 4,
 });
+const MARKDOWN_HEADING_RE = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
 
 function toChunkLanguage(languageHint: string | null | undefined, filePath: string): ChunkLanguage | null {
   const explicit = languageHint?.toLowerCase();
@@ -64,11 +65,131 @@ function uniqueNames(values: Array<string | null | undefined>): string[] {
   return output;
 }
 
+function computeLineOffsets(source: string): number[] {
+  const offsets = [0];
+  for (let index = 0; index < source.length; index += 1) {
+    if (source[index] === "\n") {
+      offsets.push(index + 1);
+    }
+  }
+  return offsets;
+}
+
+function normalizeMarkdownHeading(rawHeading: string): string {
+  return rawHeading
+    .replace(/\[(.*?)\]\((.*?)\)/g, "$1")
+    .replace(/[*_`]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildMarkdownChunks(filePath: string, source: string): PreparedChunk[] {
+  const lines = source.split(/\r?\n/);
+  const lineOffsets = computeLineOffsets(source);
+  const chunks: PreparedChunk[] = [];
+  let inCodeFence = false;
+  let currentHeading: { text: string; startLine: number } | null = null;
+  let bodyLines: string[] = [];
+
+  const pushChunk = (endLineExclusive: number) => {
+    if (!currentHeading) return;
+
+    const bodyText = bodyLines.join("\n").trim();
+    const contextualizedText = bodyText
+      ? `${currentHeading.text}\n\n${bodyText}`
+      : currentHeading.text;
+    const endLine = Math.max(currentHeading.startLine, endLineExclusive);
+    const startOffset = lineOffsets[currentHeading.startLine - 1] ?? 0;
+    const endOffset = lineOffsets[endLine] ?? source.length;
+
+    chunks.push({
+      chunkIndex: chunks.length,
+      startLine: currentHeading.startLine,
+      endLine,
+      startByte: startOffset,
+      endByte: endOffset,
+      text: contextualizedText,
+      contextualizedText: `${filePath}\n${contextualizedText}`,
+      scopeChain: [currentHeading.text],
+      importSources: [],
+      siblingNames: [],
+      entityNames: [currentHeading.text],
+      tokenCount: countTokens(contextualizedText),
+      contentHash: hashFile(contextualizedText),
+    });
+
+    currentHeading = null;
+    bodyLines = [];
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (/^```/.test(line.trim())) {
+      inCodeFence = !inCodeFence;
+    }
+    if (inCodeFence) {
+      if (currentHeading) {
+        bodyLines.push(line);
+      }
+      continue;
+    }
+
+    const headingMatch = line.match(MARKDOWN_HEADING_RE);
+    if (!headingMatch) {
+      if (currentHeading) {
+        bodyLines.push(line);
+      }
+      continue;
+    }
+
+    const headingText = normalizeMarkdownHeading(headingMatch[2] ?? "");
+    if (!headingText) continue;
+
+    pushChunk(index);
+    currentHeading = {
+      text: headingText,
+      startLine: index + 1,
+    };
+  }
+
+  pushChunk(Math.max(1, lines.length));
+
+  if (chunks.length > 0) {
+    return chunks.map((chunk) => ({
+      ...chunk,
+      tokenCount: countTokens(chunk.contextualizedText),
+      contentHash: hashFile(chunk.contextualizedText),
+    }));
+  }
+
+  const contextualizedText = `${filePath}\n${source}`.trim();
+  return [{
+    chunkIndex: 0,
+    startLine: 1,
+    endLine: Math.max(1, lines.length),
+    startByte: 0,
+    endByte: source.length,
+    text: source,
+    contextualizedText,
+    scopeChain: [],
+    importSources: [],
+    siblingNames: [],
+    entityNames: [],
+    tokenCount: countTokens(contextualizedText),
+    contentHash: hashFile(contextualizedText),
+  }];
+}
+
 export async function buildEmbeddingChunks(
   filePath: string,
   source: string,
   options: BuildChunkOptions = {}
 ): Promise<PreparedChunk[]> {
+  const explicit = options.languageHint?.toLowerCase();
+  if (explicit === "markdown") {
+    return buildMarkdownChunks(filePath, source);
+  }
+
   const language = toChunkLanguage(options.languageHint, filePath);
   if (!language) return [];
 

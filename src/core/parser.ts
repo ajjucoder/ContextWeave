@@ -77,6 +77,7 @@ const extensionToLanguage: Record<string, string> = {
 const DOCUMENT_SOURCE_LIMIT = 6000;
 const DOCUMENT_NAME_TOKEN_LIMIT = 10;
 const DOCUMENT_SIGNATURE_TOKEN_LIMIT = 24;
+const MARKDOWN_HEADING_RE = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
 export const DEFAULT_PARSE_TIMEOUT_MICROS = 5_000_000;
 export const DEFAULT_PARSE_TIMEOUT_MS = DEFAULT_PARSE_TIMEOUT_MICROS / 1000;
 
@@ -232,7 +233,7 @@ function buildDocumentSymbol(filePath: string, content: string, language: string
 
   return {
     name: documentName,
-    kind: "variable",
+    kind: language === "markdown" ? "documentation" : "variable",
     startLine: 1,
     endLine: totalLines,
     signature,
@@ -241,6 +242,98 @@ function buildDocumentSymbol(filePath: string, content: string, language: string
     isExported: true,
     docComment: null,
   };
+}
+
+function normalizeMarkdownHeading(rawHeading: string): string {
+  return rawHeading
+    .replace(/\[(.*?)\]\((.*?)\)/g, "$1")
+    .replace(/[*_`]+/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeSymbolNameForComparison(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function buildMarkdownSymbolName(filePath: string, heading: string): string {
+  const normalizedHeading = normalizeMarkdownHeading(heading);
+  const fileStem = basenameWithoutExtension(filePath).trim();
+  if (!fileStem) return normalizedHeading;
+
+  const normalizedStem = normalizeSymbolNameForComparison(fileStem);
+  if (!normalizedStem) return normalizedHeading;
+
+  if (normalizeSymbolNameForComparison(normalizedHeading).includes(normalizedStem)) {
+    return normalizedHeading;
+  }
+  return `${fileStem} ${normalizedHeading}`.trim();
+}
+
+function parseMarkdownSymbols(filePath: string, content: string): ParsedSymbol[] {
+  const lines = content.split(/\r?\n/);
+  const symbols: ParsedSymbol[] = [];
+  const totalLines = Math.max(1, lines.length);
+  let inCodeFence = false;
+  let currentHeading: { line: number; text: string } | null = null;
+  let bodyLines: string[] = [];
+
+  const flushSection = (endLineExclusive: number) => {
+    if (!currentHeading) return;
+
+    const trimmedBody = bodyLines.join("\n").trim();
+    const fullSource = trimmedBody
+      ? `${currentHeading.text}\n\n${trimmedBody}`
+      : currentHeading.text;
+    const endLine = Math.max(currentHeading.line, endLineExclusive);
+    symbols.push({
+      name: buildMarkdownSymbolName(filePath, currentHeading.text),
+      kind: "documentation",
+      startLine: currentHeading.line,
+      endLine,
+      signature: normalizeMarkdownHeading(currentHeading.text),
+      fullSource: trimDocumentSource(fullSource),
+      bodyHash: hashContent(fullSource),
+      isExported: true,
+      docComment: null,
+    });
+
+    currentHeading = null;
+    bodyLines = [];
+  };
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? "";
+    if (/^```/.test(line.trim())) {
+      inCodeFence = !inCodeFence;
+    }
+    if (inCodeFence) {
+      if (currentHeading) {
+        bodyLines.push(line);
+      }
+      continue;
+    }
+
+    const headingMatch = line.match(MARKDOWN_HEADING_RE);
+    if (!headingMatch) {
+      if (currentHeading) {
+        bodyLines.push(line);
+      }
+      continue;
+    }
+
+    const headingText = normalizeMarkdownHeading(headingMatch[2] ?? "");
+    if (!headingText) continue;
+
+    flushSection(index);
+    currentHeading = {
+      line: index + 1,
+      text: headingText,
+    };
+  }
+
+  flushSection(totalLines);
+  return symbols.length > 0 ? symbols : [buildDocumentSymbol(filePath, content, "markdown")];
 }
 
 function isFunctionScoped(node: Parser.SyntaxNode): boolean {
@@ -1757,6 +1850,16 @@ export function parseFile(
 
   try {
     if (isDocumentLanguage(language)) {
+      if (language === "markdown") {
+        return {
+          symbols: parseMarkdownSymbols(filePath, content),
+          imports: [],
+          calls: [],
+          frameworkCalls: [],
+          variableBindings: [],
+          errors,
+        };
+      }
       return {
         symbols: [buildDocumentSymbol(filePath, content, language)],
         imports: [],

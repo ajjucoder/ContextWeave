@@ -135,4 +135,65 @@ describe("indexer embedding integration", () => {
     const config = loadConfig(root);
     expect(config.embeddingModel).toBe("local/test-mini");
   });
+
+  it("indexes markdown ADR files into BM25 and embedding chunks", async () => {
+    const root = makeTempProject();
+    mkdirSync(join(root, "docs", "ADR"), { recursive: true });
+    const filePath = join(root, "docs", "ADR", "ADR-001-auth-tokens.md");
+    writeFileSync(
+      filePath,
+      [
+        "# ADR-001: Auth Tokens",
+        "",
+        "Use refresh tokens for session continuity.",
+        "",
+        "## Decision",
+        "",
+        "Store refresh tokens in HttpOnly cookies.",
+        "",
+      ].join("\n")
+    );
+    bumpMtime(filePath);
+
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    runMigrations(db);
+
+    const embedder = {
+      embedBatch: vi.fn(async (texts: string[]) =>
+        texts.map((text, index) => new Float32Array([
+          text.includes("Decision") ? 1 : 0,
+          index + 1,
+          text.length,
+        ]))
+      ),
+    };
+    const vectorStore = new VectorStore(db, { dimensions: 3 });
+
+    const result = await indexSingleFile(db, filePath, root, undefined, {
+      embeddings: {
+        embedder,
+        vectorStore,
+        modelName: "mock-mini",
+      },
+    });
+
+    expect(result.errors).toEqual([]);
+    expect(embedder.embedBatch).toHaveBeenCalledTimes(1);
+
+    const storedChunks = db
+      .prepare("SELECT COUNT(*) AS count FROM chunks")
+      .get() as { count: number };
+    const storedEmbeddings = db
+      .prepare("SELECT COUNT(*) AS count FROM chunk_embeddings")
+      .get() as { count: number };
+    expect(storedChunks.count).toBeGreaterThan(0);
+    expect(storedEmbeddings.count).toBe(storedChunks.count);
+
+    const matches = vectorStore.search(new Float32Array([1, 1, 120]), 5);
+    expect(matches[0]?.filePath).toBe("docs/ADR/ADR-001-auth-tokens.md");
+    expect(matches[0]?.entityNames).toContain("Decision");
+
+    db.close();
+  });
 });

@@ -14,6 +14,7 @@ let root: string;
 beforeEach(() => {
   root = mkdtempSync(join(tmpdir(), "cw-noncode-formats-"));
   mkdirSync(join(root, "config"), { recursive: true });
+  mkdirSync(join(root, "docs", "ADR"), { recursive: true });
   writeFileSync(
     join(root, "pyproject.toml"),
     "[tool.ruff]\nline-length = 100\n[tool.pytest.ini_options]\naddopts = \"-q\"\n"
@@ -21,6 +22,19 @@ beforeEach(() => {
   writeFileSync(
     join(root, "config", "settings.ini"),
     "[runtime]\ncache_timeout = 45\nretry_attempts = 3\n"
+  );
+  writeFileSync(
+    join(root, "docs", "ADR", "ADR-001-auth-tokens.md"),
+    [
+      "# ADR-001: Auth Tokens",
+      "",
+      "Use refresh tokens for session continuity.",
+      "",
+      "## Decision",
+      "",
+      "Store refresh tokens in HttpOnly cookies.",
+      "",
+    ].join("\n")
   );
 
   db = new Database(":memory:");
@@ -43,5 +57,15 @@ describe("indexer non-code config formats", () => {
 
     expect(tomlResults.some((result) => result.path.endsWith("pyproject.toml"))).toBe(true);
     expect(iniResults.some((result) => result.path.endsWith("config/settings.ini"))).toBe(true);
+  });
+
+  it("indexes markdown ADR documents for first-pass BM25 search", async () => {
+    await indexProject(db, root);
+
+    const results = searchFilesByQuery(db, "auth tokens HttpOnly cookies", 10, root);
+    const adrResults = searchFilesByQuery(db, "ADR-001 auth tokens", 10, root);
+
+    expect(results.some((result) => result.path.endsWith("docs/ADR/ADR-001-auth-tokens.md"))).toBe(true);
+    expect(adrResults.some((result) => result.path.endsWith("docs/ADR/ADR-001-auth-tokens.md"))).toBe(true);
   });
 });
