@@ -1,10 +1,12 @@
 import { z } from "zod/v3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
+import { resolve } from "node:path";
 import { generateCapsuleWithRuntime } from "../../capsule/generator.js";
 import type { CapsuleMode, EmbeddingRuntime } from "../../core/types.js";
 import type { ProjectConfig } from "../../utils/config.js";
 import { getRegisterTool } from "./register-helper.js";
+import { isPathWithinRoot } from "../../core/indexer.js";
 
 // Security: Path traversal prevention helper
 const containsTraversal = (value: string): boolean => {
@@ -12,6 +14,17 @@ const containsTraversal = (value: string): boolean => {
   // Matches: ../, ..\, /../, \..\, .. at end, etc.
   const traversalPattern = /(\.\.\/|\.\.\\|^\.\.$|\.\.$)/;
   return traversalPattern.test(value);
+};
+
+// Security: Check if path is absolute (Unix absolute or Windows absolute/UNC)
+const isAbsolutePath = (value: string): boolean => {
+  // Unix absolute path
+  if (value.startsWith("/")) return true;
+  // Windows absolute path (C:\, D:\, etc.)
+  if (/^[a-zA-Z]:[/\\]/.test(value)) return true;
+  // Windows UNC path (\\server\share)
+  if (value.startsWith("\\\\")) return true;
+  return false;
 };
 
 // Security-hardened path schema: no traversal, max 4096 chars
@@ -56,6 +69,51 @@ export function registerCapsuleTool(
     "Generate token-budgeted code context for a query. Returns compressed AST-aware context capsule with multi-level compression.",
     inputSchema,
     async ({ query, token_budget, mode, path, glob }: { query: string; token_budget?: number; mode?: CapsuleMode; path?: string; glob?: string }) => {
+      // Runtime security validation: Zod .refine() and .max() errors are not preserved by MCP SDK schema conversion
+      // So we validate path/glob traversal AND length here at runtime
+      if (path !== undefined) {
+        if (path.length > 4096) {
+          return {
+            content: [{ type: "text" as const, text: "Path exceeds maximum length of 4096 characters" }],
+            isError: true,
+          };
+        }
+        if (containsTraversal(path)) {
+          return {
+            content: [{ type: "text" as const, text: "Path traversal not allowed: path contains '..' segments" }],
+            isError: true,
+          };
+        }
+        // Reject absolute paths (they could escape project root)
+        if (isAbsolutePath(path)) {
+          return {
+            content: [{ type: "text" as const, text: `Error: absolute path rejected: "${path}"` }],
+            isError: true,
+          };
+        }
+        const fullPath = resolve(projectRoot, path);
+        if (!isPathWithinRoot(fullPath, projectRoot)) {
+          return {
+            content: [{ type: "text" as const, text: `Error: path "${path}" is outside the project root` }],
+            isError: true,
+          };
+        }
+      }
+      if (glob !== undefined) {
+        if (glob.length > 4096) {
+          return {
+            content: [{ type: "text" as const, text: "Glob pattern exceeds maximum length of 4096 characters" }],
+            isError: true,
+          };
+        }
+        if (containsTraversal(glob)) {
+          return {
+            content: [{ type: "text" as const, text: "Path traversal not allowed: glob contains '..' segments" }],
+            isError: true,
+          };
+        }
+      }
+
       try {
         const result = await generateCapsuleWithRuntime(db, {
           query,
