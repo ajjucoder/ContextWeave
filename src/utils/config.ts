@@ -10,7 +10,7 @@ export interface ProjectConfig {
   confidenceDecay: number;
   gcThreshold: number;
   passiveTtlDays: number;
-  embeddingModel?: string;
+  embeddingModel: string;
   primaryDirs: string[];
   archiveDirs: string[];
 }
@@ -25,6 +25,7 @@ const DEFAULTS: ProjectConfig = {
   confidenceDecay: 0.9,
   gcThreshold: 0.5,
   passiveTtlDays: 7,
+  embeddingModel: "none",
   primaryDirs: [],
   archiveDirs: [],
 };
@@ -69,10 +70,10 @@ function sanitizePatterns(value: unknown): string[] {
     .filter((entry) => entry.length > 0);
 }
 
-function sanitizeOptionalString(value: unknown): string | undefined {
-  if (typeof value !== "string") return undefined;
+function sanitizeEmbeddingModel(value: unknown): string {
+  if (typeof value !== "string") return DEFAULTS.embeddingModel;
   const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
+  return trimmed.length > 0 ? trimmed : DEFAULTS.embeddingModel;
 }
 
 export function loadConfig(projectRoot: string): ProjectConfig {
@@ -123,7 +124,7 @@ export function loadConfig(projectRoot: string): ProjectConfig {
         BOUNDS.passiveTtlDays.max,
         DEFAULTS.passiveTtlDays
       ),
-      embeddingModel: sanitizeOptionalString(raw.embeddingModel),
+      embeddingModel: sanitizeEmbeddingModel(raw.embeddingModel),
       primaryDirs: sanitizePatterns(raw.primaryDirs),
       archiveDirs: sanitizePatterns(raw.archiveDirs),
     };

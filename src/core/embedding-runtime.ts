@@ -1,9 +1,9 @@
 import type Database from "better-sqlite3";
-import { LocalEmbedder } from "./embedder.js";
 import { VectorStore } from "./vector-store.js";
 import { CrossEncoderReranker } from "./reranker.js";
 import type { EmbeddingRuntime } from "./types.js";
 import { createLogger } from "../utils/logger.js";
+import { createLocalEmbedderForModel, resolveEmbeddingModel } from "./embedding-models.js";
 
 const log = createLogger("embedding-runtime");
 
@@ -11,14 +11,20 @@ export async function createEmbeddingRuntime(
   db: Database.Database,
   options: { modelName?: string | undefined } = {}
 ): Promise<EmbeddingRuntime | null> {
-  if (!options.modelName) return null;
+  const model = resolveEmbeddingModel(options.modelName);
+  if (model.kind === "disabled") {
+    return null;
+  }
 
   try {
-    const embedder = await LocalEmbedder.create({
-      modelName: options.modelName,
-    });
+    if (model.kind === "remote") {
+      throw new Error(`Remote embedding model ${model.configuredName} is not implemented yet`);
+    }
+
+    const embedder = await createLocalEmbedderForModel(model);
     const vectorStore = new VectorStore(db, {
-      modelName: options.modelName,
+      dimensions: model.dimensions,
+      modelName: model.configuredName,
     });
     vectorStore.initialize();
 
@@ -35,11 +41,11 @@ export async function createEmbeddingRuntime(
       embedder,
       vectorStore,
       reranker,
-      modelName: options.modelName,
+      modelName: model.configuredName,
     };
   } catch (error) {
     log.warn("embeddings unavailable; continuing with chunk-only indexing", {
-      modelName: options.modelName,
+      modelName: model.configuredName,
       error: error instanceof Error ? error.message : String(error),
     });
     return null;

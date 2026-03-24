@@ -33,7 +33,7 @@ describe("loadConfig", () => {
       confidenceDecay: 0.9,
       gcThreshold: 0.5,
       passiveTtlDays: 7,
-      embeddingModel: undefined,
+      embeddingModel: "none",
       primaryDirs: [],
       archiveDirs: [],
     });
@@ -113,7 +113,7 @@ describe("loadConfig", () => {
       confidenceDecay: 0,
       gcThreshold: 0.5,
       passiveTtlDays: 1,
-      embeddingModel: undefined,
+      embeddingModel: "none",
       primaryDirs: [],
       archiveDirs: [],
     });
