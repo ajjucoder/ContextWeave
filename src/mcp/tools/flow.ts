@@ -1,6 +1,7 @@
 import { z } from "zod/v3";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type Database from "better-sqlite3";
+import { topologicalSort } from "../../core/graph.js";
 import { symbolQueries } from "../../db/queries/symbols.js";
 import { edgeQueries } from "../../db/queries/edges.js";
 import { getRegisterTool } from "./register-helper.js";
@@ -382,12 +383,27 @@ export interface FlowResult {
   isLimited: boolean;
 }
 
+export type FlowOrder = "discovery" | "topological";
+
+function formatFlowSymbol(
+  db: Database.Database,
+  symbolId: number
+): string | null {
+  const symbols = symbolQueries(db);
+  const files = fileQueries(db);
+  const symbol = symbols.getById(symbolId);
+  if (!symbol) return null;
+  const file = files.getById(symbol.fileId);
+  return `${symbol.kind} ${formatSymbolDisplayName(db, symbol)} (${file?.path ?? "unknown"}:${symbol.startLine})`;
+}
+
 export function buildFlowResult(
   db: Database.Database,
   source: string,
   target: string | undefined,
   maxHops: number,
-  direction: "outgoing" | "incoming" | "both" = "outgoing"
+  direction: "outgoing" | "incoming" | "both" = "outgoing",
+  order: FlowOrder = "discovery"
 ): FlowResult {
   const symbols = symbolQueries(db);
   const files = fileQueries(db);
@@ -425,11 +441,46 @@ export function buildFlowResult(
         isLimited: false,
       };
     }
+
+    if (order === "topological") {
+      const ordered = [...bestPath].reverse();
+      const lines = [`Topological flow: ${source} → ${target}\n`];
+      for (let i = 0; i < ordered.length; i++) {
+        const step = ordered[i]!;
+        lines.push(`  ${i + 1}. ${step.kind} ${step.name} (${step.file}:${step.line})`);
+      }
+      return { text: lines.join("\n"), isLimited: false };
+    }
+
     const lines = [`Flow: ${source} → ${target}\n`];
     for (let i = 0; i < bestPath.length; i++) {
       const step = bestPath[i]!;
       const prefix = i === 0 ? "  " : `  ${"─".repeat(i)}→ `;
       lines.push(`${prefix}[${step.edgeKind}] ${step.kind} ${step.name} (${step.file}:${step.line})`);
+    }
+    return { text: lines.join("\n"), isLimited: false };
+  }
+
+  if (direction === "outgoing" && order === "topological") {
+    const orderedIds = topologicalSort(db, [sourceId], maxHops);
+    if (orderedIds.length <= 1) {
+      const sym = symbols.getById(sourceId);
+      const file = sym ? files.getById(sym.fileId) : undefined;
+      const location = file && sym ? `${file.path}:${sym.startLine}` : "unknown";
+      const text = [
+        `No outgoing flows found from "${source}" (flows_limited: true).`,
+        `Symbol location: ${location}`,
+        `Reason: topological order needs at least one reachable dependency edge.`,
+        `Recommendation: use cw_read to inspect "${source}" directly.`,
+      ].join("\n");
+      return { text, isLimited: true };
+    }
+
+    const lines = [`Topological flow from "${source}" (max ${maxHops} hops):\n`];
+    for (let i = 0; i < orderedIds.length; i++) {
+      const text = formatFlowSymbol(db, orderedIds[i]!);
+      if (!text) continue;
+      lines.push(`  ${i + 1}. ${text}`);
     }
     return { text: lines.join("\n"), isLimited: false };
   }
@@ -529,6 +580,10 @@ export function registerFlowTool(server: McpServer, db: Database.Database): void
       .enum(["outgoing", "incoming", "both"])
       .optional()
       .describe("Flow direction: outgoing (default), incoming (find callers), or both"),
+    order: z
+      .enum(["discovery", "topological"])
+      .optional()
+      .describe("Ordering for outgoing flows: discovery (default) or topological dependency order"),
   };
 
   registerTool(
@@ -540,15 +595,24 @@ export function registerFlowTool(server: McpServer, db: Database.Database): void
       target,
       max_hops,
       direction,
+      order,
     }: {
       source: string;
       target?: string;
       max_hops?: number;
       direction?: "outgoing" | "incoming" | "both";
+      order?: FlowOrder;
     }) => {
       try {
         const maxHops = max_hops ?? 5;
-        const result = buildFlowResult(db, source, target, maxHops, direction ?? "outgoing");
+        const result = buildFlowResult(
+          db,
+          source,
+          target,
+          maxHops,
+          direction ?? "outgoing",
+          order ?? "discovery"
+        );
         return { content: [{ type: "text" as const, text: result.text }] };
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);

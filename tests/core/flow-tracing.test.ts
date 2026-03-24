@@ -330,6 +330,55 @@ export function top() { return high(); }
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it("supports topological ordering for outgoing dependency chains", async () => {
+    const root = makeRoot();
+    const db = makeDb();
+    try {
+      mkdirSync(join(root, "src"), { recursive: true });
+
+      writeFileSync(
+        join(root, "src", "db.ts"),
+        `export function db() { return "db"; }
+`
+      );
+
+      writeFileSync(
+        join(root, "src", "auth.ts"),
+        `import { db } from "./db";
+
+export function auth() { return db(); }
+`
+      );
+
+      writeFileSync(
+        join(root, "src", "controller.ts"),
+        `import { auth } from "./auth";
+
+export function handleRequest() { return auth(); }
+`
+      );
+
+      await indexProject(db, root);
+
+      const result = buildFlowResult(db, "handleRequest", undefined, 5, "outgoing", "topological");
+      const lines = result.text.split("\n");
+      const dbLine = lines.findIndex((line) => line.includes(" function db "));
+      const authLine = lines.findIndex((line) => line.includes(" function auth "));
+      const handleRequestLine = lines.findIndex((line) => line.includes(" function handleRequest "));
+
+      expect(result.isLimited).toBe(false);
+      expect(result.text).toContain('Topological flow from "handleRequest"');
+      expect(dbLine).toBeGreaterThan(-1);
+      expect(authLine).toBeGreaterThan(-1);
+      expect(handleRequestLine).toBeGreaterThan(-1);
+      expect(dbLine).toBeLessThan(authLine);
+      expect(authLine).toBeLessThan(handleRequestLine);
+    } finally {
+      db.close();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("Flow tracing — server action boundary synthesis", () => {

@@ -5,7 +5,11 @@ import { runMigrations } from "../../src/db/migrations.js";
 import { fileQueries } from "../../src/db/queries/files.js";
 import { symbolQueries } from "../../src/db/queries/symbols.js";
 import { edgeQueries } from "../../src/db/queries/edges.js";
-import { computeBetweennessCentrality, updateCentralityScores } from "../../src/core/graph.js";
+import {
+  computeBetweennessCentrality,
+  topologicalSort,
+  updateCentralityScores,
+} from "../../src/core/graph.js";
 
 let db: Database.Database;
 
@@ -116,5 +120,20 @@ describe("graph algorithms", () => {
     expect(rows.find((row) => row.id === ids.get("A"))?.betweenness).toBe(0);
     expect(rows.find((row) => row.id === ids.get("B"))?.betweenness).toBe(1);
     expect(rows.find((row) => row.id === ids.get("C"))?.betweenness).toBe(0);
+  });
+
+  it("returns dependency-first topological order for a linear call chain", () => {
+    const ids = insertGraph([
+      ["handleRequest", "auth"],
+      ["auth", "db"],
+    ]);
+
+    const ordered = topologicalSort(db, [ids.get("handleRequest")!]);
+
+    expect(ordered).toEqual([
+      ids.get("db")!,
+      ids.get("auth")!,
+      ids.get("handleRequest")!,
+    ]);
   });
 });

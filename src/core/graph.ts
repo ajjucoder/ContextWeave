@@ -205,6 +205,118 @@ export function scopedLazyBfsTraversal(
   return Array.from(visited.entries()).map(([symbolId, distance]) => ({ symbolId, distance }));
 }
 
+function collectOutgoingSubgraph(
+  db: Database.Database,
+  pivotIds: number[],
+  maxDepth = Number.POSITIVE_INFINITY
+): {
+  reachable: Set<number>;
+  distances: Map<number, number>;
+  outgoing: Map<number, number[]>;
+} {
+  const edges = edgeQueries(db);
+  const reachable = new Set<number>();
+  const distances = new Map<number, number>();
+  const outgoing = new Map<number, number[]>();
+  const queue: Array<{ symbolId: number; distance: number }> = [];
+
+  for (const pivotId of pivotIds) {
+    if (reachable.has(pivotId)) continue;
+    reachable.add(pivotId);
+    distances.set(pivotId, 0);
+    queue.push({ symbolId: pivotId, distance: 0 });
+  }
+
+  let head = 0;
+  while (head < queue.length) {
+    const current = queue[head++]!;
+    if (current.distance >= maxDepth) continue;
+
+    const nextIds = edges.getBySource(current.symbolId).map((edge) => edge.targetSymbolId);
+    outgoing.set(current.symbolId, nextIds);
+
+    for (const nextId of nextIds) {
+      if (reachable.has(nextId)) continue;
+      reachable.add(nextId);
+      distances.set(nextId, current.distance + 1);
+      queue.push({ symbolId: nextId, distance: current.distance + 1 });
+    }
+  }
+
+  for (const symbolId of reachable) {
+    if (!outgoing.has(symbolId)) {
+      outgoing.set(symbolId, []);
+    }
+  }
+
+  return { reachable, distances, outgoing };
+}
+
+function compareTopologicalQueue(
+  left: number,
+  right: number,
+  distances: Map<number, number>
+): number {
+  const distanceDelta = (distances.get(right) ?? 0) - (distances.get(left) ?? 0);
+  if (distanceDelta !== 0) return distanceDelta;
+  return left - right;
+}
+
+export function topologicalSort(
+  db: Database.Database,
+  pivotIds: number[],
+  maxDepth = Number.POSITIVE_INFINITY
+): number[] {
+  if (pivotIds.length === 0) return [];
+
+  const { reachable, distances, outgoing } = collectOutgoingSubgraph(db, pivotIds, maxDepth);
+  if (reachable.size === 0) return [];
+
+  const dependencyOutgoing = new Map<number, number[]>();
+  const indegree = new Map<number, number>();
+
+  for (const symbolId of reachable) {
+    dependencyOutgoing.set(symbolId, []);
+    indegree.set(symbolId, 0);
+  }
+
+  for (const [sourceId, targetIds] of outgoing) {
+    for (const targetId of targetIds) {
+      if (!reachable.has(targetId)) continue;
+      dependencyOutgoing.get(targetId)!.push(sourceId);
+      indegree.set(sourceId, (indegree.get(sourceId) ?? 0) + 1);
+    }
+  }
+
+  const queue = [...reachable]
+    .filter((symbolId) => (indegree.get(symbolId) ?? 0) === 0)
+    .sort((left, right) => compareTopologicalQueue(left, right, distances));
+  const ordered: number[] = [];
+
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    ordered.push(current);
+
+    for (const dependentId of dependencyOutgoing.get(current) ?? []) {
+      const nextIndegree = (indegree.get(dependentId) ?? 0) - 1;
+      indegree.set(dependentId, nextIndegree);
+      if (nextIndegree === 0) {
+        queue.push(dependentId);
+        queue.sort((left, right) => compareTopologicalQueue(left, right, distances));
+      }
+    }
+  }
+
+  if (ordered.length < reachable.size) {
+    const remaining = [...reachable]
+      .filter((symbolId) => !ordered.includes(symbolId))
+      .sort((left, right) => compareTopologicalQueue(left, right, distances));
+    ordered.push(...remaining);
+  }
+
+  return ordered;
+}
+
 const degreeStmtCache = new WeakMap<Database.Database, { out: Database.Statement; inc: Database.Statement }>();
 const batchDegreeStmtCache = new WeakMap<
   Database.Database,

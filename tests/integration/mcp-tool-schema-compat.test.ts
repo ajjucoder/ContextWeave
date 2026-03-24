@@ -59,6 +59,7 @@ describe("MCP tool schema compatibility", () => {
       source: "UserService",
       target: "DbClient",
       max_hops: 4,
+      order: "topological",
     });
     expect(parseResult?.success).toBe(true);
   });
