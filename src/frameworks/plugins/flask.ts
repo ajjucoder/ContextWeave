@@ -15,6 +15,26 @@ export const flaskFrameworkPlugin: FrameworkTracePlugin = {
     const seen = new Set<string>();
 
     for (const symbol of symbols) {
+      for (const decorator of symbol.decorators ?? []) {
+        if (decorator.name !== "route") continue;
+        const routePath = decorator.args?.[0]?.replace(/^["']|["']$/g, "") ?? "/";
+        const methodsMatch = decorator.fullText.match(FLASK_METHOD_RE);
+        const httpMethod = methodsMatch
+          ? methodsMatch[1]!.split(",")[0]!.trim().replace(/['"\s]/g, "").toUpperCase()
+          : "GET";
+        const key = `${symbol.name}:flask:${routePath}:${symbol.startLine}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        calls.push({
+          callerSymbol: symbol.name,
+          targetName: symbol.name,
+          line: symbol.startLine,
+          framework: "flask_route",
+          httpMethod,
+          routePath,
+        });
+      }
+
       const re = new RegExp(FLASK_ROUTE_RE.source, FLASK_ROUTE_RE.flags);
       for (const match of symbol.fullSource.matchAll(re)) {
         const routePath = match[1] ?? "";

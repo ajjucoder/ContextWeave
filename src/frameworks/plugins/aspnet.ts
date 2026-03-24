@@ -23,6 +23,24 @@ export const aspnetFrameworkPlugin: FrameworkTracePlugin = {
     const seen = new Set<string>();
 
     for (const symbol of symbols) {
+      for (const decorator of symbol.decorators ?? []) {
+        if (!(decorator.name in METHOD_MAP)) continue;
+        const attribute = decorator.name;
+        const routePath = decorator.args?.[0]?.replace(/^["']|["']$/g, "") ?? "/";
+        const httpMethod = METHOD_MAP[attribute] ?? "ANY";
+        const key = `${symbol.name}:aspnet:${httpMethod}:${routePath}:${symbol.startLine}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        calls.push({
+          callerSymbol: symbol.name,
+          targetName: symbol.name,
+          line: symbol.startLine,
+          framework: "aspnet_route",
+          httpMethod,
+          routePath,
+        });
+      }
+
       const re = new RegExp(ASPNET_ATTR_RE.source, ASPNET_ATTR_RE.flags);
       for (const match of symbol.fullSource.matchAll(re)) {
         const attribute = match[1] ?? "Route";

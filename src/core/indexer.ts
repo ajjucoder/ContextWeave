@@ -30,6 +30,12 @@ const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const MAX_EDGE_TARGETS_PER_REFERENCE = 24;
 const MAX_IMPORT_EDGE_SOURCES = 8;
 const MAX_GLOBAL_FALLBACK_TARGETS = 12;
+const SELF_TARGET_FRAMEWORK_PARENT_EDGE_FRAMEWORKS = new Set([
+  "spring_mapping",
+  "flask_route",
+  "fastapi_route",
+  "aspnet_route",
+]);
 const IMPORT_RESOLVE_EXTENSIONS = [
   ".ts",
   ".tsx",
@@ -877,10 +883,18 @@ function resolveEdges(
       pickTargets,
     });
     const edgeKind = frameworkCall.framework === "express_route" ? "route-handler" : "framework_entry";
+    const callerSymbol = symbols.getById(callerId);
     for (const targetId of targetIds) {
-      if (callerId === targetId) continue;
+      let sourceId = callerId;
+      if (callerId === targetId) {
+        const parentSourceId = SELF_TARGET_FRAMEWORK_PARENT_EDGE_FRAMEWORKS.has(frameworkCall.framework)
+          ? callerSymbol?.parentSymbolId ?? null
+          : null;
+        if (!parentSourceId || parentSourceId === targetId) continue;
+        sourceId = parentSourceId;
+      }
       edges.insert({
-        sourceSymbolId: callerId,
+        sourceSymbolId: sourceId,
         targetSymbolId: targetId,
         kind: edgeKind,
         createdAt: now,

@@ -14,6 +14,24 @@ export const fastapiFrameworkPlugin: FrameworkTracePlugin = {
     const seen = new Set<string>();
 
     for (const symbol of symbols) {
+      for (const decorator of symbol.decorators ?? []) {
+        const methodName = decorator.name.toLowerCase();
+        if (!["get", "post", "put", "patch", "delete", "options", "head"].includes(methodName)) continue;
+        const httpMethod = methodName.toUpperCase();
+        const routePath = decorator.args?.[0]?.replace(/^["']|["']$/g, "") ?? "/";
+        const key = `${symbol.name}:fastapi:${httpMethod}:${routePath}:${symbol.startLine}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        calls.push({
+          callerSymbol: symbol.name,
+          targetName: symbol.name,
+          line: symbol.startLine,
+          framework: "fastapi_route",
+          httpMethod,
+          routePath,
+        });
+      }
+
       const re = new RegExp(FASTAPI_ROUTE_RE.source, FASTAPI_ROUTE_RE.flags);
       for (const match of symbol.fullSource.matchAll(re)) {
         const httpMethod = (match[1] ?? "get").toUpperCase();
