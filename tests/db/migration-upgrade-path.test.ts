@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import Database from "better-sqlite3";
-import { runMigrations } from "../../src/db/migrations.js";
+import { rollbackMigration, runMigrations } from "../../src/db/migrations.js";
 
 describe("DB migration upgrade path", () => {
   it("runs all migrations on a fresh database without error", () => {
@@ -74,6 +74,103 @@ describe("DB migration upgrade path", () => {
     ).cnt;
 
     expect(count).toBe(19);
+
+    db.close();
+  });
+
+  it("rolls back migrations 16-19 to version 15", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    runMigrations(db);
+
+    const now = Date.now();
+    db.prepare(
+      "INSERT INTO sessions (id, agent_id, project_root, started_at) VALUES (?, ?, ?, ?)"
+    ).run("rollback-session", "claude-code", "/Users/dev/project", now);
+    db.prepare(
+      "INSERT INTO files (path, basename, hash, last_indexed, mtime, language, symbol_count, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run("src/main.ts", "main.ts", "hash", now, now, "typescript", 1, null);
+    db.prepare(
+      "INSERT INTO symbols (file_id, name, kind, start_line, end_line, signature, body_hash, full_source, is_exported, doc_comment, centrality, last_seen, parent_symbol_id, qualified_name) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).run(1, "main", "function", 1, 3, "function main()", "body", "function main() {}", 1, null, 0, now, null, "main");
+    db.prepare(
+      "INSERT INTO repo_profile (project_root, profile_json, detected_at) VALUES (?, ?, ?)"
+    ).run("/Users/dev/project", "{}", now);
+    db.prepare(
+      "INSERT INTO conventions (id, name, layer, source, file_count) VALUES (?, ?, ?, ?, ?)"
+    ).run("conv-id", "controller", "app", "test", 1);
+    db.prepare(
+      "INSERT INTO convention_edges (source_convention, target_convention, edge_count) VALUES (?, ?, ?)"
+    ).run("conv-id", "conv-id", 1);
+
+    rollbackMigration(db, 15);
+
+    const applied = db
+      .prepare("SELECT version FROM schema_migrations ORDER BY version")
+      .all() as Array<{ version: number }>;
+    expect(applied.map((row) => row.version)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]);
+
+    const repoProfileTable = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='repo_profile'")
+      .get();
+    const conventionsTable = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='conventions'")
+      .get();
+    const conventionEdgesTable = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='convention_edges'")
+      .get();
+    expect(repoProfileTable).toBeUndefined();
+    expect(conventionsTable).toBeUndefined();
+    expect(conventionEdgesTable).toBeUndefined();
+
+    const file = db
+      .prepare("SELECT path, basename FROM files WHERE id = 1")
+      .get() as { path: string; basename: string } | undefined;
+    expect(file).toEqual({
+      path: "/Users/dev/project/src/main.ts",
+      basename: "main.ts",
+    });
+
+    const symbolColumns = db
+      .prepare("PRAGMA table_info(symbols)")
+      .all() as Array<{ name: string }>;
+    expect(symbolColumns.some((column) => column.name === "parent_symbol_id")).toBe(false);
+    expect(symbolColumns.some((column) => column.name === "qualified_name")).toBe(false);
+
+    db.close();
+  });
+
+  it("rolls back applied migrations in reverse version order", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    runMigrations(db);
+
+    db.exec(`
+      CREATE TABLE rollback_order (
+        version INTEGER NOT NULL
+      );
+      CREATE TRIGGER schema_migrations_delete_audit
+      AFTER DELETE ON schema_migrations BEGIN
+        INSERT INTO rollback_order(version) VALUES (old.version);
+      END;
+    `);
+
+    rollbackMigration(db, 15);
+
+    const versions = db
+      .prepare("SELECT version FROM rollback_order ORDER BY rowid")
+      .all() as Array<{ version: number }>;
+    expect(versions.map((row) => row.version)).toEqual([19, 18, 17, 16]);
+
+    db.close();
+  });
+
+  it("throws when rolling back through a migration without a down function", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    runMigrations(db);
+
+    expect(() => rollbackMigration(db, 14)).toThrow(/v15/);
 
     db.close();
   });

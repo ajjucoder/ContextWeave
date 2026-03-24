@@ -5,9 +5,10 @@ import { stem } from "../utils/stemmer.js";
 
 const log = createLogger("migrations");
 
-interface Migration {
+export interface Migration {
   version: number;
   up: (db: Database.Database) => void;
+  down?: (db: Database.Database) => void;
 }
 
 const migrations: Migration[] = [
@@ -399,6 +400,31 @@ const migrations: Migration[] = [
         updatePath.run(relativePath, basename, row.id);
       }
     },
+    down(db) {
+      const rows = db.prepare("SELECT id, path FROM files").all() as Array<{ id: number; path: string }>;
+      const relativeRows = rows.filter(
+        (row) => !row.path.startsWith("/") && !/^[A-Z]:[\\/]/i.test(row.path)
+      );
+      if (relativeRows.length === 0) return;
+
+      const session = db.prepare(
+        "SELECT project_root FROM sessions ORDER BY started_at DESC LIMIT 1"
+      ).get() as { project_root: string } | undefined;
+
+      const projectRoot = session?.project_root.replace(/\\/g, "/").replace(/\/+$/, "");
+      if (!projectRoot) {
+        throw new Error("Cannot roll back migration v16 without a session project_root");
+      }
+
+      const updatePath = db.prepare("UPDATE files SET path = ?, basename = ? WHERE id = ?");
+      for (const row of relativeRows) {
+        const normalizedPath = row.path.replace(/\\/g, "/").replace(/^\/+/, "");
+        const absolutePath = `${projectRoot}/${normalizedPath}`;
+        const idx = absolutePath.lastIndexOf("/");
+        const basename = idx >= 0 ? absolutePath.slice(idx + 1) : absolutePath;
+        updatePath.run(absolutePath, basename, row.id);
+      }
+    },
   },
   {
     version: 17,
@@ -410,6 +436,9 @@ const migrations: Migration[] = [
           detected_at  INTEGER NOT NULL
         );
       `);
+    },
+    down(db) {
+      db.exec("DROP TABLE IF EXISTS repo_profile");
     },
   },
   {
@@ -431,6 +460,12 @@ const migrations: Migration[] = [
         );
       `);
     },
+    down(db) {
+      db.exec(`
+        DROP TABLE IF EXISTS convention_edges;
+        DROP TABLE IF EXISTS conventions;
+      `);
+    },
   },
   {
     version: 19,
@@ -448,16 +483,36 @@ const migrations: Migration[] = [
         CREATE INDEX IF NOT EXISTS idx_symbols_parent_symbol_id ON symbols (parent_symbol_id);
       `);
     },
+    down(db) {
+      const columns = db.prepare("PRAGMA table_info(symbols)").all() as Array<{ name: string }>;
+      const names = new Set(columns.map((column) => column.name));
+
+      db.exec(`
+        DROP INDEX IF EXISTS idx_symbols_qualified_name;
+        DROP INDEX IF EXISTS idx_symbols_parent_symbol_id;
+      `);
+
+      if (names.has("qualified_name")) {
+        db.exec("ALTER TABLE symbols DROP COLUMN qualified_name");
+      }
+      if (names.has("parent_symbol_id")) {
+        db.exec("ALTER TABLE symbols DROP COLUMN parent_symbol_id");
+      }
+    },
   },
 ];
 
-export function runMigrations(db: Database.Database): void {
+function ensureSchemaMigrationsTable(db: Database.Database): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS schema_migrations (
       version    INTEGER PRIMARY KEY,
       applied_at INTEGER NOT NULL
     );
   `);
+}
+
+export function runMigrations(db: Database.Database): void {
+  ensureSchemaMigrationsTable(db);
 
   const applied = new Set(
     db
@@ -486,4 +541,44 @@ export function runMigrations(db: Database.Database): void {
 
   runAll();
   log.info(`applied ${pending.length} migration(s)`);
+}
+
+export function rollbackMigration(db: Database.Database, targetVersion: number): void {
+  if (!Number.isInteger(targetVersion) || targetVersion < 0) {
+    throw new Error(`Invalid rollback target version: ${targetVersion}`);
+  }
+
+  ensureSchemaMigrationsTable(db);
+
+  const appliedVersions = new Set(
+    db
+      .prepare("SELECT version FROM schema_migrations")
+      .all()
+      .map((row) => (row as { version: number }).version)
+  );
+
+  const rollbackPlan = migrations
+    .filter((migration) => appliedVersions.has(migration.version) && migration.version > targetVersion)
+    .sort((a, b) => b.version - a.version);
+
+  if (rollbackPlan.length === 0) {
+    log.debug(`no migrations to roll back for target v${targetVersion}`);
+    return;
+  }
+
+  const missingDown = rollbackPlan.find((migration) => typeof migration.down !== "function");
+  if (missingDown) {
+    throw new Error(`Cannot roll back migration v${missingDown.version}: down() not implemented`);
+  }
+
+  const rollbackAll = db.transaction(() => {
+    for (const migration of rollbackPlan) {
+      log.info(`rolling back migration v${migration.version}`);
+      migration.down!(db);
+      db.prepare("DELETE FROM schema_migrations WHERE version = ?").run(migration.version);
+    }
+  });
+
+  rollbackAll();
+  log.info(`rolled back ${rollbackPlan.length} migration(s) to v${targetVersion}`);
 }
