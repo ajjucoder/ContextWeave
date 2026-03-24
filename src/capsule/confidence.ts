@@ -213,6 +213,19 @@ export function computeCoverageConfidence(params: ConfidenceParams): number {
     }
   }
 
+  const focusedExactLookup =
+    intent !== "broad" &&
+    (queryTerms?.length ?? 0) === 1 &&
+    pivotCoverage >= 0.99 &&
+    relevantCoverage >= 0.99 &&
+    dependencyCoverage >= 0.99 &&
+    noiseRatio <= 0.35 &&
+    tokenUtilization >= 0.18 &&
+    tokenUtilization < 0.30;
+  if (focusedExactLookup) {
+    confidence = Math.max(confidence, 0.18);
+  }
+
   return clamp(confidence);
 }
 
