@@ -177,11 +177,21 @@ CREATE TABLE IF NOT EXISTS chunks (
   UNIQUE(file_id, chunk_index)
 );
 
-CREATE TABLE IF NOT EXISTS chunk_embeddings (
-  chunk_id    INTEGER PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS symbol_embeddings (
+  symbol_id   INTEGER PRIMARY KEY REFERENCES symbols(id) ON DELETE CASCADE,
   embedding   BLOB    NOT NULL,
-  dimensions  INTEGER NOT NULL DEFAULT 384,
-  updated_at  INTEGER NOT NULL
+  model_name  TEXT    NOT NULL,
+  created_at  INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chunk_embeddings (
+  id          INTEGER PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
+  file_id     INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+  start_line  INTEGER NOT NULL,
+  end_line    INTEGER NOT NULL,
+  text_hash   TEXT    NOT NULL,
+  embedding   BLOB    NOT NULL,
+  model_name  TEXT    NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS repo_profile (
@@ -231,6 +241,9 @@ CREATE INDEX IF NOT EXISTS idx_observations_session ON observations(session_id);
 CREATE INDEX IF NOT EXISTS idx_observations_scope ON observations(scope, archived);
 CREATE INDEX IF NOT EXISTS idx_chunks_file ON chunks(file_id, chunk_index);
 CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(content_hash);
+CREATE INDEX IF NOT EXISTS idx_symbol_embeddings_model ON symbol_embeddings(model_name);
+CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_file_model ON chunk_embeddings(file_id, model_name);
+CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_text_hash ON chunk_embeddings(text_hash);
 CREATE INDEX IF NOT EXISTS idx_symbols_qualified_name ON symbols(qualified_name);
 CREATE INDEX IF NOT EXISTS idx_symbols_parent_symbol_id ON symbols(parent_symbol_id);
 `;

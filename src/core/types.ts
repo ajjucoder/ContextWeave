@@ -149,6 +149,11 @@ export interface VectorStoreStats {
 export interface ChunkEmbeddingEntry {
   chunkId: number;
   embedding: Float32Array;
+  fileId?: number;
+  startLine?: number;
+  endLine?: number;
+  textHash?: string;
+  modelName?: string;
 }
 
 export interface EmbeddingRuntime {

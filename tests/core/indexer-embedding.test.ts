@@ -111,6 +111,11 @@ describe("indexer embedding integration", () => {
     ).count;
     expect(currentEmbeddedCount).toBe(currentChunkCount);
 
+    const storedModels = db
+      .prepare("SELECT DISTINCT model_name FROM chunk_embeddings ORDER BY model_name")
+      .all() as Array<{ model_name: string }>;
+    expect(storedModels).toEqual([{ model_name: "mock-mini" }]);
+
     const matches = vectorStore.search(new Float32Array([0, 1, 50]), 5);
     expect(matches[0]?.entityNames).toContain("saveUser");
 

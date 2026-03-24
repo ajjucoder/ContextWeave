@@ -27,6 +27,7 @@ describe("DB migration upgrade path", () => {
     expect(tableNames).toContain("file_summaries");
     expect(tableNames).toContain("file_clusters");
     expect(tableNames).toContain("chunks");
+    expect(tableNames).toContain("symbol_embeddings");
     expect(tableNames).toContain("chunk_embeddings");
     expect(tableNames).toContain("schema_migrations");
 
@@ -43,7 +44,7 @@ describe("DB migration upgrade path", () => {
       .all() as Array<{ version: number }>;
     const versions = applied.map((r) => r.version);
 
-    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22]);
+    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
 
     db.close();
   });
@@ -73,7 +74,7 @@ describe("DB migration upgrade path", () => {
         .get() as { cnt: number }
     ).cnt;
 
-    expect(count).toBe(22);
+    expect(count).toBe(23);
 
     db.close();
   });
@@ -165,7 +166,7 @@ describe("DB migration upgrade path", () => {
     const versions = db
       .prepare("SELECT version FROM rollback_order ORDER BY rowid")
       .all() as Array<{ version: number }>;
-    expect(versions.map((row) => row.version)).toEqual([22, 21, 20, 19, 18, 17, 16]);
+    expect(versions.map((row) => row.version)).toEqual([23, 22, 21, 20, 19, 18, 17, 16]);
 
     db.close();
   });
@@ -218,6 +219,131 @@ describe("DB migration upgrade path", () => {
 
     expect(visibilityColumn).toBeDefined();
     expect(visibilityColumn?.dflt_value).toBe("'public'");
+
+    db.close();
+  });
+
+  it("adds embedding tables in v23", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    runMigrations(db);
+
+    const symbolEmbeddingColumns = db
+      .prepare("PRAGMA table_info(symbol_embeddings)")
+      .all() as Array<{ name: string }>;
+    const chunkEmbeddingColumns = db
+      .prepare("PRAGMA table_info(chunk_embeddings)")
+      .all() as Array<{ name: string }>;
+
+    expect(symbolEmbeddingColumns.map((column) => column.name)).toEqual([
+      "symbol_id",
+      "embedding",
+      "model_name",
+      "created_at",
+    ]);
+    expect(chunkEmbeddingColumns.map((column) => column.name)).toEqual([
+      "id",
+      "file_id",
+      "start_line",
+      "end_line",
+      "text_hash",
+      "embedding",
+      "model_name",
+    ]);
+
+    db.close();
+  });
+
+  it("migrates legacy chunk_embeddings rows to the v23 schema", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    runMigrations(db);
+
+    db.prepare("DELETE FROM schema_migrations WHERE version = 23").run();
+    db.exec(`
+      ALTER TABLE chunk_embeddings RENAME TO chunk_embeddings_v23;
+      CREATE TABLE chunk_embeddings (
+        chunk_id    INTEGER PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
+        embedding   BLOB    NOT NULL,
+        dimensions  INTEGER NOT NULL DEFAULT 384,
+        updated_at  INTEGER NOT NULL
+      );
+      DROP TABLE chunk_embeddings_v23;
+    `);
+
+    const now = Date.now();
+    const fileId = Number(
+      db.prepare(
+        "INSERT INTO files (path, basename, hash, last_indexed, mtime, language, symbol_count, error) VALUES (?, ?, ?, ?, ?, ?, ?, ?)"
+      ).run("src/embed.ts", "embed.ts", "hash", now, now, "typescript", 0, null).lastInsertRowid
+    );
+    const chunkId = Number(
+      db.prepare(`
+        INSERT INTO chunks (
+          file_id,
+          chunk_index,
+          start_line,
+          end_line,
+          start_byte,
+          end_byte,
+          text,
+          contextualized_text,
+          scope_chain,
+          import_context,
+          sibling_context,
+          entity_context,
+          token_count,
+          content_hash,
+          created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        fileId,
+        0,
+        4,
+        9,
+        0,
+        100,
+        "const embed = true;",
+        "const embed = true;",
+        "[]",
+        "[]",
+        "[]",
+        "[]",
+        6,
+        "chunk-hash",
+        now
+      ).lastInsertRowid
+    );
+
+    db.prepare(
+      "INSERT INTO chunk_embeddings (chunk_id, embedding, dimensions, updated_at) VALUES (?, ?, ?, ?)"
+    ).run(chunkId, Buffer.from(new Float32Array([1, 2, 3]).buffer), 3, now);
+
+    runMigrations(db);
+
+    const migrated = db.prepare(`
+      SELECT id, file_id, start_line, end_line, text_hash, model_name
+      FROM chunk_embeddings
+      WHERE id = ?
+    `).get(chunkId) as
+      | {
+          id: number;
+          file_id: number;
+          start_line: number;
+          end_line: number;
+          text_hash: string;
+          model_name: string;
+        }
+      | undefined;
+
+    expect(migrated).toEqual({
+      id: chunkId,
+      file_id: fileId,
+      start_line: 4,
+      end_line: 9,
+      text_hash: "chunk-hash",
+      model_name: "legacy",
+    });
 
     db.close();
   });
@@ -322,13 +448,14 @@ describe("DB migration upgrade path", () => {
     db.close();
   });
 
-  it("chunk_embeddings table exists with chunk_id uniqueness after v12", () => {
+  it("chunk_embeddings table ends on the v23 schema after upgrade", () => {
     const db = new Database(":memory:");
     db.pragma("foreign_keys = ON");
     runMigrations(db);
 
     const columns = db.prepare("PRAGMA table_info(chunk_embeddings)").all() as Array<{ name: string; pk: number }>;
-    expect(columns.some((column) => column.name === "chunk_id" && column.pk === 1)).toBe(true);
+    expect(columns.some((column) => column.name === "id" && column.pk === 1)).toBe(true);
+    expect(columns.some((column) => column.name === "file_id")).toBe(true);
     expect(columns.some((column) => column.name === "embedding")).toBe(true);
 
     db.close();

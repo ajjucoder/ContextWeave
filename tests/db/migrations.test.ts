@@ -75,4 +75,72 @@ describe("migrations", () => {
     expect(visibilityColumn).toBeDefined();
     expect(visibilityColumn?.dflt_value).toBe("'public'");
   });
+
+  it("v23: symbol_embeddings table stores embeddings per symbol with cascade delete", () => {
+    const info = db.prepare("PRAGMA table_info(symbol_embeddings)").all() as Array<{
+      name: string;
+      pk: number;
+      type: string;
+    }>;
+    expect(info.map((column) => column.name)).toEqual([
+      "symbol_id",
+      "embedding",
+      "model_name",
+      "created_at",
+    ]);
+    expect(info.find((column) => column.name === "symbol_id")?.pk).toBe(1);
+    expect(info.find((column) => column.name === "embedding")?.type).toBe("BLOB");
+
+    const foreignKeys = db.prepare("PRAGMA foreign_key_list(symbol_embeddings)").all() as Array<{
+      table: string;
+      from: string;
+      on_delete: string;
+    }>;
+    expect(foreignKeys).toEqual([
+      expect.objectContaining({
+        table: "symbols",
+        from: "symbol_id",
+        on_delete: "CASCADE",
+      }),
+    ]);
+  });
+
+  it("v23: chunk_embeddings table tracks file ranges and cascades on file delete", () => {
+    const info = db.prepare("PRAGMA table_info(chunk_embeddings)").all() as Array<{
+      name: string;
+      pk: number;
+      type: string;
+    }>;
+    expect(info.map((column) => column.name)).toEqual([
+      "id",
+      "file_id",
+      "start_line",
+      "end_line",
+      "text_hash",
+      "embedding",
+      "model_name",
+    ]);
+    expect(info.find((column) => column.name === "id")?.pk).toBe(1);
+    expect(info.find((column) => column.name === "embedding")?.type).toBe("BLOB");
+
+    const foreignKeys = db.prepare("PRAGMA foreign_key_list(chunk_embeddings)").all() as Array<{
+      table: string;
+      from: string;
+      on_delete: string;
+    }>;
+    expect(foreignKeys).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "files",
+          from: "file_id",
+          on_delete: "CASCADE",
+        }),
+        expect.objectContaining({
+          table: "chunks",
+          from: "id",
+          on_delete: "CASCADE",
+        }),
+      ])
+    );
+  });
 });

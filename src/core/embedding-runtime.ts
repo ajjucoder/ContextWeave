@@ -17,7 +17,9 @@ export async function createEmbeddingRuntime(
     const embedder = await LocalEmbedder.create({
       modelName: options.modelName,
     });
-    const vectorStore = new VectorStore(db);
+    const vectorStore = new VectorStore(db, {
+      modelName: options.modelName,
+    });
     vectorStore.initialize();
 
     let reranker: CrossEncoderReranker | undefined;

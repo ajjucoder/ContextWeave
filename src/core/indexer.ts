@@ -1248,7 +1248,12 @@ async function embedChunksForFiles(
   runtime.vectorStore.storeBatch(
     chunks.map((chunk, index) => ({
       chunkId: chunk.id,
+      fileId: chunk.fileId,
+      startLine: chunk.startLine,
+      endLine: chunk.endLine,
+      textHash: chunk.contentHash,
       embedding: embeddings[index]!,
+      modelName: runtime.modelName,
     }))
   );
 

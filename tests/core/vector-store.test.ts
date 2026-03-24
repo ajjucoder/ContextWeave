@@ -63,7 +63,7 @@ describe("VectorStore", () => {
     const alphaChunkId = seedChunk(db, "src/alpha.ts", 0, "alpha");
     const betaChunkId = seedChunk(db, "src/beta.ts", 0, "beta");
 
-    const store = new VectorStore(db, { dimensions: 3 });
+    const store = new VectorStore(db, { dimensions: 3, modelName: "test-mini" });
     store.initialize();
     store.storeEmbedding(alphaChunkId, new Float32Array([1, 0, 0]));
 
@@ -76,9 +76,24 @@ describe("VectorStore", () => {
     });
 
     const stored = db
-      .prepare("SELECT vec_to_json(embedding) AS embedding FROM chunk_embeddings WHERE chunk_id = ?")
-      .get(alphaChunkId) as { embedding: string };
+      .prepare("SELECT file_id, start_line, end_line, text_hash, model_name, vec_to_json(embedding) AS embedding FROM chunk_embeddings WHERE id = ?")
+      .get(alphaChunkId) as {
+        file_id: number;
+        start_line: number;
+        end_line: number;
+        text_hash: string;
+        model_name: string;
+        embedding: string;
+      };
     expect(stored.embedding).toBe("[1.000000,0.000000,0.000000]");
+    expect(stored).toEqual({
+      file_id: 1,
+      start_line: 1,
+      end_line: 3,
+      text_hash: "alpha-hash",
+      model_name: "test-mini",
+      embedding: "[1.000000,0.000000,0.000000]",
+    });
 
     db.close();
   });
@@ -92,7 +107,7 @@ describe("VectorStore", () => {
     const betaChunkId = seedChunk(db, "src/beta.ts", 0, "beta");
     const gammaChunkId = seedChunk(db, "docs/gamma.ts", 0, "gamma");
 
-    const store = new VectorStore(db, { dimensions: 3 });
+    const store = new VectorStore(db, { dimensions: 3, modelName: "test-mini" });
     store.initialize();
     store.storeBatch([
       { chunkId: alphaChunkId, embedding: new Float32Array([1, 0, 0]) },
@@ -119,7 +134,7 @@ describe("VectorStore", () => {
     runMigrations(db);
 
     const chunkId = seedChunk(db, "src/alpha.ts", 0, "alpha");
-    const store = new VectorStore(db, { dimensions: 3 });
+    const store = new VectorStore(db, { dimensions: 3, modelName: "test-mini" });
     store.initialize();
 
     expect(() => store.storeEmbedding(chunkId, new Float32Array([1, 0]))).toThrow(/3/);

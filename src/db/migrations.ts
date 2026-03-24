@@ -562,6 +562,118 @@ const migrations: Migration[] = [
       }
     },
   },
+  {
+    version: 23,
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS symbol_embeddings (
+          symbol_id   INTEGER PRIMARY KEY REFERENCES symbols(id) ON DELETE CASCADE,
+          embedding   BLOB    NOT NULL,
+          model_name  TEXT    NOT NULL,
+          created_at  INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_symbol_embeddings_model ON symbol_embeddings(model_name);
+      `);
+
+      const chunkEmbeddingColumns = db.prepare("PRAGMA table_info(chunk_embeddings)").all() as Array<{ name: string }>;
+      const columnNames = new Set(chunkEmbeddingColumns.map((column) => column.name));
+      const hasNewSchema = [
+        "id",
+        "file_id",
+        "start_line",
+        "end_line",
+        "text_hash",
+        "embedding",
+        "model_name",
+      ].every((column) => columnNames.has(column));
+
+      if (!hasNewSchema) {
+        const legacyTableExists = db
+          .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='chunk_embeddings'")
+          .get() as { name: string } | undefined;
+
+        if (legacyTableExists) {
+          db.exec("ALTER TABLE chunk_embeddings RENAME TO chunk_embeddings_legacy");
+        }
+
+        db.exec(`
+          CREATE TABLE IF NOT EXISTS chunk_embeddings (
+            id          INTEGER PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
+            file_id     INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+            start_line  INTEGER NOT NULL,
+            end_line    INTEGER NOT NULL,
+            text_hash   TEXT    NOT NULL,
+            embedding   BLOB    NOT NULL,
+            model_name  TEXT    NOT NULL
+          );
+        `);
+
+        const legacyColumns = db.prepare("PRAGMA table_info(chunk_embeddings_legacy)").all() as Array<{ name: string }>;
+        const legacyColumnNames = new Set(legacyColumns.map((column) => column.name));
+        if (legacyColumnNames.has("chunk_id")) {
+          db.exec(`
+            INSERT INTO chunk_embeddings (id, file_id, start_line, end_line, text_hash, embedding, model_name)
+            SELECT
+              c.id,
+              c.file_id,
+              c.start_line,
+              c.end_line,
+              c.content_hash,
+              ce.embedding,
+              'legacy'
+            FROM chunk_embeddings_legacy ce
+            INNER JOIN chunks c ON c.id = ce.chunk_id
+          `);
+        } else if (legacyColumnNames.has("id")) {
+          db.exec(`
+            INSERT INTO chunk_embeddings (id, file_id, start_line, end_line, text_hash, embedding, model_name)
+            SELECT id, file_id, start_line, end_line, text_hash, embedding, model_name
+            FROM chunk_embeddings_legacy
+          `);
+        }
+
+        db.exec("DROP TABLE IF EXISTS chunk_embeddings_legacy");
+      }
+
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_file_model ON chunk_embeddings(file_id, model_name);
+        CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_text_hash ON chunk_embeddings(text_hash);
+      `);
+    },
+    down(db) {
+      const chunkEmbeddingColumns = db.prepare("PRAGMA table_info(chunk_embeddings)").all() as Array<{ name: string }>;
+      const hasNewSchema = chunkEmbeddingColumns.some((column) => column.name === "model_name");
+
+      if (hasNewSchema) {
+        db.exec("ALTER TABLE chunk_embeddings RENAME TO chunk_embeddings_v23");
+      }
+
+      db.exec(`
+        DROP INDEX IF EXISTS idx_chunk_embeddings_file_model;
+        DROP INDEX IF EXISTS idx_chunk_embeddings_text_hash;
+        DROP INDEX IF EXISTS idx_symbol_embeddings_model;
+        DROP TABLE IF EXISTS symbol_embeddings;
+        CREATE TABLE IF NOT EXISTS chunk_embeddings (
+          chunk_id    INTEGER PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
+          embedding   BLOB    NOT NULL,
+          dimensions  INTEGER NOT NULL DEFAULT 384,
+          updated_at  INTEGER NOT NULL
+        );
+      `);
+
+      const migratedRows = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='chunk_embeddings_v23'")
+        .get() as { name: string } | undefined;
+      if (migratedRows) {
+        db.exec(`
+          INSERT INTO chunk_embeddings (chunk_id, embedding, dimensions, updated_at)
+          SELECT id, embedding, 384, CAST(strftime('%s','now') AS INTEGER) * 1000
+          FROM chunk_embeddings_v23
+        `);
+        db.exec("DROP TABLE IF EXISTS chunk_embeddings_v23");
+      }
+    },
+  },
 ];
 
 function ensureSchemaMigrationsTable(db: Database.Database): void {

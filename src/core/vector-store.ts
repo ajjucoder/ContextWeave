@@ -5,6 +5,7 @@ import { DEFAULT_EMBEDDING_DIMENSIONS } from "./embedder.js";
 
 interface VectorStoreOptions {
   dimensions?: number;
+  modelName?: string;
 }
 
 const loadedExtensions = new WeakSet<Database.Database>();
@@ -31,12 +32,14 @@ function mapSearchResult(row: Record<string, unknown>): VectorSearchResult {
 
 export class VectorStore {
   private readonly dimensions: number;
+  private readonly modelName: string;
 
   constructor(
     private readonly db: Database.Database,
     options: VectorStoreOptions = {}
   ) {
     this.dimensions = options.dimensions ?? DEFAULT_EMBEDDING_DIMENSIONS;
+    this.modelName = options.modelName ?? "unknown";
   }
 
   initialize(): void {
@@ -47,43 +50,71 @@ export class VectorStore {
 
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS chunk_embeddings (
-        chunk_id    INTEGER PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
+        id          INTEGER PRIMARY KEY REFERENCES chunks(id) ON DELETE CASCADE,
+        file_id     INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+        start_line  INTEGER NOT NULL,
+        end_line    INTEGER NOT NULL,
+        text_hash   TEXT    NOT NULL,
         embedding   BLOB    NOT NULL,
-        dimensions  INTEGER NOT NULL DEFAULT ${DEFAULT_EMBEDDING_DIMENSIONS},
-        updated_at  INTEGER NOT NULL
+        model_name  TEXT    NOT NULL
       );
+      CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_file_model ON chunk_embeddings(file_id, model_name);
+      CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_text_hash ON chunk_embeddings(text_hash);
     `);
   }
 
   storeEmbedding(chunkId: number, embedding: Float32Array): void {
     this.initialize();
     this.validateEmbedding(embedding);
+    const chunkMetadata = this.getChunkMetadata(chunkId);
     this.db.prepare(`
-      INSERT INTO chunk_embeddings (chunk_id, embedding, dimensions, updated_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(chunk_id) DO UPDATE SET
+      INSERT INTO chunk_embeddings (id, file_id, start_line, end_line, text_hash, embedding, model_name)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        file_id = excluded.file_id,
+        start_line = excluded.start_line,
+        end_line = excluded.end_line,
+        text_hash = excluded.text_hash,
         embedding = excluded.embedding,
-        dimensions = excluded.dimensions,
-        updated_at = excluded.updated_at
-    `).run(chunkId, toVectorBuffer(embedding), this.dimensions, Date.now());
+        model_name = excluded.model_name
+    `).run(
+      chunkId,
+      chunkMetadata.fileId,
+      chunkMetadata.startLine,
+      chunkMetadata.endLine,
+      chunkMetadata.textHash,
+      toVectorBuffer(embedding),
+      this.modelName
+    );
   }
 
   storeBatch(entries: ChunkEmbeddingEntry[]): void {
     this.initialize();
     const insert = this.db.prepare(`
-      INSERT INTO chunk_embeddings (chunk_id, embedding, dimensions, updated_at)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(chunk_id) DO UPDATE SET
+      INSERT INTO chunk_embeddings (id, file_id, start_line, end_line, text_hash, embedding, model_name)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(id) DO UPDATE SET
+        file_id = excluded.file_id,
+        start_line = excluded.start_line,
+        end_line = excluded.end_line,
+        text_hash = excluded.text_hash,
         embedding = excluded.embedding,
-        dimensions = excluded.dimensions,
-        updated_at = excluded.updated_at
+        model_name = excluded.model_name
     `);
 
     const writeAll = this.db.transaction((rows: ChunkEmbeddingEntry[]) => {
-      const now = Date.now();
       for (const row of rows) {
         this.validateEmbedding(row.embedding);
-        insert.run(row.chunkId, toVectorBuffer(row.embedding), this.dimensions, now);
+        const chunkMetadata = this.getChunkMetadata(row.chunkId, row);
+        insert.run(
+          row.chunkId,
+          chunkMetadata.fileId,
+          chunkMetadata.startLine,
+          chunkMetadata.endLine,
+          chunkMetadata.textHash,
+          toVectorBuffer(row.embedding),
+          chunkMetadata.modelName
+        );
       }
     });
 
@@ -106,37 +137,37 @@ export class VectorStore {
     const rows = pathFilter
       ? this.db.prepare(`
           SELECT
-            ce.chunk_id,
-            c.file_id,
+            ce.id AS chunk_id,
+            ce.file_id,
             f.path AS file_path,
-            c.start_line,
-            c.end_line,
+            ce.start_line,
+            ce.end_line,
             vec_distance_cosine(ce.embedding, ?) AS distance,
             c.scope_chain,
             c.entity_context,
             c.token_count
           FROM chunk_embeddings ce
-          INNER JOIN chunks c ON c.id = ce.chunk_id
-          INNER JOIN files f ON f.id = c.file_id
+          INNER JOIN chunks c ON c.id = ce.id
+          INNER JOIN files f ON f.id = ce.file_id
           WHERE f.path LIKE ? ESCAPE '\\'
-          ORDER BY distance ASC, ce.chunk_id ASC
+          ORDER BY distance ASC, ce.id ASC
           LIMIT ?
         `).all(vector, pathFilter, limit)
       : this.db.prepare(`
           SELECT
-            ce.chunk_id,
-            c.file_id,
+            ce.id AS chunk_id,
+            ce.file_id,
             f.path AS file_path,
-            c.start_line,
-            c.end_line,
+            ce.start_line,
+            ce.end_line,
             vec_distance_cosine(ce.embedding, ?) AS distance,
             c.scope_chain,
             c.entity_context,
             c.token_count
           FROM chunk_embeddings ce
-          INNER JOIN chunks c ON c.id = ce.chunk_id
-          INNER JOIN files f ON f.id = c.file_id
-          ORDER BY distance ASC, ce.chunk_id ASC
+          INNER JOIN chunks c ON c.id = ce.id
+          INNER JOIN files f ON f.id = ce.file_id
+          ORDER BY distance ASC, ce.id ASC
           LIMIT ?
         `).all(vector, limit);
 
@@ -145,7 +176,7 @@ export class VectorStore {
 
   hasEmbedding(chunkId: number): boolean {
     this.initialize();
-    const row = this.db.prepare("SELECT 1 FROM chunk_embeddings WHERE chunk_id = ?").get(chunkId);
+    const row = this.db.prepare("SELECT 1 FROM chunk_embeddings WHERE id = ?").get(chunkId);
     return !!row;
   }
 
@@ -154,11 +185,51 @@ export class VectorStore {
     return this.db.prepare(`
       SELECT
         COUNT(c.id) AS total,
-        COUNT(ce.chunk_id) AS embedded,
-        COUNT(c.id) - COUNT(ce.chunk_id) AS pending
+        COUNT(ce.id) AS embedded,
+        COUNT(c.id) - COUNT(ce.id) AS pending
       FROM chunks c
-      LEFT JOIN chunk_embeddings ce ON ce.chunk_id = c.id
+      LEFT JOIN chunk_embeddings ce ON ce.id = c.id
     `).get() as VectorStoreStats;
+  }
+
+  private getChunkMetadata(
+    chunkId: number,
+    entry?: ChunkEmbeddingEntry
+  ): { fileId: number; startLine: number; endLine: number; textHash: string; modelName: string } {
+    if (
+      typeof entry?.fileId === "number" &&
+      typeof entry.startLine === "number" &&
+      typeof entry.endLine === "number" &&
+      typeof entry.textHash === "string"
+    ) {
+      return {
+        fileId: entry.fileId,
+        startLine: entry.startLine,
+        endLine: entry.endLine,
+        textHash: entry.textHash,
+        modelName: entry.modelName ?? this.modelName,
+      };
+    }
+
+    const row = this.db.prepare(`
+      SELECT file_id, start_line, end_line, content_hash
+      FROM chunks
+      WHERE id = ?
+    `).get(chunkId) as
+      | { file_id: number; start_line: number; end_line: number; content_hash: string }
+      | undefined;
+
+    if (!row) {
+      throw new Error(`Missing chunk metadata for embedding row ${chunkId}`);
+    }
+
+    return {
+      fileId: row.file_id,
+      startLine: row.start_line,
+      endLine: row.end_line,
+      textHash: row.content_hash,
+      modelName: entry?.modelName ?? this.modelName,
+    };
   }
 
   private validateEmbedding(embedding: Float32Array): void {
