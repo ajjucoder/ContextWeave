@@ -209,6 +209,29 @@ export class BM25Index {
       .slice(0, limit);
   }
 
+  searchWithTrigramExpansion(
+    query: string,
+    limit = 20
+  ): Array<{ observationId: number; score: number }> {
+    const queryTokens = tokenize(query);
+    if (queryTokens.length === 0) return [];
+
+    const knownTerms = this.getDistinctTerms();
+    if (knownTerms.length === 0) return [];
+
+    const trigramTokens = new Set(queryTokens);
+    for (const qt of queryTokens) {
+      for (const known of knownTerms) {
+        if (trigramSimilarity(qt, known) >= 0.4) {
+          trigramTokens.add(known);
+        }
+      }
+    }
+
+    if (trigramTokens.size === queryTokens.length) return [];
+    return this.search([...trigramTokens].join(" "), limit);
+  }
+
   getDistinctTerms(): string[] {
     if (this.distinctTermsCache) return this.distinctTermsCache;
     this.distinctTermsCache = (
@@ -240,9 +263,8 @@ export class BM25Index {
       }
     }
 
-    const layer2 = trigramTokens.size > queryTokens.length
-      ? this.search([...trigramTokens].join(" "), limit)
-      : layer1;
+    const layer2Expanded = this.searchWithTrigramExpansion(query, limit);
+    const layer2 = layer2Expanded.length > 0 ? layer2Expanded : layer1;
     if (layer2.length >= minResults) return layer2;
 
     const levenTokens = new Set(trigramTokens);

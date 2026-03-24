@@ -235,6 +235,28 @@ export class ObservationStore {
     limit = 20
   ): Array<{ observation: ObservationRecord; bm25Score: number }> {
     const bm25Results = this.bm25.searchWithFallback(query, limit);
+    return this.mapScoredResults(bm25Results);
+  }
+
+  searchPorterWithScores(
+    query: string,
+    limit = 20
+  ): Array<{ observation: ObservationRecord; bm25Score: number }> {
+    const bm25Results = this.bm25.search(query, limit);
+    return this.mapScoredResults(bm25Results);
+  }
+
+  searchTrigramWithScores(
+    query: string,
+    limit = 20
+  ): Array<{ observation: ObservationRecord; bm25Score: number }> {
+    const bm25Results = this.bm25.searchWithTrigramExpansion(query, limit);
+    return this.mapScoredResults(bm25Results);
+  }
+
+  private mapScoredResults(
+    bm25Results: Array<{ observationId: number; score: number }>
+  ): Array<{ observation: ObservationRecord; bm25Score: number }> {
 
     const results: Array<{ observation: ObservationRecord; bm25Score: number }> = [];
 

@@ -19,6 +19,11 @@ interface ScoredObservation {
   score: number;
 }
 
+interface RankedObservation {
+  observation: ObservationRecord;
+  bm25Score: number;
+}
+
 export interface AutoPopulateInput {
   query: string;
   confidence: number;
@@ -27,6 +32,7 @@ export interface AutoPopulateInput {
 }
 
 const AUTO_POPULATE_CONFIDENCE_THRESHOLD = 0.65;
+const RECIPROCAL_RANK_FUSION_K = 60;
 
 const SCOPE_WEIGHTS: Record<string, number> = {
   architecture: 3.0,
@@ -185,6 +191,47 @@ export class MemorySearch {
     return scored.slice(0, limit);
   }
 
+  private fuseRankedResults(
+    porterResults: RankedObservation[],
+    trigramResults: RankedObservation[],
+    limit: number
+  ): RankedObservation[] {
+    if (porterResults.length === 0) return trigramResults.slice(0, limit);
+    if (trigramResults.length === 0) return porterResults.slice(0, limit);
+
+    const merged = new Map<number, RankedObservation>();
+    const rrfScores = new Map<number, number>();
+
+    const addRankedResults = (results: RankedObservation[]) => {
+      for (const [index, result] of results.entries()) {
+        const rrfScore = 1 / (RECIPROCAL_RANK_FUSION_K + index + 1);
+        const observationId = result.observation.id;
+
+        if (!merged.has(observationId)) {
+          merged.set(observationId, result);
+        }
+        rrfScores.set(observationId, (rrfScores.get(observationId) ?? 0) + rrfScore);
+      }
+    };
+
+    addRankedResults(porterResults);
+    addRankedResults(trigramResults);
+
+    return [...merged.values()]
+      .map((result) => ({
+        observation: result.observation,
+        bm25Score: rrfScores.get(result.observation.id) ?? 0,
+      }))
+      .sort((a, b) => b.bm25Score - a.bm25Score)
+      .slice(0, limit);
+  }
+
+  private runRrfSearch(query: string, limit: number): RankedObservation[] {
+    const porterResults = this.store.searchPorterWithScores(query, limit);
+    const trigramResults = this.store.searchTrigramWithScores(query, limit);
+    return this.fuseRankedResults(porterResults, trigramResults, limit);
+  }
+
   /**
    * For broad natural-language queries: run multiple synonym-expanded sub-queries
    * and merge with OR logic (union of all result sets, deduplicated).
@@ -196,7 +243,7 @@ export class MemorySearch {
     const expandedTerms = expandQueryWithSynonyms(terms);
     const expandedQuery = expandedTerms.join(" ");
 
-    const results = this.store.searchWithScores(expandedQuery, limit * 3);
+    const results = this.runRrfSearch(expandedQuery, limit * 3);
 
     // Also run each original term individually to maximise OR coverage
     const seen = new Map<number, { observation: ObservationRecord; bm25Score: number }>();
@@ -206,7 +253,7 @@ export class MemorySearch {
 
     for (const term of terms) {
       if (term.length < 4) continue;
-      const termResults = this.store.searchWithScores(term, limit);
+      const termResults = this.runRrfSearch(term, limit);
       for (const r of termResults) {
         if (!seen.has(r.observation.id)) {
           seen.set(r.observation.id, r);
@@ -228,23 +275,12 @@ export class MemorySearch {
       rawResults = this.broadOrSearch(query, limit);
     } else {
       const expandedQuery = this.buildExpandedQuery(query);
-      rawResults = this.store.searchWithScores(expandedQuery, limit * 3);
+      rawResults = this.runRrfSearch(expandedQuery, limit * 3);
 
-      const supplemental =
-        expandedQuery !== query.toLowerCase()
-          ? this.store.searchWithScores(query, limit * 2)
-          : [];
-
-      const merged = new Map<number, { observation: ObservationRecord; bm25Score: number }>();
-      for (const item of rawResults) {
-        merged.set(item.observation.id, item);
+      if (expandedQuery !== query.toLowerCase()) {
+        const supplemental = this.runRrfSearch(query, limit * 2);
+        rawResults = this.fuseRankedResults(rawResults, supplemental, limit * 3);
       }
-      for (const item of supplemental) {
-        if (!merged.has(item.observation.id)) {
-          merged.set(item.observation.id, item);
-        }
-      }
-      rawResults = [...merged.values()];
     }
 
     const scored: ScoredObservation[] = [];
