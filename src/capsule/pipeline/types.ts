@@ -27,6 +27,7 @@ export interface CapsuleParams {
   maxQueryTimeMs?: number;
   path?: string;
   glob?: string;
+  queryEmbedding?: Float32Array;
   hybridSearchResults?: HybridSearchResult[];
 }
 

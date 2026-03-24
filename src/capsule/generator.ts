@@ -80,7 +80,7 @@ export async function generateCapsuleWithRuntime(
       }
     }
 
-    return generateCapsule(db, { ...params, hybridSearchResults });
+    return generateCapsule(db, { ...params, queryEmbedding, hybridSearchResults });
   } catch (error) {
     logger.warn("hybrid runtime unavailable during capsule generation; falling back to lexical retrieval", {
       error: error instanceof Error ? error.message : String(error),

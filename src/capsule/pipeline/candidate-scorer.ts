@@ -47,6 +47,10 @@ const outgoingEdgeBatchStmtCache = new WeakMap<
   Database.Database,
   Map<number, Statement>
 >();
+const embeddingStmtCache = new WeakMap<
+  Database.Database,
+  Database.Statement<[number], { file_id: number; start_line: number; end_line: number; embedding: Buffer }>
+>();
 
 export interface CandidateScoringResult {
   candidates: RankedCandidate[];
@@ -55,6 +59,13 @@ export interface CandidateScoringResult {
   scoredNodes: ScoredNode[];
   clusterBySymbolId: Map<number, number>;
   layerCoverages: LayerCoverage[];
+}
+
+interface CandidateEmbeddingRow {
+  file_id: number;
+  start_line: number;
+  end_line: number;
+  embedding: Buffer;
 }
 
 interface PruneUiNoiseOptions {
@@ -97,6 +108,122 @@ function getOutgoingEdgeBatchStatement(
   }
 
   return stmt;
+}
+
+function getCandidateEmbeddingStatement(
+  db: Database.Database
+): Database.Statement<[number], CandidateEmbeddingRow> {
+  const cached = embeddingStmtCache.get(db);
+  if (cached) {
+    return cached;
+  }
+
+  const stmt = db.prepare<[number], CandidateEmbeddingRow>(`
+    SELECT file_id, start_line, end_line, embedding
+    FROM chunk_embeddings
+    WHERE file_id = ?
+    ORDER BY start_line ASC, end_line ASC
+  `);
+  embeddingStmtCache.set(db, stmt);
+  return stmt;
+}
+
+function embeddingBufferToVector(buffer: Buffer): Float32Array {
+  const bytes = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+  return new Float32Array(bytes);
+}
+
+function cosineSimilarity(left: Float32Array, right: Float32Array): number {
+  if (left.length === 0 || left.length !== right.length) return 0;
+
+  let dot = 0;
+  let leftNorm = 0;
+  let rightNorm = 0;
+  for (let index = 0; index < left.length; index += 1) {
+    const leftValue = left[index] ?? 0;
+    const rightValue = right[index] ?? 0;
+    dot += leftValue * rightValue;
+    leftNorm += leftValue * leftValue;
+    rightNorm += rightValue * rightValue;
+  }
+
+  if (leftNorm === 0 || rightNorm === 0) return 0;
+  const cosine = dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
+  return Math.max(0, Math.min(1, cosine));
+}
+
+function scoreOverlappingEmbedding(
+  queryEmbedding: Float32Array,
+  candidate: RankedCandidate,
+  embeddingsByFileId: Map<number, CandidateEmbeddingRow[]>
+): number {
+  const embeddings = embeddingsByFileId.get(candidate.file.id) ?? [];
+  let bestScore = 0;
+
+  for (const row of embeddings) {
+    const overlapsSymbol =
+      row.start_line <= candidate.symbol.endLine &&
+      row.end_line >= candidate.symbol.startLine;
+    if (!overlapsSymbol) continue;
+
+    const cosine = cosineSimilarity(queryEmbedding, embeddingBufferToVector(row.embedding));
+    if (cosine > bestScore) {
+      bestScore = cosine;
+    }
+  }
+
+  return bestScore;
+}
+
+function applyHybridScoreBlend(
+  context: CapsuleContext,
+  pivot: PivotResolution,
+  candidates: RankedCandidate[]
+): RankedCandidate[] {
+  const queryEmbedding = context.params.queryEmbedding;
+  if (!queryEmbedding || candidates.length === 0) {
+    return candidates;
+  }
+
+  const fileIds = [...new Set(candidates.map((candidate) => candidate.file.id))];
+  if (fileIds.length === 0) {
+    return candidates;
+  }
+
+  const embeddingsByFileId = new Map<number, CandidateEmbeddingRow[]>();
+  const getEmbeddings = getCandidateEmbeddingStatement(context.db);
+  for (const fileId of fileIds) {
+    const rows = getEmbeddings.all(fileId);
+    if (rows.length > 0) {
+      embeddingsByFileId.set(fileId, rows);
+    }
+  }
+
+  if (embeddingsByFileId.size === 0) {
+    return candidates;
+  }
+
+  const maxBaseScore = candidates.reduce((max, candidate) => Math.max(max, candidate.score), 0);
+  if (maxBaseScore <= 0) {
+    return candidates;
+  }
+
+  const bm25Weight = pivot.intent === "narrow" ? 0.8 : 0.6;
+  const cosineWeight = pivot.intent === "narrow" ? 0.2 : 0.4;
+
+  return candidates.map((candidate) => {
+    const cosineScore = scoreOverlappingEmbedding(queryEmbedding, candidate, embeddingsByFileId);
+    if (cosineScore <= 0) {
+      return candidate;
+    }
+
+    const normalizedBaseScore = candidate.score / maxBaseScore;
+    const blendedScore = bm25Weight * normalizedBaseScore + cosineWeight * cosineScore;
+    return {
+      ...candidate,
+      score: blendedScore * maxBaseScore,
+    };
+  });
 }
 
 export function pruneUiNoise(selectedCandidates: RankedCandidate[], options: PruneUiNoiseOptions): RankedCandidate[] {
@@ -635,7 +762,8 @@ export function scoreCandidates(
     candidates.push(scored);
   }
 
-  let ranked = [...candidates].sort((a, b) => b.score - a.score);
+  const hybridCandidates = applyHybridScoreBlend(context, pivot, candidates);
+  let ranked = [...hybridCandidates].sort((a, b) => b.score - a.score);
   ranked = filterCandidatesBySymbolRelevance(ranked, pivot);
 
   const hasObservationPayload = pivot.observations.some((observation) => observation.note.trim().length > 0 && observation.confidence > 0);
@@ -731,7 +859,7 @@ export function scoreCandidates(
   }
 
   return {
-    candidates,
+    candidates: hybridCandidates,
     ranked,
     selected,
     scoredNodes,
