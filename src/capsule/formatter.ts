@@ -19,8 +19,36 @@ const LEVEL_LABEL: Record<number, string> = {
 
 const DOC_SCOPES = new Set(["documentation", "convention"]);
 const DOC_QUERY_RE = /\b(docs?|documentation|architecture|convention|workflow|guide|readme|claude)\b/i;
+const ARCHITECTURE_QUERY_RE =
+  /\b(architecture|architectural|design|pattern|patterns|structure|system|topology|boundary|boundaries|layer|layers|module|modules|dependency|dependencies|coupling|cohesion|overview)\b/i;
 const UI_QUERY_RE = /\b(ui|ux|component|components|view|views|page|pages|modal|form)\b/i;
 const ACTION_SIGNAL_RE = /\b(handle|submit|create|send|post|get|load|exchange|verify|persist|callback|refresh|route)\b/i;
+const REMEMBER_NOTE_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "architecture",
+  "architectural",
+  "boundaries",
+  "boundary",
+  "dependency",
+  "dependencies",
+  "design",
+  "for",
+  "in",
+  "layer",
+  "layers",
+  "module",
+  "modules",
+  "of",
+  "overview",
+  "pattern",
+  "patterns",
+  "structure",
+  "system",
+  "the",
+  "topology",
+]);
 
 type StructuredConfidenceTier = StructuredCapsuleOutput["confidence"];
 
@@ -39,6 +67,91 @@ function getStructuredConfidenceTier(
 
 function estimateObservationTokens(note: string): number {
   return Math.max(1, Math.ceil(note.split(/\s+/).filter(Boolean).length * 1.3));
+}
+
+function escapeRememberNote(note: string): string {
+  return note.replaceAll("\\", "\\\\").replaceAll("\"", "\\\"");
+}
+
+function humanJoin(items: string[]): string {
+  if (items.length === 0) return "";
+  if (items.length === 1) return items[0]!;
+  if (items.length === 2) return `${items[0]} and ${items[1]}`;
+  return `${items.slice(0, -1).join(", ")}, and ${items[items.length - 1]}`;
+}
+
+function buildRememberSubject(query: string): string {
+  const terms = query
+    .toLowerCase()
+    .replace(/[^a-z0-9_\s]+/g, " ")
+    .split(/\s+/)
+    .filter((term) => term.length > 1 && !REMEMBER_NOTE_STOP_WORDS.has(term));
+
+  if (terms.length === 0) {
+    return "This";
+  }
+
+  const subject = terms.slice(0, 2).join(" ");
+  return subject.charAt(0).toUpperCase() + subject.slice(1);
+}
+
+function buildAutoRememberSuggestion(packedNodes: ScoredNode[], metadata: CapsuleMetadata): string | null {
+  if (!ARCHITECTURE_QUERY_RE.test(metadata.query)) {
+    return null;
+  }
+
+  const rankedNodes = [...packedNodes].sort((a, b) => {
+    if ((b.score ?? 0) !== (a.score ?? 0)) {
+      return (b.score ?? 0) - (a.score ?? 0);
+    }
+    return a.distance - b.distance;
+  });
+
+  const symbolNames: string[] = [];
+  const filePaths: string[] = [];
+  const seenSymbols = new Set<string>();
+  const seenFiles = new Set<string>();
+
+  for (const node of rankedNodes) {
+    const symbolName = node.symbol?.name?.trim();
+    if (symbolName && !seenSymbols.has(symbolName)) {
+      seenSymbols.add(symbolName);
+      symbolNames.push(symbolName);
+    }
+
+    const filePath = node.file?.path?.trim();
+    if (filePath && !seenFiles.has(filePath)) {
+      seenFiles.add(filePath);
+      filePaths.push(filePath);
+    }
+
+    if (symbolNames.length >= 3 && filePaths.length >= 3) {
+      break;
+    }
+  }
+
+  if (symbolNames.length === 0) {
+    return null;
+  }
+
+  const patternNames = (metadata.patterns ?? [])
+    .slice()
+    .sort((a, b) => b.confidence - a.confidence)
+    .map((pattern) => pattern.name.trim())
+    .filter(Boolean)
+    .filter((name, index, names) => names.indexOf(name) === index)
+    .slice(0, 2);
+
+  let note = `${buildRememberSubject(metadata.query)} architecture centers on ${humanJoin(symbolNames)}`;
+  if (filePaths.length > 0) {
+    note += ` across ${humanJoin(filePaths.slice(0, 3))}`;
+  }
+  if (patternNames.length > 0) {
+    note += `. Related patterns: ${humanJoin(patternNames)}`;
+  }
+  note += ".";
+
+  return `cw_remember({ scope: "architecture", note: "${escapeRememberNote(note)}" })`;
 }
 
 function collectDiscoveredSymbols(packedNodes: ScoredNode[]): string[] {
@@ -282,6 +395,7 @@ export function formatCapsule(
 
   const highConfObs = visibleObservations.filter((o) => o.confidence >= 0.8);
   const lowConfObs = visibleObservations.filter((o) => o.confidence < 0.8);
+  const autoRememberSuggestion = buildAutoRememberSuggestion(visibleNodes, metadata);
 
   const parts = [header];
 
@@ -377,8 +491,11 @@ export function formatCapsule(
     }
   }
 
-  if (lowConfObs.length > 0) {
+  if (lowConfObs.length > 0 || autoRememberSuggestion) {
     parts.push("\n--- Observations ---");
+    if (autoRememberSuggestion) {
+      parts.push(`[architecture] Consider: ${autoRememberSuggestion}`);
+    }
     for (const obs of lowConfObs) {
       parts.push(`[${obs.scope}] ${obs.note} (confidence: ${obs.confidence})`);
     }
@@ -486,6 +603,11 @@ export function buildStructuredOutput(
 
   const visibleObs = observations.filter((o) => o.confidence >= 0.5);
   const discoveredSymbols = collectDiscoveredSymbols(packedNodes);
+  const autoRememberSuggestion = buildAutoRememberSuggestion(packedNodes, metadata);
+  const structuredObservations = visibleObs.map((o) => `[${o.scope}] ${o.note}`);
+  if (autoRememberSuggestion) {
+    structuredObservations.unshift(`[architecture] Consider: ${autoRememberSuggestion}`);
+  }
 
   return {
     query: metadata.query,
@@ -499,7 +621,7 @@ export function buildStructuredOutput(
     tokenUtilization: Math.round(tokenUtilization * 100) / 100,
     files,
     suggestedReads,
-    observations: visibleObs.map((o) => `[${o.scope}] ${o.note}`),
+    observations: structuredObservations,
     text,
   };
 }

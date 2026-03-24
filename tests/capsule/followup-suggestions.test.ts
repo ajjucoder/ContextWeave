@@ -130,6 +130,36 @@ describe("buildStructuredOutput follow-up suggestions", () => {
     expect(result.discoveredSymbols).toEqual(["AuthController", "UserService"]);
   });
 
+  it("adds a cw_remember suggestion for architectural queries", () => {
+    const result = buildStructuredOutput(
+      [
+        makeNode("AuthController", 0, 1.0, "src/auth/controller.ts"),
+        makeNode("UserService", 1, 0.9, "src/auth/service.ts"),
+        makeNode("TokenIssuer", 1, 0.8, "src/auth/token.ts"),
+      ],
+      [],
+      makeMetadata("auth architecture"),
+      "text"
+    );
+
+    const rememberSuggestion = result.observations.find((entry) => entry.includes("cw_remember("));
+
+    expect(rememberSuggestion).toContain('[architecture] Consider: cw_remember({ scope: "architecture", note: ');
+    expect(rememberSuggestion).toContain("AuthController");
+    expect(rememberSuggestion).toContain("UserService");
+  });
+
+  it("does not add a cw_remember suggestion for non-architectural queries", () => {
+    const result = buildStructuredOutput(
+      [makeNode("validateEmail", 0, 1.0, "src/auth/validate.ts")],
+      [],
+      makeMetadata("validate email"),
+      "text"
+    );
+
+    expect(result.observations.some((entry) => entry.includes("cw_remember("))).toBe(false);
+  });
+
   it("includes suggestedReads only for compressed nodes with query-term overlap", () => {
     const query = "validate email user auth";
     const nodes: ScoredNode[] = [

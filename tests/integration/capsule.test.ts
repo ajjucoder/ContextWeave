@@ -146,6 +146,16 @@ describe("generateCapsule", () => {
     );
   });
 
+  it("includes a cw_remember suggestion in observations for architectural queries", () => {
+    const result = generateCapsule(db, {
+      query: "auth architecture",
+      tokenBudget: 2000,
+    });
+
+    expect(result.content).toContain("cw_remember({ scope: \"architecture\", note: ");
+    expect(result.structured?.observations.some((entry) => entry.includes("cw_remember("))).toBe(true);
+  });
+
   it("supports different modes", () => {
     const debugResult = generateCapsule(db, {
       query: "User",
