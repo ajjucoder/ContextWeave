@@ -114,6 +114,7 @@ describe("startMcpServer", () => {
     expect(registeredToolsByServer[0]).toEqual(expect.arrayContaining([
       "cw_capsule",
       "cw_status",
+      "cw_snapshot",
       "cw_stats",
       "cw_remember",
       "cw_reindex",
@@ -131,6 +132,7 @@ describe("startMcpServer", () => {
     expect(registeredToolsByServer[0]).toEqual(expect.arrayContaining([
       "cw_capsule",
       "cw_status",
+      "cw_snapshot",
       "cw_stats",
       "cw_reindex",
     ]));
