@@ -143,4 +143,54 @@ describe("migrations", () => {
       ])
     );
   });
+
+  it("v24: git commit tables store commit metadata and touched files", () => {
+    const commitInfo = db.prepare("PRAGMA table_info(git_commits)").all() as Array<{
+      name: string;
+      pk: number;
+      type: string;
+    }>;
+    expect(commitInfo.map((column) => column.name)).toEqual([
+      "hash",
+      "author",
+      "timestamp",
+      "message",
+      "summary",
+      "files_changed",
+    ]);
+    expect(commitInfo.find((column) => column.name === "hash")?.pk).toBe(1);
+    expect(commitInfo.find((column) => column.name === "message")?.type).toBe("TEXT");
+
+    const commitIndexes = db.prepare("PRAGMA index_list(git_commits)").all() as Array<{
+      name: string;
+    }>;
+    expect(commitIndexes.some((index) => index.name === "idx_git_commits_ts")).toBe(true);
+
+    const fileInfo = db.prepare("PRAGMA table_info(git_commit_files)").all() as Array<{
+      name: string;
+      pk: number;
+      type: string;
+    }>;
+    expect(fileInfo.map((column) => column.name)).toEqual([
+      "commit_hash",
+      "file_path",
+      "change_type",
+    ]);
+    expect(fileInfo.find((column) => column.name === "commit_hash")?.pk).toBe(1);
+    expect(fileInfo.find((column) => column.name === "file_path")?.pk).toBe(2);
+    expect(fileInfo.find((column) => column.name === "change_type")?.type).toBe("TEXT");
+
+    const foreignKeys = db.prepare("PRAGMA foreign_key_list(git_commit_files)").all() as Array<{
+      table: string;
+      from: string;
+      on_delete: string;
+    }>;
+    expect(foreignKeys).toEqual([
+      expect.objectContaining({
+        table: "git_commits",
+        from: "commit_hash",
+        on_delete: "CASCADE",
+      }),
+    ]);
+  });
 });

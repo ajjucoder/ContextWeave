@@ -29,6 +29,8 @@ describe("DB migration upgrade path", () => {
     expect(tableNames).toContain("chunks");
     expect(tableNames).toContain("symbol_embeddings");
     expect(tableNames).toContain("chunk_embeddings");
+    expect(tableNames).toContain("git_commits");
+    expect(tableNames).toContain("git_commit_files");
     expect(tableNames).toContain("schema_migrations");
 
     db.close();
@@ -44,7 +46,7 @@ describe("DB migration upgrade path", () => {
       .all() as Array<{ version: number }>;
     const versions = applied.map((r) => r.version);
 
-    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23]);
+    expect(versions).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]);
 
     db.close();
   });
@@ -74,12 +76,12 @@ describe("DB migration upgrade path", () => {
         .get() as { cnt: number }
     ).cnt;
 
-    expect(count).toBe(23);
+    expect(count).toBe(24);
 
     db.close();
   });
 
-  it("rolls back migrations 16-22 to version 15", () => {
+  it("rolls back migrations 16-24 to version 15", () => {
     const db = new Database(":memory:");
     db.pragma("foreign_keys = ON");
     runMigrations(db);
@@ -142,6 +144,14 @@ describe("DB migration upgrade path", () => {
     expect(symbolColumns.some((column) => column.name === "qualified_name")).toBe(false);
     expect(symbolColumns.some((column) => column.name === "betweenness")).toBe(false);
     expect(edgeColumns.some((column) => column.name === "strength")).toBe(false);
+    const gitCommitsTable = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='git_commits'")
+      .get();
+    const gitCommitFilesTable = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='git_commit_files'")
+      .get();
+    expect(gitCommitsTable).toBeUndefined();
+    expect(gitCommitFilesTable).toBeUndefined();
 
     db.close();
   });
@@ -166,7 +176,7 @@ describe("DB migration upgrade path", () => {
     const versions = db
       .prepare("SELECT version FROM rollback_order ORDER BY rowid")
       .all() as Array<{ version: number }>;
-    expect(versions.map((row) => row.version)).toEqual([23, 22, 21, 20, 19, 18, 17, 16]);
+    expect(versions.map((row) => row.version)).toEqual([24, 23, 22, 21, 20, 19, 18, 17, 16]);
 
     db.close();
   });
@@ -249,6 +259,35 @@ describe("DB migration upgrade path", () => {
       "text_hash",
       "embedding",
       "model_name",
+    ]);
+
+    db.close();
+  });
+
+  it("adds git history tables in v24", () => {
+    const db = new Database(":memory:");
+    db.pragma("foreign_keys = ON");
+    runMigrations(db);
+
+    const gitCommitColumns = db
+      .prepare("PRAGMA table_info(git_commits)")
+      .all() as Array<{ name: string }>;
+    const gitCommitFileColumns = db
+      .prepare("PRAGMA table_info(git_commit_files)")
+      .all() as Array<{ name: string }>;
+
+    expect(gitCommitColumns.map((column) => column.name)).toEqual([
+      "hash",
+      "author",
+      "timestamp",
+      "message",
+      "summary",
+      "files_changed",
+    ]);
+    expect(gitCommitFileColumns.map((column) => column.name)).toEqual([
+      "commit_hash",
+      "file_path",
+      "change_type",
     ]);
 
     db.close();

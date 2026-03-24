@@ -194,6 +194,22 @@ CREATE TABLE IF NOT EXISTS chunk_embeddings (
   model_name  TEXT    NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS git_commits (
+  hash          TEXT PRIMARY KEY,
+  author        TEXT,
+  timestamp     INTEGER,
+  message       TEXT    NOT NULL,
+  summary       TEXT,
+  files_changed TEXT
+);
+
+CREATE TABLE IF NOT EXISTS git_commit_files (
+  commit_hash TEXT NOT NULL REFERENCES git_commits(hash) ON DELETE CASCADE,
+  file_path   TEXT NOT NULL,
+  change_type TEXT NOT NULL,
+  PRIMARY KEY (commit_hash, file_path)
+);
+
 CREATE TABLE IF NOT EXISTS repo_profile (
   project_root TEXT PRIMARY KEY,
   profile_json TEXT NOT NULL,
@@ -244,6 +260,7 @@ CREATE INDEX IF NOT EXISTS idx_chunks_hash ON chunks(content_hash);
 CREATE INDEX IF NOT EXISTS idx_symbol_embeddings_model ON symbol_embeddings(model_name);
 CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_file_model ON chunk_embeddings(file_id, model_name);
 CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_text_hash ON chunk_embeddings(text_hash);
+CREATE INDEX IF NOT EXISTS idx_git_commits_ts ON git_commits(timestamp);
 CREATE INDEX IF NOT EXISTS idx_symbols_qualified_name ON symbols(qualified_name);
 CREATE INDEX IF NOT EXISTS idx_symbols_parent_symbol_id ON symbols(parent_symbol_id);
 `;

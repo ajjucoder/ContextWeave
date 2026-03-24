@@ -674,6 +674,38 @@ const migrations: Migration[] = [
       }
     },
   },
+  {
+    version: 24,
+    up(db) {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS git_commits (
+          hash          TEXT PRIMARY KEY,
+          author        TEXT,
+          timestamp     INTEGER,
+          message       TEXT    NOT NULL,
+          summary       TEXT,
+          files_changed TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_git_commits_ts ON git_commits(timestamp);
+      `);
+
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS git_commit_files (
+          commit_hash TEXT NOT NULL REFERENCES git_commits(hash) ON DELETE CASCADE,
+          file_path   TEXT NOT NULL,
+          change_type TEXT NOT NULL,
+          PRIMARY KEY (commit_hash, file_path)
+        );
+      `);
+    },
+    down(db) {
+      db.exec(`
+        DROP TABLE IF EXISTS git_commit_files;
+        DROP INDEX IF EXISTS idx_git_commits_ts;
+        DROP TABLE IF EXISTS git_commits;
+      `);
+    },
+  },
 ];
 
 function ensureSchemaMigrationsTable(db: Database.Database): void {
