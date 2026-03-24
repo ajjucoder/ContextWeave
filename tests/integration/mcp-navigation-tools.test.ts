@@ -162,6 +162,20 @@ describe("mcp navigation tools", () => {
     expect(bySymbolText).toContain("validateEmail");
   });
 
+  it("cw_read accepts file::symbol shorthand and returns only that symbol range", async () => {
+    const result = await getTool(server, "cw_read").handler({
+      path: "sample.ts::validateEmail",
+      max_lines: 80,
+    });
+
+    const text = result.content[0]?.text ?? "";
+    expect(result.isError).not.toBe(true);
+    expect(text).toContain("Read sample.ts:11-13");
+    expect(text).toContain("Symbol: function validateEmail (11-13)");
+    expect(text).toContain("11 | export function validateEmail");
+    expect(text).not.toContain("15 | export async function loadUser");
+  });
+
   it("cw_read suggests a next tool when symbol resolution misses", async () => {
     const result = await getTool(server, "cw_read").handler({
       symbol: "missingSymbol",

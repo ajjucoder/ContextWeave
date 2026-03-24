@@ -178,11 +178,21 @@ export function resolveFilePath(
 export function parseSymbolTarget(
   input: string
 ): { fileSuffix: string; symbolName: string } | null {
+  const doubleColon = input.lastIndexOf("::");
+  if (doubleColon > 0) {
+    const filePart = input.slice(0, doubleColon);
+    const symbolName = input.slice(doubleColon + 2);
+    if (filePart.includes(".") && symbolName.length > 0) {
+      return { fileSuffix: filePart, symbolName };
+    }
+  }
+
   const lastColon = input.lastIndexOf(":");
   if (lastColon < 1) return null;
   const filePart = input.slice(0, lastColon);
-  if (!filePart.includes(".")) return null;
-  return { fileSuffix: filePart, symbolName: input.slice(lastColon + 1) };
+  const symbolName = input.slice(lastColon + 1);
+  if (!filePart.includes(".") || symbolName.length === 0) return null;
+  return { fileSuffix: filePart, symbolName };
 }
 
 export function registerReadTool(
@@ -223,8 +233,8 @@ export function registerReadTool(
       max_lines?: number;
     }) => {
       try {
-        const path = pathArg ?? fileArg;
-        if (!path && !symbol) {
+        const rawPath = pathArg ?? fileArg;
+        if (!rawPath && !symbol) {
           return {
             content: [{ type: "text" as const, text: "Error: provide path or symbol" }],
             isError: true,
@@ -235,6 +245,9 @@ export function registerReadTool(
         const maxLines = max_lines ?? 200;
         sessionQueries(db).ensureSession(readSessionId, resolvedRoot);
 
+        const inferredSymbolTarget = symbol ? null : (rawPath ? parseSymbolTarget(rawPath) : null);
+        const path = inferredSymbolTarget ? inferredSymbolTarget.fileSuffix : rawPath;
+        const requestedSymbol = symbol ?? (inferredSymbolTarget ? rawPath : undefined);
         let requestedPath: string | undefined;
         if (path) {
           const direct = resolve(resolvedRoot, path);
@@ -251,8 +264,8 @@ export function registerReadTool(
 
         let resolvedSymbol: ResolvedSymbol | null = null;
         let disambiguationNote: string | null = null;
-        if (symbol) {
-          const parsed = parseSymbolTarget(symbol);
+        if (requestedSymbol) {
+          const parsed = parseSymbolTarget(requestedSymbol);
           if (parsed) {
             const filesApi = fileQueries(db);
             const allMatches = filesApi.getAllByPathSuffix(parsed.fileSuffix);
@@ -274,18 +287,18 @@ export function registerReadTool(
             }
           }
           if (!resolvedSymbol) {
-            resolvedSymbol = resolveSymbolTarget(db, resolvedRoot, symbol, requestedPath);
+            resolvedSymbol = resolveSymbolTarget(db, resolvedRoot, requestedSymbol, requestedPath);
           }
         }
-        if (symbol && !resolvedSymbol) {
+        if (requestedSymbol && !resolvedSymbol) {
           const detail = requestedPath ? ` in ${path}` : "";
           return {
             content: [{
               type: "text" as const,
               text: [
-                `No indexed symbol found matching "${symbol}"${detail}`,
-                `Next: cw_grep(query: "${symbol}") for exact symbol/text matches.`,
-                `Next: cw_overview(query: "${symbol}") to inspect likely directories.`,
+                `No indexed symbol found matching "${requestedSymbol}"${detail}`,
+                `Next: cw_grep(query: "${requestedSymbol}") for exact symbol/text matches.`,
+                `Next: cw_overview(query: "${requestedSymbol}") to inspect likely directories.`,
               ].join("\n"),
             }],
           };
