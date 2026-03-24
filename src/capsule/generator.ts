@@ -95,6 +95,10 @@ const DEFAULT_MAX_QUERY_TIME_MS = 500;
 const NARROW_MIN_UTILIZATION = 0.45;
 const BROAD_TASK_MIN_UTILIZATION = 0.85;
 const BROAD_TASK_TARGET_UTILIZATION = 0.85;
+const BROAD_EFFICIENCY_UTILIZATION_CAP = 0.5;
+const BROAD_EFFICIENCY_TARGET_UTILIZATION = 0.48;
+const BROAD_EFFICIENCY_FILE_SPREAD_THRESHOLD = 8;
+const BROAD_EFFICIENCY_SYMBOL_DENSITY_CAP = 3;
 const OBSERVATION_BUDGET_FRACTION = 0.2;
 const MAX_BFS_VISITED_DIVISOR = 12;
 const MAX_BFS_VISITED_CAP = 500;
@@ -1840,6 +1844,79 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
   const recomputeTokensUsed = (nodes: ScoredNode[], summaries: string[]): number =>
     nodes.reduce((sum, node) => sum + node.tokenCount, 0) +
     summaries.reduce((sum, summary) => sum + countTokens(summary), 0);
+  const compactBroadPackedNodes = (
+    nodes: ScoredNode[],
+    currentTokensUsed: number
+  ): { packed: ScoredNode[]; tokensUsed: number } => {
+    if (
+      intent !== "broad" ||
+      tokenBudget < 8000 ||
+      currentTokensUsed <= tokenBudget * BROAD_EFFICIENCY_UTILIZATION_CAP
+    ) {
+      return { packed: nodes, tokensUsed: currentTokensUsed };
+    }
+
+    const fileCount = new Set(nodes.map((node) => node.file.path)).size;
+    const symbolsPerFile = fileCount === 0 ? nodes.length : nodes.length / fileCount;
+    if (
+      fileCount < BROAD_EFFICIENCY_FILE_SPREAD_THRESHOLD ||
+      symbolsPerFile > BROAD_EFFICIENCY_SYMBOL_DENSITY_CAP
+    ) {
+      return { packed: nodes, tokensUsed: currentTokensUsed };
+    }
+
+    const targetTokens = Math.floor(tokenBudget * BROAD_EFFICIENCY_TARGET_UTILIZATION);
+    const compacted = [...nodes];
+    let nextTokensUsed = currentTokensUsed;
+    const candidates = compacted
+      .map((node, index) => ({ node, index }))
+      .sort((a, b) => {
+        const aIsPivot = pivotSymbolIds.has(a.node.symbol.id);
+        const bIsPivot = pivotSymbolIds.has(b.node.symbol.id);
+        if (aIsPivot !== bIsPivot) return Number(aIsPivot) - Number(bIsPivot);
+        if (a.node.distance !== b.node.distance) return b.node.distance - a.node.distance;
+        if (a.node.score !== b.node.score) return a.node.score - b.node.score;
+        return b.node.tokenCount - a.node.tokenCount;
+      });
+
+    for (const { index } of candidates) {
+      if (nextTokensUsed <= targetTokens) break;
+
+      let current = compacted[index]!;
+      const nextLevels: CompressionLevel[] =
+        current.compressionLevel === 0
+          ? [1, 2, 3]
+          : current.compressionLevel === 1
+            ? [2, 3]
+            : current.compressionLevel === 2
+              ? [3]
+              : [];
+
+      for (const level of nextLevels) {
+        const rendered = renderSymbol(current.symbol, current.file, level, current.outgoingEdges);
+        const tokenCount = countTokens(rendered);
+        if (tokenCount >= current.tokenCount) continue;
+
+        nextTokensUsed += tokenCount - current.tokenCount;
+        current = { ...current, compressionLevel: level, rendered, tokenCount };
+        compacted[index] = current;
+
+        if (nextTokensUsed <= targetTokens) break;
+      }
+    }
+
+    if (nextTokensUsed < currentTokensUsed) {
+      logger.debug("broad compaction pass", {
+        before: currentTokensUsed,
+        after: nextTokensUsed,
+        fileCount,
+        symbolsPerFile,
+      });
+      return { packed: compacted, tokensUsed: nextTokensUsed };
+    }
+
+    return { packed: nodes, tokensUsed: currentTokensUsed };
+  };
 
   const stripUiPackedNoise = (nodes: ScoredNode[]): { packed: ScoredNode[]; removedTokens: number } => {
     if (
@@ -2402,6 +2479,10 @@ export function generateCapsule(db: Database.Database, params: CapsuleParams): C
       packed = ordered;
     }
   }
+
+  const broadCompacted = compactBroadPackedNodes(packed, tokensUsed);
+  packed = broadCompacted.packed;
+  tokensUsed = broadCompacted.tokensUsed;
 
   // Phase 7: Quality gate + format + return
   const compressionBreakdown: Record<CompressionLevel, number> = { 0: 0, 1: 0, 2: 0, 3: 0 };

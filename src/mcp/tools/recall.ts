@@ -20,12 +20,11 @@ export function registerRecallTool(server: McpServer, db: Database.Database): vo
       try {
         const search = new MemorySearch(db);
         search.ensureBm25Consistent();
-        // Always include passive in search results so we can properly group them.
-        // The includePassive flag controls whether we SHOW them in output, not whether we search them.
+        const showPassive = scope === "passive";
         const results = search.search(query, {
           scope,
           includeStale: include_stale,
-          includePassive: true,
+          includePassive: showPassive,
           limit: limit ?? 10,
         });
 
@@ -42,10 +41,6 @@ export function registerRecallTool(server: McpServer, db: Database.Database): vo
         const intentional = results.filter(({ observation }) => observation.scope !== "passive");
         const passive = results.filter(({ observation }) => observation.scope === "passive");
         const lines = [`Memory recall for "${query}" (${results.length} results):\n`];
-
-        // When includePassive is false, filter out passive observations before display
-        const showPassive = scope === "passive" || include_stale === true;
-        const displayedPassive = showPassive ? passive : [];
 
         const renderGroup = (
           title: string,
@@ -65,7 +60,9 @@ export function registerRecallTool(server: McpServer, db: Database.Database): vo
         };
 
         renderGroup("Intentional observations", intentional);
-        renderGroup("Passive observations", displayedPassive);
+        if (showPassive) {
+          renderGroup("Passive observations", passive);
+        }
 
         return {
           content: [{ type: "text" as const, text: lines.join("\n") }],
