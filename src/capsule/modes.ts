@@ -1,6 +1,6 @@
 import type { CapsuleMode, ModeWeights } from "../core/types.js";
 
-const MODE_WEIGHTS: Record<CapsuleMode, ModeWeights> = {
+const RAW_MODE_WEIGHTS: Record<CapsuleMode, ModeWeights> = {
   debug: {
     distanceWeight: 1.0,
     centralityWeight: 0.3,
@@ -31,6 +31,27 @@ const MODE_WEIGHTS: Record<CapsuleMode, ModeWeights> = {
   },
 };
 
+function normalizeModeWeights(weights: ModeWeights): ModeWeights {
+  const total =
+    weights.distanceWeight +
+    weights.centralityWeight +
+    weights.recencyWeight +
+    weights.memoryWeight +
+    weights.exportBonus;
+
+  return {
+    distanceWeight: weights.distanceWeight / total,
+    centralityWeight: weights.centralityWeight / total,
+    recencyWeight: weights.recencyWeight / total,
+    memoryWeight: weights.memoryWeight / total,
+    exportBonus: weights.exportBonus / total,
+  };
+}
+
 export function getModeWeights(mode: CapsuleMode): ModeWeights {
-  return MODE_WEIGHTS[mode];
+  return normalizeModeWeights(RAW_MODE_WEIGHTS[mode]);
+}
+
+export function getScoringModeWeights(mode: CapsuleMode): ModeWeights {
+  return RAW_MODE_WEIGHTS[mode];
 }

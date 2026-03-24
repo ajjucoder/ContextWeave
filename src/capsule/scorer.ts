@@ -1,5 +1,5 @@
 import type { CompressionLevel, CapsuleMode, ModeWeights } from "../core/types.js";
-import { getModeWeights } from "./modes.js";
+import { getScoringModeWeights } from "./modes.js";
 
 interface ScoreParams {
   distance: number;
@@ -23,7 +23,7 @@ function computeHubPenalty(centrality: number, isPivot: boolean): number {
 }
 
 export function scoreNode(params: ScoreParams): number {
-  const weights: ModeWeights = getModeWeights(params.mode);
+  const weights: ModeWeights = getScoringModeWeights(params.mode);
   const distanceFactor = Math.pow(1 / (params.distance + 1), weights.distanceWeight);
   const centralitySignal =
     1 + Math.log1p(Math.max(0, params.centrality) * 100000) * weights.centralityWeight;
