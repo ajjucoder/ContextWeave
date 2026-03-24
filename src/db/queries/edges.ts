@@ -8,8 +8,17 @@ export interface EdgeRowStream {
   createdAt: number;
 }
 
+export interface ConnectedSymbolRow {
+  symbolId: number;
+  fileId: number;
+}
+
 type EdgeQueriesResult = ReturnType<typeof edgeQueriesImpl>;
 const edgeQueriesCache = new WeakMap<Database.Database, EdgeQueriesResult>();
+const connectedSymbolsStmtCache = new WeakMap<
+  Database.Database,
+  Database.Statement<[number, number, number], ConnectedSymbolRow>
+>();
 
 export function edgeQueries(db: Database.Database): EdgeQueriesResult {
   const cached = edgeQueriesCache.get(db);
@@ -17,6 +26,23 @@ export function edgeQueries(db: Database.Database): EdgeQueriesResult {
   const result = edgeQueriesImpl(db);
   edgeQueriesCache.set(db, result);
   return result;
+}
+
+export function getConnectedSymbols(db: Database.Database, symbolId: number): ConnectedSymbolRow[] {
+  let stmt = connectedSymbolsStmtCache.get(db);
+  if (!stmt) {
+    stmt = db.prepare<[number, number, number], ConnectedSymbolRow>(`
+      SELECT s.id as symbolId, s.file_id as fileId FROM edges e
+      JOIN symbols s ON (
+        CASE WHEN e.source_symbol_id = ? THEN e.target_symbol_id ELSE e.source_symbol_id END = s.id
+      )
+      WHERE (e.source_symbol_id = ? OR e.target_symbol_id = ?)
+        AND e.kind IN ('call', 'implements', 'type_usage', 'inheritance')
+      LIMIT 6
+    `);
+    connectedSymbolsStmtCache.set(db, stmt);
+  }
+  return stmt.all(symbolId, symbolId, symbolId);
 }
 
 function edgeQueriesImpl(db: Database.Database) {

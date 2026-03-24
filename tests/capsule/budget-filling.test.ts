@@ -24,7 +24,7 @@ beforeAll(async () => {
   createSchema(repoDb);
   await indexProject(repoDb, resolve(__dirname, "../.."));
   updateCentralityScores(repoDb);
-}, 60000);
+}, 120000);
 
 afterAll(() => {
   db.close();

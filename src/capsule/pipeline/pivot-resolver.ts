@@ -23,7 +23,7 @@ import { getFileClusterId, getClusterFileIds } from "../../core/clusters.js";
 import { MemorySearch } from "../../memory/search.js";
 import { capsuleLogQueries } from "../../db/queries/capsule-log.js";
 import { sessionQueries } from "../../db/queries/sessions.js";
-import { edgeQueries } from "../../db/queries/edges.js";
+import { edgeQueries, getConnectedSymbols } from "../../db/queries/edges.js";
 import { getRetrievalLanes } from "../../core/repo-profiler.js";
 import { contentFallbackSearch } from "../content-fallback.js";
 import { SessionContext } from "../session-context.js";
@@ -69,7 +69,6 @@ const TYPE_FOCUSED_TERMS = new Set([
   "dts",
 ]);
 const idfStmtCache = new WeakMap<Database.Database, ReturnType<Database.Database["prepare"]>>();
-const connectedSymbolsStmtCache = new WeakMap<Database.Database, Database.Statement<[number, number, number], { symbolId: number; fileId: number }>>();
 
 export function computeTermIDF(db: Database.Database, terms: string[]): Map<string, number> {
   const normalizedTerms = decomposeTerms(terms);
@@ -147,23 +146,6 @@ export function commonPrefixLength(left: string, right: string): number {
 
 export function coverageTermsMatch(queryTerm: string, candidate: string): boolean {
   return candidate === queryTerm || candidate.includes(queryTerm) || commonPrefixLength(queryTerm, candidate) >= 4;
-}
-
-export function getConnectedSymbols(db: Database.Database, symbolId: number): Array<{ symbolId: number; fileId: number }> {
-  let stmt = connectedSymbolsStmtCache.get(db);
-  if (!stmt) {
-    stmt = db.prepare<[number, number, number], { symbolId: number; fileId: number }>(`
-      SELECT s.id as symbolId, s.file_id as fileId FROM edges e
-      JOIN symbols s ON (
-        CASE WHEN e.source_symbol_id = ? THEN e.target_symbol_id ELSE e.source_symbol_id END = s.id
-      )
-      WHERE (e.source_symbol_id = ? OR e.target_symbol_id = ?)
-        AND e.kind IN ('call', 'implements', 'type_usage', 'inheritance')
-      LIMIT 6
-    `);
-    connectedSymbolsStmtCache.set(db, stmt);
-  }
-  return stmt.all(symbolId, symbolId, symbolId);
 }
 
 export function buildPivotCandidates(

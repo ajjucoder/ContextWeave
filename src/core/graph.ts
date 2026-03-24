@@ -6,6 +6,8 @@ import { symbolQueries } from "../db/queries/symbols.js";
 import { edgeQueries } from "../db/queries/edges.js";
 import { createLogger } from "../utils/logger.js";
 
+type Statement = Database.Statement;
+
 const log = createLogger("graph");
 const PAGERANK_WORKER = join(dirname(fileURLToPath(import.meta.url)), "pagerank-worker.js");
 const USE_TSX_WORKER_LOADER = PAGERANK_WORKER.includes(`${sep}src${sep}`);
@@ -204,6 +206,13 @@ export function scopedLazyBfsTraversal(
 }
 
 const degreeStmtCache = new WeakMap<Database.Database, { out: Database.Statement; inc: Database.Statement }>();
+const batchDegreeStmtCache = new WeakMap<
+  Database.Database,
+  {
+    out: Map<number, Statement>;
+    inc: Map<number, Statement>;
+  }
+>();
 
 export function getSymbolDegree(db: Database.Database, symbolId: number): number {
   let stmts = degreeStmtCache.get(db);
@@ -219,6 +228,36 @@ export function getSymbolDegree(db: Database.Database, symbolId: number): number
   return out.c + inc.c;
 }
 
+function getBatchDegreeStatements(
+  db: Database.Database,
+  chunkSize: number
+): {
+  out: Statement;
+  inc: Statement;
+} {
+  let cache = batchDegreeStmtCache.get(db);
+  if (!cache) {
+    cache = { out: new Map(), inc: new Map() };
+    batchDegreeStmtCache.set(db, cache);
+  }
+
+  let outStmt = cache.out.get(chunkSize);
+  let incStmt = cache.inc.get(chunkSize);
+  if (!outStmt || !incStmt) {
+    const placeholders = Array.from({ length: chunkSize }, () => "?").join(", ");
+    outStmt = db.prepare(
+      `SELECT source_symbol_id as id, COUNT(*) as c FROM edges WHERE source_symbol_id IN (${placeholders}) GROUP BY source_symbol_id`
+    );
+    incStmt = db.prepare(
+      `SELECT target_symbol_id as id, COUNT(*) as c FROM edges WHERE target_symbol_id IN (${placeholders}) GROUP BY target_symbol_id`
+    );
+    cache.out.set(chunkSize, outStmt);
+    cache.inc.set(chunkSize, incStmt);
+  }
+
+  return { out: outStmt, inc: incStmt };
+}
+
 export function getBatchSymbolDegrees(db: Database.Database, symbolIds: number[]): Map<number, number> {
   if (symbolIds.length === 0) return new Map();
 
@@ -230,15 +269,8 @@ export function getBatchSymbolDegrees(db: Database.Database, symbolIds: number[]
   const CHUNK_SIZE = 400;
   for (let i = 0; i < symbolIds.length; i += CHUNK_SIZE) {
     const chunk = symbolIds.slice(i, i + CHUNK_SIZE);
-    const placeholders = chunk.map(() => "?").join(", ");
-    if (!placeholders) continue;
-
-    const outStmt = db.prepare(
-      `SELECT source_symbol_id as id, COUNT(*) as c FROM edges WHERE source_symbol_id IN (${placeholders}) GROUP BY source_symbol_id`
-    );
-    const incStmt = db.prepare(
-      `SELECT target_symbol_id as id, COUNT(*) as c FROM edges WHERE target_symbol_id IN (${placeholders}) GROUP BY target_symbol_id`
-    );
+    if (chunk.length === 0) continue;
+    const { out: outStmt, inc: incStmt } = getBatchDegreeStatements(db, chunk.length);
 
     for (const row of outStmt.all(...chunk) as Array<{ id: number; c: number }>) {
       degrees.set(row.id, (degrees.get(row.id) ?? 0) + row.c);

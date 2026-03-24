@@ -2,6 +2,7 @@
  * Candidate scoring and selection stage for capsule generation.
  */
 import { dirname } from "node:path";
+import type Database from "better-sqlite3";
 import type { EdgeSummary } from "../compressor.js";
 import { renderSymbol } from "../compressor.js";
 import { scoreNode, assignCompressionLevel } from "../scorer.js";
@@ -20,7 +21,13 @@ import {
   tokenizeCoverageTerms,
 } from "./pivot-resolver.js";
 
+type Statement = Database.Statement;
+
 const EDGE_BATCH_CHUNK_SIZE = 400;
+const outgoingEdgeBatchStmtCache = new WeakMap<
+  Database.Database,
+  Map<number, Statement>
+>();
 
 export interface CandidateScoringResult {
   candidates: RankedCandidate[];
@@ -45,6 +52,32 @@ interface EnsureBroadFileSpreadOptions {
   getFileSymbols(fileId: number): LightSymbolRecord[];
   files?: Iterable<FileRecord>;
   pivotQueryTerms: string[];
+}
+
+function getOutgoingEdgeBatchStatement(
+  db: Database.Database,
+  chunkSize: number
+): Statement {
+  let cache = outgoingEdgeBatchStmtCache.get(db);
+  if (!cache) {
+    cache = new Map();
+    outgoingEdgeBatchStmtCache.set(db, cache);
+  }
+
+  let stmt = cache.get(chunkSize);
+  if (!stmt) {
+    const placeholders = Array.from({ length: chunkSize }, () => "?").join(",");
+    stmt = db.prepare(
+      `SELECT e.source_symbol_id, s.name AS target_name, e.kind
+       FROM edges e
+       JOIN symbols s ON s.id = e.target_symbol_id
+       WHERE e.source_symbol_id IN (${placeholders})
+         AND e.kind IN ('call', 'import')`
+    );
+    cache.set(chunkSize, stmt);
+  }
+
+  return stmt;
 }
 
 export function pruneUiNoise(selectedCandidates: RankedCandidate[], options: PruneUiNoiseOptions): RankedCandidate[] {
@@ -154,14 +187,12 @@ export function batchFetchOutgoingEdges(context: CapsuleContext, symbolIds: numb
 
   for (let i = 0; i < symbolIds.length; i += EDGE_BATCH_CHUNK_SIZE) {
     const chunk = symbolIds.slice(i, i + EDGE_BATCH_CHUNK_SIZE);
-    const placeholders = chunk.map(() => "?").join(",");
-    const rows = context.db.prepare(
-      `SELECT e.source_symbol_id, s.name AS target_name, e.kind
-       FROM edges e
-       JOIN symbols s ON s.id = e.target_symbol_id
-       WHERE e.source_symbol_id IN (${placeholders})
-         AND e.kind IN ('call', 'import')`
-    ).all(...chunk) as { source_symbol_id: number; target_name: string; kind: string }[];
+    if (chunk.length === 0) continue;
+    const rows = getOutgoingEdgeBatchStatement(context.db, chunk.length).all(...chunk) as Array<{
+      source_symbol_id: number;
+      target_name: string;
+      kind: string;
+    }>;
 
     for (const row of rows) {
       const list = result.get(row.source_symbol_id) ?? [];

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { FileRecord, LightSymbolRecord } from "../../../src/core/types.js";
 import { resolvePivots } from "../../../src/capsule/pipeline/pivot-resolver.js";
 import { expandGraph } from "../../../src/capsule/pipeline/graph-expander.js";
@@ -6,6 +6,7 @@ import {
   scoreCandidates,
   pruneUiNoise,
   ensureBroadFileSpread,
+  batchFetchOutgoingEdges,
 } from "../../../src/capsule/pipeline/candidate-scorer.js";
 import { usePipelineFixture } from "./test-helpers.js";
 
@@ -45,6 +46,17 @@ describe("candidate scorer", () => {
     expect(scoring.scoredNodes.length).toBeGreaterThan(0);
     expect(scoring.scoredNodes[0]?.rendered.length).toBeGreaterThan(0);
     expect(scoring.clusterBySymbolId.size).toBeGreaterThanOrEqual(0);
+  });
+
+  it("reuses prepared outgoing-edge statements for repeated batch sizes", () => {
+    const context = fixture.createContext("capsule scoring pipeline", { tokenBudget: 4500 });
+    const symbolIds = context.symbols.getAllIds().slice(0, 8);
+    const prepareSpy = vi.spyOn(context.db, "prepare");
+
+    batchFetchOutgoingEdges(context, symbolIds);
+    batchFetchOutgoingEdges(context, symbolIds);
+
+    expect(prepareSpy).toHaveBeenCalledTimes(1);
   });
 
   it("pruneUiNoise drops UI-only files when enough runtime files remain", () => {

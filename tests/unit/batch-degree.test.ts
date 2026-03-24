@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import Database from "better-sqlite3";
 import { resolve } from "node:path";
 import { createSchema } from "../../src/db/schema.js";
@@ -33,6 +33,16 @@ describe("batch symbol degree", () => {
       const batch = batchResult.get(id) ?? 0;
       expect(batch).toBe(individual);
     }
+  });
+
+  it("reuses prepared statements for repeated batch sizes", () => {
+    const testIds = symbolQueries(db).getAllIds().slice(0, 8);
+    const prepareSpy = vi.spyOn(db, "prepare");
+
+    getBatchSymbolDegrees(db, testIds);
+    getBatchSymbolDegrees(db, testIds);
+
+    expect(prepareSpy).toHaveBeenCalledTimes(2);
   });
 
   it("handles empty input", () => {
