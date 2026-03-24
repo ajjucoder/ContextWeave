@@ -18,7 +18,7 @@ import { registerReadTool } from "./tools/read.js";
 import { registerStatsTool } from "./tools/stats.js";
 import { registerExportTool } from "./tools/export.js";
 import { registerSnapshotTool } from "./tools/snapshot.js";
-import { startWatcher, stopWatcher } from "../core/watcher.js";
+import { startWatcher, stopWatcher } from "../core/watcher-v2.js";
 import { createEmbeddingRuntime, disposeEmbeddingRuntime } from "../core/embedding-runtime.js";
 import { indexProject } from "../core/indexer.js";
 import { updateCentralityScores } from "../core/graph.js";

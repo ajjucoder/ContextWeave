@@ -52,7 +52,7 @@ vi.mock("../../src/db/migrations.js", () => ({
   runMigrations: mockRunMigrations,
 }));
 
-vi.mock("../../src/core/watcher.js", () => ({
+vi.mock("../../src/core/watcher-v2.js", () => ({
   startWatcher: mockStartWatcher,
   stopWatcher: mockStopWatcher,
 }));
