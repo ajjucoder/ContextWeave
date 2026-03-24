@@ -32,7 +32,7 @@ export function contentFallbackSearch(
   const symbolHits = new Map<number, number>();
 
   const stmt = db.prepare(
-    "SELECT s.id as symbolId, s.file_id as fileId, f.path as filePath FROM symbols s JOIN files f ON f.id = s.file_id WHERE LOWER(s.full_source) LIKE ? ESCAPE '\\' LIMIT 50"
+    "SELECT s.id as symbolId, s.file_id as fileId, f.path as filePath FROM symbols s JOIN files f ON f.id = s.file_id WHERE LOWER(s.full_source) LIKE ? ESCAPE '\\'"
   );
 
   for (const term of queryTerms) {
@@ -47,10 +47,10 @@ export function contentFallbackSearch(
 
   if (symbolHits.size === 0) return [];
 
-  // Sort by hit count and take top symbols
+  // Sort by hit count and take top symbols (increased multiplier for better coverage)
   const topSymbols = [...symbolHits.entries()]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, maxFiles * 5)  // Get enough symbols from top files
+    .slice(0, maxFiles * 50)  // Increased from 5x to 50x for adequate symbol coverage
     .map(([symbolId]) => symbolId);
 
   if (topSymbols.length === 0) return [];
