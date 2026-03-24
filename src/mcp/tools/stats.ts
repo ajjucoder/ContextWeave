@@ -14,10 +14,27 @@ export interface SessionStats {
   uniqueFiles: number;
   uniqueSymbols: number;
   circularDependencyClusters: number;
+  qualityScore: number;
+  deadCodeCount: number;
+  largeFunctions: LargeFunctionWarning[];
   firstPassRate: number;
   correctionRate: number;
   budgetUtilization: number;
   averageFollowUpReads: number;
+}
+
+export interface LargeFunctionWarning {
+  symbolName: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  lineCount: number;
+}
+
+export interface CodeQualityMetrics {
+  qualityScore: number;
+  deadCodeCount: number;
+  largeFunctions: LargeFunctionWarning[];
 }
 
 export interface FollowUpMetrics {
@@ -53,12 +70,94 @@ export function formatRatePct(rate: number): string {
   return `${(rate * 100).toFixed(1)}%`;
 }
 
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+export function computeQualityScore(input: {
+  totalSymbols: number;
+  deadCodeCount: number;
+  largeFunctionCount: number;
+  circularDependencyClusters: number;
+}): number {
+  const { totalSymbols, deadCodeCount, largeFunctionCount, circularDependencyClusters } = input;
+  if (totalSymbols <= 0) {
+    return 100;
+  }
+
+  const deadCodePenalty = (deadCodeCount / totalSymbols) * 45;
+  const largeFunctionPenalty = (largeFunctionCount / totalSymbols) * 35;
+  const circularPenalty = (circularDependencyClusters / totalSymbols) * 20;
+
+  return Math.round(clamp(100 - deadCodePenalty - largeFunctionPenalty - circularPenalty, 0, 100));
+}
+
+export function computeCodeQualityMetrics(db: Database.Database): CodeQualityMetrics {
+  const totalSymbols =
+    (db.prepare("SELECT COUNT(*) as count FROM symbols").get() as { count: number } | undefined)?.count ?? 0;
+
+  const deadCodeCount =
+    (
+      db.prepare(`
+        SELECT COUNT(*) as count
+        FROM symbols s
+        WHERE s.is_exported = 0
+          AND NOT EXISTS (
+            SELECT 1
+            FROM edges e
+            WHERE e.target_symbol_id = s.id
+          )
+      `).get() as { count: number } | undefined
+    )?.count ?? 0;
+
+  const largeFunctions = db.prepare(`
+    SELECT
+      s.name as symbol_name,
+      f.path as file_path,
+      s.start_line as start_line,
+      s.end_line as end_line,
+      (s.end_line - s.start_line + 1) as line_count
+    FROM symbols s
+    JOIN files f ON f.id = s.file_id
+    WHERE (s.end_line - s.start_line + 1) > 100
+      AND s.kind IN ('function', 'method', 'arrow')
+    ORDER BY line_count DESC, f.path ASC, s.start_line ASC
+  `).all() as Array<{
+    symbol_name: string;
+    file_path: string;
+    start_line: number;
+    end_line: number;
+    line_count: number;
+  }>;
+
+  const circularDependencyClusters = countCircularDependencyClusters(db);
+
+  return {
+    qualityScore: computeQualityScore({
+      totalSymbols,
+      deadCodeCount,
+      largeFunctionCount: largeFunctions.length,
+      circularDependencyClusters,
+    }),
+    deadCodeCount,
+    largeFunctions: largeFunctions.map((row) => ({
+      symbolName: row.symbol_name,
+      filePath: row.file_path,
+      startLine: row.start_line,
+      endLine: row.end_line,
+      lineCount: row.line_count,
+    })),
+  };
+}
+
 export function computeSessionStats(
   db: Database.Database,
   sessionId: string,
   _projectRoot?: string
 ): SessionStats {
   const logs = capsuleLogQueries(db).getBySession(sessionId);
+  const circularDependencyClusters = countCircularDependencyClusters(db);
+  const codeQuality = computeCodeQualityMetrics(db);
 
   if (logs.length === 0) {
     return {
@@ -67,7 +166,10 @@ export function computeSessionStats(
       totalTokensUsed: 0,
       uniqueFiles: 0,
       uniqueSymbols: 0,
-      circularDependencyClusters: countCircularDependencyClusters(db),
+      circularDependencyClusters,
+      qualityScore: codeQuality.qualityScore,
+      deadCodeCount: codeQuality.deadCodeCount,
+      largeFunctions: codeQuality.largeFunctions,
       firstPassRate: 0,
       correctionRate: 0,
       budgetUtilization: 0,
@@ -103,7 +205,10 @@ export function computeSessionStats(
     totalTokensUsed: totalUsed,
     uniqueFiles: allFiles.size,
     uniqueSymbols: allSymbols.size,
-    circularDependencyClusters: countCircularDependencyClusters(db),
+    circularDependencyClusters,
+    qualityScore: codeQuality.qualityScore,
+    deadCodeCount: codeQuality.deadCodeCount,
+    largeFunctions: codeQuality.largeFunctions,
     firstPassRate: followUpMetrics.firstPassRate,
     correctionRate: followUpMetrics.correctionRate,
     budgetUtilization,
@@ -125,6 +230,9 @@ export function formatStats(stats: SessionStats, sessionId: string): string {
     "",
     `Indexed: ${stats.uniqueFiles} files, ${stats.uniqueSymbols} symbols`,
     `${stats.circularDependencyClusters} circular dependency clusters detected`,
+    `Quality score: ${stats.qualityScore}/100`,
+    `Dead code count: ${stats.deadCodeCount}`,
+    `Large functions: ${JSON.stringify(stats.largeFunctions)}`,
     `Avg tokens per capsule: ${avgTokensPerCapsule.toLocaleString()}`,
     `Budget utilization: ${budgetUtilizationPct}%`,
     "",

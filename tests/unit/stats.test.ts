@@ -67,6 +67,96 @@ function insertCycleGraph(): void {
   edges.insert({ sourceSymbolId: ids[2]!, targetSymbolId: ids[0]!, kind: "call", createdAt: now });
 }
 
+function insertQualityFixtures(): void {
+  const files = fileQueries(db);
+  const symbols = symbolQueries(db);
+  const edges = edgeQueries(db);
+  const now = Date.now();
+  const fileId = files.insert({
+    path: "src/quality.ts",
+    hash: "quality-hash",
+    lastIndexed: now,
+    mtime: now,
+    language: "typescript",
+    symbolCount: 0,
+    error: null,
+  });
+
+  const aliveId = symbols.insert({
+    fileId,
+    name: "aliveHelper",
+    kind: "function",
+    startLine: 1,
+    endLine: 20,
+    signature: "function aliveHelper()",
+    bodyHash: "alive-hash",
+    fullSource: "function aliveHelper() {}",
+    isExported: false,
+    docComment: null,
+    centrality: 0,
+    lastSeen: now,
+    parentSymbolId: null,
+    qualifiedName: null,
+  });
+
+  const callerId = symbols.insert({
+    fileId,
+    name: "callAliveHelper",
+    kind: "function",
+    startLine: 22,
+    endLine: 40,
+    signature: "function callAliveHelper()",
+    bodyHash: "caller-hash",
+    fullSource: "function callAliveHelper() { return aliveHelper(); }",
+    isExported: true,
+    docComment: null,
+    centrality: 0,
+    lastSeen: now,
+    parentSymbolId: null,
+    qualifiedName: null,
+  });
+
+  const deadId = symbols.insert({
+    fileId,
+    name: "deadHelper",
+    kind: "function",
+    startLine: 42,
+    endLine: 58,
+    signature: "function deadHelper()",
+    bodyHash: "dead-hash",
+    fullSource: "function deadHelper() {}",
+    isExported: false,
+    docComment: null,
+    centrality: 0,
+    lastSeen: now,
+    parentSymbolId: null,
+    qualifiedName: null,
+  });
+
+  const largeId = symbols.insert({
+    fileId,
+    name: "giantHandler",
+    kind: "function",
+    startLine: 60,
+    endLine: 180,
+    signature: "function giantHandler()",
+    bodyHash: "large-hash",
+    fullSource: "function giantHandler() {}",
+    isExported: true,
+    docComment: null,
+    centrality: 0,
+    lastSeen: now,
+    parentSymbolId: null,
+    qualifiedName: null,
+  });
+
+  edges.insert({ sourceSymbolId: callerId, targetSymbolId: aliveId, kind: "call", createdAt: now });
+  // Self-call should still count as incoming and keep the helper from being marked dead.
+  edges.insert({ sourceSymbolId: largeId, targetSymbolId: largeId, kind: "call", createdAt: now });
+
+  expect(deadId).toBeGreaterThan(0);
+}
+
 beforeEach(() => {
   db = new Database(":memory:");
   db.pragma("foreign_keys = ON");
@@ -170,5 +260,27 @@ describe("computeSessionStats", () => {
 
     expect(stats.circularDependencyClusters).toBe(1);
     expect(text).toContain("1 circular dependency clusters detected");
+  });
+
+  it("reports code quality metrics including quality score, dead code count, and large functions", () => {
+    setupSession("s1");
+    insertQualityFixtures();
+
+    const stats = computeSessionStats(db, "s1", "/test");
+    const text = formatStats(stats, "s1");
+
+    expect(stats.deadCodeCount).toBe(1);
+    expect(stats.largeFunctions).toEqual([
+      expect.objectContaining({
+        symbolName: "giantHandler",
+        filePath: "src/quality.ts",
+        lineCount: 121,
+      }),
+    ]);
+    expect(stats.qualityScore).toBeLessThan(100);
+    expect(text).toContain("Quality score:");
+    expect(text).toContain("Dead code count: 1");
+    expect(text).toContain("Large functions:");
+    expect(text).toContain("\"symbolName\":\"giantHandler\"");
   });
 });

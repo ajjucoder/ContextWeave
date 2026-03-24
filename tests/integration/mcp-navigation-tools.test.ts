@@ -371,6 +371,9 @@ describe("mcp navigation tools", () => {
     expect(result.isError).not.toBe(true);
     expect(text).toContain("ContextWeave Session Stats");
     expect(text).toContain("Session: session-1");
+    expect(text).toContain("Quality score:");
+    expect(text).toContain("Dead code count:");
+    expect(text).toContain("Large functions:");
     expect(text).toContain("First-pass rate:");
     expect(text).toContain("Correction rate:");
   });
