@@ -33,10 +33,10 @@ const log = createLogger("mcp-server");
 
 let serverDb: Database.Database | null = null;
 
-function getServerDb(projectRoot: string): Database.Database {
+function getServerDb(projectRoot: string, isPrimary: boolean): Database.Database {
   if (serverDb) return serverDb;
   const dbPath = `${projectRoot}/.contextweave/contextweave.db`;
-  serverDb = getDb(dbPath);
+  serverDb = getDb(dbPath, { scheduleMaintenance: isPrimary });
   runMigrations(serverDb);
   return serverDb;
 }
@@ -77,7 +77,7 @@ export async function startMcpServer(projectRoot: string, config?: ProjectConfig
     version: "0.1.0",
   });
 
-  const db = getServerDb(projectRoot);
+  const db = getServerDb(projectRoot, isPrimary);
   const embeddingRuntime = await createEmbeddingRuntime(db, {
     modelName: config?.embeddingModel,
   });

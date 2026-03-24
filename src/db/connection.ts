@@ -6,8 +6,15 @@ import { createLogger } from "../utils/logger.js";
 const log = createLogger("db");
 
 const dbInstances = new Map<string, Database.Database>();
+const maintenanceIntervals = new Map<string, NodeJS.Timeout>();
+const activeMaintenance = new Set<string>();
 const DEFAULT_MAX_DB_SIZE_BYTES = 1024 * 1024 * 1024; // 1GB
 const MAINTENANCE_THRESHOLD_BYTES = 512 * 1024 * 1024; // 512MB
+const MAINTENANCE_INTERVAL_MS = 30 * 60 * 1000;
+
+export interface DbConnectionOptions {
+  scheduleMaintenance?: boolean;
+}
 
 function isInMemoryPath(dbPath: string): boolean {
   return dbPath === ":memory:" || dbPath.startsWith("file::memory:");
@@ -77,6 +84,38 @@ function maybeRunMaintenance(instance: Database.Database, dbPath: string): void 
   }
 }
 
+function runMaintenanceWithGuard(instance: Database.Database, dbPath: string): void {
+  if (activeMaintenance.has(dbPath)) {
+    log.debug("db maintenance already running", { path: dbPath });
+    return;
+  }
+
+  activeMaintenance.add(dbPath);
+  try {
+    maybeRunMaintenance(instance, dbPath);
+  } finally {
+    activeMaintenance.delete(dbPath);
+  }
+}
+
+function ensureMaintenanceSchedule(instance: Database.Database, dbPath: string): void {
+  if (maintenanceIntervals.has(dbPath)) return;
+  if (isInMemoryPath(dbPath) || dbPath.startsWith("file:")) return;
+
+  const interval = setInterval(() => {
+    runMaintenanceWithGuard(instance, dbPath);
+  }, MAINTENANCE_INTERVAL_MS);
+  interval.unref?.();
+  maintenanceIntervals.set(dbPath, interval);
+}
+
+function clearMaintenanceSchedule(dbPath: string): void {
+  const interval = maintenanceIntervals.get(dbPath);
+  if (!interval) return;
+  clearInterval(interval);
+  maintenanceIntervals.delete(dbPath);
+}
+
 function removeCorruptFiles(dbPath: string): void {
   try {
     const backupPath = `${dbPath}.corrupt.${Date.now()}`;
@@ -97,10 +136,15 @@ function removeCorruptFiles(dbPath: string): void {
   }
 }
 
-export function getDb(dbPath: string): Database.Database {
+export function getDb(dbPath: string, options: DbConnectionOptions = {}): Database.Database {
   const normalizedPath = normalizeDbPath(dbPath);
   const existing = dbInstances.get(normalizedPath);
-  if (existing) return existing;
+  if (existing) {
+    if (options.scheduleMaintenance) {
+      ensureMaintenanceSchedule(existing, normalizedPath);
+    }
+    return existing;
+  }
 
   enforceDbSizeLimit(normalizedPath);
 
@@ -108,7 +152,10 @@ export function getDb(dbPath: string): Database.Database {
 
   try {
     const instance = openAndConfigure(normalizedPath);
-    maybeRunMaintenance(instance, normalizedPath);
+    runMaintenanceWithGuard(instance, normalizedPath);
+    if (options.scheduleMaintenance) {
+      ensureMaintenanceSchedule(instance, normalizedPath);
+    }
     dbInstances.set(normalizedPath, instance);
     return instance;
   } catch (err) {
@@ -129,6 +176,10 @@ export function getDb(dbPath: string): Database.Database {
     }
 
     const recovered = openAndConfigure(normalizedPath);
+    runMaintenanceWithGuard(recovered, normalizedPath);
+    if (options.scheduleMaintenance) {
+      ensureMaintenanceSchedule(recovered, normalizedPath);
+    }
     dbInstances.set(normalizedPath, recovered);
     log.info("created fresh database after corruption recovery");
     return recovered;
@@ -141,6 +192,8 @@ export function closeDb(dbPath?: string): void {
     const instance = dbInstances.get(normalizedPath);
     if (!instance) return;
     log.info("closing database", { path: normalizedPath });
+    clearMaintenanceSchedule(normalizedPath);
+    activeMaintenance.delete(normalizedPath);
     instance.close();
     dbInstances.delete(normalizedPath);
     return;
@@ -149,6 +202,8 @@ export function closeDb(dbPath?: string): void {
   if (dbInstances.size === 0) return;
   for (const [path, instance] of dbInstances) {
     log.info("closing database", { path });
+    clearMaintenanceSchedule(path);
+    activeMaintenance.delete(path);
     instance.close();
   }
   dbInstances.clear();

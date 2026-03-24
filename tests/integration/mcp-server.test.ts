@@ -98,7 +98,7 @@ describe("startMcpServer", () => {
 
     await startMcpServer("/repo", { version: 1, ignore: ["coverage"], tokenBudget: 4000, defaultMode: "feature", stalenessDepth: 2, confidenceDecay: 0.1, gcThreshold: 0.1 });
 
-    expect(mockGetDb).toHaveBeenCalledWith("/repo/.contextweave/contextweave.db");
+    expect(mockGetDb).toHaveBeenCalledWith("/repo/.contextweave/contextweave.db", { scheduleMaintenance: true });
     expect(mockRunMigrations).toHaveBeenCalled();
     expect(mockBackfillSummariesIfNeeded).toHaveBeenCalledWith({ mocked: true });
     expect(mockBackfillClustersIfNeeded).toHaveBeenCalledWith({ mocked: true }, "/repo");
@@ -126,6 +126,7 @@ describe("startMcpServer", () => {
 
     await startMcpServer("/repo");
 
+    expect(mockGetDb).toHaveBeenCalledWith("/repo/.contextweave/contextweave.db", { scheduleMaintenance: false });
     expect(mockStartWatcher).not.toHaveBeenCalled();
     expect(registeredToolsByServer[0]).toEqual(expect.arrayContaining([
       "cw_capsule",
