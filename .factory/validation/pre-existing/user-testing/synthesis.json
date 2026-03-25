@@ -1,0 +1,32 @@
+{
+  "milestone": "pre-existing",
+  "round": 1,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 5,
+    "passed": 5,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-PRE-001",
+    "VAL-PRE-002",
+    "VAL-PRE-003",
+    "VAL-PRE-004",
+    "VAL-PRE-005"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [
+    {
+      "target": ".factory/library/user-testing.md",
+      "description": "Added validation concurrency limits, CLI flow-validator guidance, and current repo test-path notes for pre-existing assertions.",
+      "source": "setup"
+    }
+  ],
+  "previousRound": null,
+  "flowReports": [
+    ".factory/validation/pre-existing/user-testing/flows/pre-existing-cli.json"
+  ],
+  "generatedAt": "2026-03-25T04:01:24Z"
+}

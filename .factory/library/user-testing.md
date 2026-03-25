@@ -41,3 +41,30 @@ This ContextWeave v2 mission has three validation surfaces:
 - dist/ artifacts: 715KB index.js, 111KB parser-worker.js, 14KB pagerank-worker.js
 
 **Max concurrent validators:** 5 (lightweight backend-only)
+
+## Validation Concurrency
+
+### Surface ceilings
+- **Automated Tests (vitest / targeted `npm test -- ...`)**: max **2** concurrent validators. These commands are CPU-heavy, share the same repository checkout, and can contend on transient build/test artifacts.
+- **CLI validation (`npx tsc --noEmit`, `npm run build`, direct `node dist/index.js` checks)**: max **1** concurrent validator per checkout. These commands mutate shared `dist/` output and should stay serialized inside one repo worktree.
+- **Eval suite (`npm run eval`)**: max **1** concurrent validator. It is the slowest surface and should not overlap with other heavy validation.
+
+### Current machine note
+- Mission guidance allows up to 5 lightweight validators, but current workstation load includes multiple active `droid` processes and moderate memory pressure on a 16 GB machine.
+- For this mission, use **1 concurrent validator** for the pre-existing milestone so targeted tests, typecheck, and build run in a single isolated sequence.
+
+## Flow Validator Guidance: CLI Validation
+
+- **Surface**: repository-local command-line validation for milestone assertions that are proven by `npm`, `npx`, and built artifact checks.
+- **Isolation boundary**: use only the assigned repository checkout at `/Users/aejjusingh/Developer/ContextWeave`; do not create extra servers, ports, or alternate worktrees unless explicitly assigned.
+- **Allowed commands**: targeted `npm test -- <file>`, `npx tsc --noEmit`, `npm run build`, and read-only artifact checks such as `test -f` / `ls` within `dist/`.
+- **Shared-state caution**: run the assigned commands serially. `npm run build` rewrites `dist/`, so do not overlap it with other validators in the same checkout.
+- **Evidence**: capture exact commands, exit codes, and concise observations in the flow report. Save any extra command output snippets only under the assigned evidence directory.
+- **Off-limits**: no source edits, no secret/config changes, no network-dependent mocks, and no use of reserved ports `3000-3100`.
+
+## Milestone Notes
+
+### pre-existing
+- `validation-contract.md` still references older vitest file paths for two assertions. Use the current repo paths when validating:
+  - `VAL-PRE-002` → `tests/security/capsule-path-validation.test.ts`
+  - `VAL-PRE-004` → `tests/unit/impact.test.ts`

@@ -1,0 +1,108 @@
+{
+  "milestone": "pre-existing",
+  "generatedAt": "2026-03-25T04:01:24Z",
+  "assertionResults": [
+    {
+      "id": "VAL-PRE-001",
+      "status": "pass",
+      "evidence": {
+        "surface": "CLI Validation",
+        "command": "npx tsc --noEmit",
+        "exitCode": 0,
+        "observation": "TypeScript completed with exit code 0 and no diagnostic output."
+      },
+      "toolsUsed": [
+        "shell",
+        "npx",
+        "typescript"
+      ],
+      "frictions": [],
+      "blockers": []
+    },
+    {
+      "id": "VAL-PRE-002",
+      "status": "pass",
+      "evidence": {
+        "surface": "CLI Validation",
+        "command": "npm test -- tests/security/capsule-path-validation.test.ts",
+        "exitCode": 0,
+        "observation": "Vitest ran 1 file and 27 tests, all passing; path/glob traversal and absolute-path validation behavior returned errors as expected. The contract path tests/capsule/capsule-path-validation.test.ts is stale in the current repo."
+      },
+      "toolsUsed": [
+        "shell",
+        "npm",
+        "vitest"
+      ],
+      "frictions": [
+        "validation-contract.md still points to tests/capsule/capsule-path-validation.test.ts, which no longer exists; current test file is tests/security/capsule-path-validation.test.ts."
+      ],
+      "blockers": []
+    },
+    {
+      "id": "VAL-PRE-003",
+      "status": "pass",
+      "evidence": {
+        "surface": "CLI Validation",
+        "command": "npm test -- tests/security/content-fallback-like-escape.test.ts",
+        "exitCode": 0,
+        "observation": "Vitest ran 1 file and 33 tests, all passing; the debug SQL output showed the escaped pattern \"%50\\%%\" only matched the literal percent string."
+      },
+      "toolsUsed": [
+        "shell",
+        "npm",
+        "vitest"
+      ],
+      "frictions": [],
+      "blockers": []
+    },
+    {
+      "id": "VAL-PRE-004",
+      "status": "pass",
+      "evidence": {
+        "surface": "CLI Validation",
+        "command": "npm test -- tests/unit/impact.test.ts",
+        "exitCode": 0,
+        "observation": "Vitest ran 1 file and 18 tests, all passing; the impact suite includes barrel deduping and file-qualified cw_impact pinning behavior. The contract path tests/core/impact.test.ts is stale in the current repo."
+      },
+      "toolsUsed": [
+        "shell",
+        "npm",
+        "vitest"
+      ],
+      "frictions": [
+        "validation-contract.md still points to tests/core/impact.test.ts, which no longer exists; current test file is tests/unit/impact.test.ts."
+      ],
+      "blockers": []
+    },
+    {
+      "id": "VAL-PRE-005",
+      "status": "pass",
+      "evidence": {
+        "surface": "CLI Validation",
+        "command": "npm run build && test -f dist/index.js && test -f dist/parser-worker.js && test -f dist/pagerank-worker.js",
+        "exitCode": 0,
+        "observation": "tsup completed successfully and the required artifacts dist/index.js, dist/parser-worker.js, and dist/pagerank-worker.js all existed after the build."
+      },
+      "toolsUsed": [
+        "shell",
+        "npm",
+        "tsup"
+      ],
+      "frictions": [],
+      "blockers": []
+    }
+  ],
+  "overallStatus": "pass",
+  "toolsUsed": [
+    "shell",
+    "npm",
+    "npx",
+    "vitest",
+    "tsup"
+  ],
+  "frictions": [
+    "Task-based flow validator launch failed because the installed droid model mapping is invalid (custom:GPT-5.4-High-[VibeProxy]-26); validation was executed directly in this worker instead.",
+    "validation-contract.md contains stale vitest file paths for VAL-PRE-002 and VAL-PRE-004; the current paths are recorded in .factory/library/user-testing.md."
+  ],
+  "blockers": []
+}
