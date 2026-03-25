@@ -1,0 +1,52 @@
+{
+  "milestone": "1-foundation",
+  "round": 1,
+  "status": "pass",
+  "assertionsSummary": {
+    "total": 26,
+    "passed": 26,
+    "failed": 0,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-GC-001",
+    "VAL-INDEX-001",
+    "VAL-INDEX-002",
+    "VAL-LOGS-001",
+    "VAL-MIGRATE-001",
+    "VAL-PASSIVE-001",
+    "VAL-PASSIVE-002",
+    "VAL-PATH-001",
+    "VAL-PIPE-001",
+    "VAL-PIPE-002",
+    "VAL-PIPE-003",
+    "VAL-PIPE-004",
+    "VAL-SIGNALS-001",
+    "VAL-SQL-001",
+    "VAL-SQL-002",
+    "VAL-TESTS-001",
+    "VAL-TESTS-002",
+    "VAL-TESTS-003",
+    "VAL-TESTS-004",
+    "VAL-TESTS-005",
+    "VAL-TESTS-006",
+    "VAL-TESTS-007",
+    "VAL-TESTS-008",
+    "VAL-TOKEN-001",
+    "VAL-TYPES-001",
+    "VAL-VALIDATE-001"
+  ],
+  "failedAssertions": [],
+  "blockedAssertions": [],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Added a milestone 1 note documenting the manual fallback when user-testing-flow-validator Task launches fail with invalid model `custom:GPT-5.4-High-[VibeProxy]-26`.",
+      "source": "flow-report"
+    }
+  ],
+  "previousRound": null,
+  "runNotes": [
+    "Task launches for the user-testing-flow-validator droid failed immediately with `Invalid model: custom:GPT-5.4-High-[VibeProxy]-26`, so the validator session executed the CLI flows directly and wrote the flow report JSON artifacts manually."
+  ]
+}

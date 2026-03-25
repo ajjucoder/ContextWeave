@@ -1,0 +1,107 @@
+{
+  "groupId": "runtime-data",
+  "surface": "CLI Validation",
+  "assertions": [
+    {
+      "id": "VAL-INDEX-001",
+      "status": "pass",
+      "reason": "Indexer source configures parse timeouts and warning logs for skipped files.",
+      "evidence": [
+        {
+          "command": "python3 - <<'PY'  # confirm parse timeout constants in src/core/indexer.ts",
+          "exitCode": 0,
+          "observation": "The timeout constant check confirmed PARSE_TIMEOUT_MICROS = 5_000_000 and PARSE_TIMEOUT_MS derives from it in src/core/indexer.ts."
+        },
+        {
+          "command": "python3 - <<'PY'  # inspect parse timeout, shared path filter usage, and FTS debug logging",
+          "exitCode": 0,
+          "observation": "Inspection confirmed parser.setTimeoutMicros(PARSE_TIMEOUT_MICROS), reset-to-zero cleanup, and the warning path that logs \"skipping file after parse timeout\" when a parse times out."
+        }
+      ]
+    },
+    {
+      "id": "VAL-MIGRATE-001",
+      "status": "pass",
+      "reason": "Rollback support is implemented and works in reverse migration order.",
+      "evidence": [
+        {
+          "command": "npx tsx <<'TS'  # verify rollback, observations index, passive dedup, and passive TTL",
+          "exitCode": 0,
+          "observation": "An in-memory database applied migrations through v25, then rollbackMigration(db, 19) removed migrations v25-v20 in reverse order and left schema_migrations at version 19."
+        }
+      ]
+    },
+    {
+      "id": "VAL-TOKEN-001",
+      "status": "pass",
+      "reason": "Token counting cache uses LRU semantics with 10% eviction.",
+      "evidence": [
+        {
+          "command": "npm test -- tests/unit/tokens.test.ts",
+          "exitCode": 0,
+          "observation": "Vitest ran 6 passing token-cache tests, including keeping a recently accessed entry after overflow and evicting the oldest 10 percent of cache entries when the limit is exceeded."
+        }
+      ]
+    },
+    {
+      "id": "VAL-INDEX-002",
+      "status": "pass",
+      "reason": "observations(file_id) index exists and is used by SQLite query planning.",
+      "evidence": [
+        {
+          "command": "npx tsx <<'TS'  # verify rollback, observations index, passive dedup, and passive TTL",
+          "exitCode": 0,
+          "observation": "The in-memory migration check showed EXPLAIN QUERY PLAN output `SEARCH observations USING INDEX idx_observations_file (file_id=?)`, proving the v20 index exists and is used."
+        }
+      ]
+    },
+    {
+      "id": "VAL-PATH-001",
+      "status": "pass",
+      "reason": "isSafeProjectPath lives in one shared helper module and is imported by the tool implementations.",
+      "evidence": [
+        {
+          "command": "python3 - <<'PY'  # inspect parse timeout, shared path filter usage, and FTS debug logging",
+          "exitCode": 0,
+          "observation": "Inspection found a single exported isSafeProjectPath definition in src/mcp/tools/path-filters.ts and confirmed both read.ts and search.ts import that shared helper."
+        }
+      ]
+    },
+    {
+      "id": "VAL-LOGS-001",
+      "status": "pass",
+      "reason": "Both FTS fallback sites emit debug logs when search fails.",
+      "evidence": [
+        {
+          "command": "python3 - <<'PY'  # inspect parse timeout, shared path filter usage, and FTS debug logging",
+          "exitCode": 0,
+          "observation": "The inspection confirmed `logger.debug(\"FTS search failed\", { error });` exists in both src/db/queries/symbols.ts and src/core/file-summaries.ts."
+        }
+      ]
+    },
+    {
+      "id": "VAL-PASSIVE-001",
+      "status": "pass",
+      "reason": "Passive observation duplicates are skipped before insertion.",
+      "evidence": [
+        {
+          "command": "npx tsx <<'TS'  # verify rollback, observations index, passive dedup, and passive TTL",
+          "exitCode": 0,
+          "observation": "Calling captureQueryObservation twice with the same passive note produced passiveDuplicateCount = 1 in an in-memory database, confirming duplicate notes are silently skipped."
+        }
+      ]
+    },
+    {
+      "id": "VAL-PASSIVE-002",
+      "status": "pass",
+      "reason": "Passive TTL is loaded from project config instead of a hardcoded constant.",
+      "evidence": [
+        {
+          "command": "npx tsx <<'TS'  # verify rollback, observations index, passive dedup, and passive TTL",
+          "exitCode": 0,
+          "observation": "Using a temp project config with passiveTtlDays=14 produced passiveTtlMs = 1209600000 and the MemorySearch passive-expiration check left an 8-day-old passive observation unexpired."
+        }
+      ]
+    }
+  ]
+}

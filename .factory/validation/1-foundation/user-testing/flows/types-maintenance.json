@@ -1,0 +1,47 @@
+{
+  "groupId": "types-maintenance",
+  "surface": "CLI Validation",
+  "assertions": [
+    {
+      "id": "VAL-TYPES-001",
+      "status": "pass",
+      "reason": "ParsedCall.edgeKind uses the derived ParsedCallEdgeKind type and the project compiles cleanly.",
+      "evidence": [
+        {
+          "command": "python3 - <<'PY'  # inspect ParsedCallEdgeKind, GC scheduling, and validateRow usage",
+          "exitCode": 0,
+          "observation": "Inspection found `export type ParsedCallEdgeKind = Exclude<EdgeKind, \"import\" | \"reexport\" | \"reference\" | \"event\">;` and `edgeKind?: ParsedCallEdgeKind;` in src/core/types.ts."
+        },
+        {
+          "command": "npx tsc --noEmit",
+          "exitCode": 0,
+          "observation": "TypeScript completed successfully with exit code 0 and no diagnostic output."
+        }
+      ]
+    },
+    {
+      "id": "VAL-GC-001",
+      "status": "pass",
+      "reason": "Automatic maintenance scheduling is present with both interval and overlap guards.",
+      "evidence": [
+        {
+          "command": "python3 - <<'PY'  # inspect ParsedCallEdgeKind, GC scheduling, and validateRow usage",
+          "exitCode": 0,
+          "observation": "Inspection found MAINTENANCE_INTERVAL_MS = 30 * 60 * 1000, a guarded setInterval registration, and activeMaintenance tracking that prevents overlapping maintenance runs."
+        }
+      ]
+    },
+    {
+      "id": "VAL-VALIDATE-001",
+      "status": "pass",
+      "reason": "The lightweight validateRow helper exists and is used on hot-path symbol/observation queries.",
+      "evidence": [
+        {
+          "command": "python3 - <<'PY'  # inspect ParsedCallEdgeKind, GC scheduling, and validateRow usage",
+          "exitCode": 0,
+          "observation": "Inspection found validateRow<T>(row, schema) exported from src/db/queries/row-validator.ts and used in src/db/queries/symbols.ts and observation query modules."
+        }
+      ]
+    }
+  ]
+}

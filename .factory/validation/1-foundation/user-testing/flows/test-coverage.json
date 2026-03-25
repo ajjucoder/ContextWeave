@@ -1,0 +1,102 @@
+{
+  "groupId": "test-coverage",
+  "surface": "CLI Validation",
+  "assertions": [
+    {
+      "id": "VAL-TESTS-001",
+      "status": "pass",
+      "reason": "Framework plugin coverage exists for all 13 plugins.",
+      "evidence": [
+        {
+          "command": "npm test -- tests/core/framework-plugins.test.ts",
+          "exitCode": 0,
+          "observation": "Vitest ran tests/core/framework-plugins.test.ts with 13 passing tests covering the documented framework plugins."
+        }
+      ]
+    },
+    {
+      "id": "VAL-TESTS-002",
+      "status": "pass",
+      "reason": "Direct packer tests exist and pass.",
+      "evidence": [
+        {
+          "command": "npm test -- tests/capsule/packer.test.ts tests/capsule/signals.test.ts tests/capsule/modes.test.ts tests/capsule/budget-filling.test.ts",
+          "exitCode": 0,
+          "observation": "Vitest ran tests/capsule/packer.test.ts together with related capsule suites; packer.test.ts passed all 7 packer cases in the run."
+        }
+      ]
+    },
+    {
+      "id": "VAL-TESTS-003",
+      "status": "pass",
+      "reason": "signals.ts tests exist and pass.",
+      "evidence": [
+        {
+          "command": "npm test -- tests/capsule/packer.test.ts tests/capsule/signals.test.ts tests/capsule/modes.test.ts tests/capsule/budget-filling.test.ts",
+          "exitCode": 0,
+          "observation": "The capsule test run passed tests/capsule/signals.test.ts with 3 passing assertions."
+        }
+      ]
+    },
+    {
+      "id": "VAL-TESTS-004",
+      "status": "pass",
+      "reason": "modes.ts tests exist and pass.",
+      "evidence": [
+        {
+          "command": "npm test -- tests/capsule/packer.test.ts tests/capsule/signals.test.ts tests/capsule/modes.test.ts tests/capsule/budget-filling.test.ts",
+          "exitCode": 0,
+          "observation": "The capsule test run passed tests/capsule/modes.test.ts with 2 passing assertions."
+        }
+      ]
+    },
+    {
+      "id": "VAL-TESTS-005",
+      "status": "pass",
+      "reason": "The budget assertion regression test passes with the updated threshold.",
+      "evidence": [
+        {
+          "command": "npm test -- tests/capsule/packer.test.ts tests/capsule/signals.test.ts tests/capsule/modes.test.ts tests/capsule/budget-filling.test.ts",
+          "exitCode": 0,
+          "observation": "The capsule suite passed tests/capsule/budget-filling.test.ts with 7 passing assertions, covering the corrected budget threshold behavior."
+        }
+      ]
+    },
+    {
+      "id": "VAL-TESTS-006",
+      "status": "pass",
+      "reason": "FTS graceful degradation test exists and passes.",
+      "evidence": [
+        {
+          "command": "npm test -- tests/security/fts-degradation.test.ts tests/core/reindex-idempotency.test.ts",
+          "exitCode": 0,
+          "observation": "Vitest ran tests/security/fts-degradation.test.ts and tests/core/reindex-idempotency.test.ts together; fts-degradation.test.ts passed 2 assertions without throwing."
+        }
+      ]
+    },
+    {
+      "id": "VAL-TESTS-007",
+      "status": "pass",
+      "reason": "Reindex idempotency test exists and passes.",
+      "evidence": [
+        {
+          "command": "npm test -- tests/security/fts-degradation.test.ts tests/core/reindex-idempotency.test.ts",
+          "exitCode": 0,
+          "observation": "The same run passed tests/core/reindex-idempotency.test.ts, confirming a second index pass skipped unchanged files and kept the symbol set stable."
+        }
+      ]
+    },
+    {
+      "id": "VAL-TESTS-008",
+      "status": "pass",
+      "reason": "Utility coverage tests exist and pass.",
+      "evidence": [
+        {
+          "command": "npm test -- tests/utils",
+          "exitCode": 0,
+          "observation": "Vitest ran 5 utility test files under tests/utils with 65 passing tests, including config, directory-weights, project-profile, and hash coverage."
+        }
+      ]
+    }
+  ]
+}

@@ -68,3 +68,6 @@ This ContextWeave v2 mission has three validation surfaces:
 - `validation-contract.md` still references older vitest file paths for two assertions. Use the current repo paths when validating:
   - `VAL-PRE-002` → `tests/security/capsule-path-validation.test.ts`
   - `VAL-PRE-004` → `tests/unit/impact.test.ts`
+
+### 1-foundation
+- In this environment, `Task` launches for `user-testing-flow-validator` can fail immediately with `Invalid model: custom:GPT-5.4-High-[VibeProxy]-26`. If that happens, run the CLI validation steps in the parent validator session, then write the expected flow report JSON files manually under `.factory/validation/1-foundation/user-testing/flows/`.

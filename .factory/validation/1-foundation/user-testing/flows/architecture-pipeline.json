@@ -1,0 +1,90 @@
+{
+  "groupId": "architecture-pipeline",
+  "surface": "CLI Validation",
+  "assertions": [
+    {
+      "id": "VAL-PIPE-001",
+      "status": "pass",
+      "reason": "Pipeline directory contains all five expected stage files.",
+      "evidence": [
+        {
+          "command": "python3 - <<'PY'  # inspect pipeline structure, stage imports, signals, SQL caches, and thresholds",
+          "exitCode": 0,
+          "observation": "Inspection found budget-filler.ts, candidate-scorer.ts, graph-expander.ts, pivot-resolver.ts, and types.ts in src/capsule/pipeline."
+        }
+      ]
+    },
+    {
+      "id": "VAL-PIPE-002",
+      "status": "pass",
+      "reason": "generateCapsule is a thin orchestrator and the former nested helpers are named exports in pipeline modules.",
+      "evidence": [
+        {
+          "command": "python3 - <<'PY'  # inspect pipeline structure, stage imports, signals, SQL caches, and thresholds",
+          "exitCode": 0,
+          "observation": "The inspection measured generateCapsule at 9 body lines and confirmed generator.ts calls createCapsuleContext, resolvePivots, expandGraph, scoreCandidates, and fillBudgetAndFinalize; candidate-scorer.ts exports batchFetchOutgoingEdges, buildScoredNodes, pruneUiNoise, and ensureBroadFileSpread."
+        }
+      ]
+    },
+    {
+      "id": "VAL-PIPE-003",
+      "status": "pass",
+      "reason": "CapsuleContext is defined once and passed through every pipeline stage.",
+      "evidence": [
+        {
+          "command": "python3 - <<'PY'  # inspect pipeline structure, stage imports, signals, SQL caches, and thresholds",
+          "exitCode": 0,
+          "observation": "types.ts exports CapsuleContext and the pivot-resolver, graph-expander, candidate-scorer, and budget-filler stages each import/use CapsuleContext as their context input."
+        }
+      ]
+    },
+    {
+      "id": "VAL-PIPE-004",
+      "status": "pass",
+      "reason": "Each pipeline stage has direct targeted tests.",
+      "evidence": [
+        {
+          "command": "npm test -- tests/capsule/pipeline",
+          "exitCode": 0,
+          "observation": "Vitest ran 4 pipeline test files with 11 passing tests: pivot-resolver, graph-expander, candidate-scorer, and budget-filler all passed independently."
+        }
+      ]
+    },
+    {
+      "id": "VAL-SIGNALS-001",
+      "status": "pass",
+      "reason": "Shared signal constants are centralized in signals.ts.",
+      "evidence": [
+        {
+          "command": "python3 - <<'PY'  # inspect pipeline structure, stage imports, signals, SQL caches, and thresholds",
+          "exitCode": 0,
+          "observation": "Inspection found a single RUNTIME_QUERY_TERMS definition in src/capsule/signals.ts and import-based usages in pivot-scorer.ts, file-summaries.ts, pivot-resolver.ts, and budget-filler.ts with no duplicate declarations elsewhere."
+        }
+      ]
+    },
+    {
+      "id": "VAL-SQL-001",
+      "status": "pass",
+      "reason": "Dynamic SQL statement caches are implemented for both batch edge fetch and batch degree lookup.",
+      "evidence": [
+        {
+          "command": "python3 - <<'PY'  # inspect pipeline structure, stage imports, signals, SQL caches, and thresholds",
+          "exitCode": 0,
+          "observation": "The inspection confirmed a Map<number, Statement> cache in candidate-scorer.ts for batchFetchOutgoingEdges and a matching Map<number, Statement> cache in core/graph.ts for getBatchSymbolDegrees."
+        }
+      ]
+    },
+    {
+      "id": "VAL-SQL-002",
+      "status": "pass",
+      "reason": "Fallback thresholds are named constants in generator.ts.",
+      "evidence": [
+        {
+          "command": "python3 - <<'PY'  # inspect pipeline structure, stage imports, signals, SQL caches, and thresholds",
+          "exitCode": 0,
+          "observation": "generator.ts defines MULTI_PASS_FILL_THRESHOLD=0.50, DEEP_EXPAND_THRESHOLD=0.75, and POOL_EXTRAS_THRESHOLD=0.40, then passes them into fillBudgetAndFinalize."
+        }
+      ]
+    }
+  ]
+}
