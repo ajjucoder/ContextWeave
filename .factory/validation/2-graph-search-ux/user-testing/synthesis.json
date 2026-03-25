@@ -1,0 +1,48 @@
+{
+  "milestone": "2-graph-search-ux",
+  "round": 1,
+  "status": "fail",
+  "assertionsSummary": {
+    "total": 17,
+    "passed": 16,
+    "failed": 1,
+    "blocked": 0
+  },
+  "passedAssertions": [
+    "VAL-GRAPH-001",
+    "VAL-GRAPH-002",
+    "VAL-GRAPH-003",
+    "VAL-GRAPH-004",
+    "VAL-GRAPH-005",
+    "VAL-GRAPH-006",
+    "VAL-GRAPH-007",
+    "VAL-UX-001",
+    "VAL-UX-002",
+    "VAL-UX-003",
+    "VAL-SEARCH-001",
+    "VAL-SEARCH-002",
+    "VAL-PACK-001",
+    "VAL-SNAP-001",
+    "VAL-WATCH-001",
+    "VAL-WATCH-002"
+  ],
+  "failedAssertions": [
+    {
+      "id": "VAL-GRAPH-008",
+      "reason": "Parser-level visibility detection passes, but real project indexing still persisted non-public methods as public in the validation temp project, so cross-file capsule expansion cannot reliably deprioritize private/protected symbols after indexing."
+    }
+  ],
+  "blockedAssertions": [],
+  "appliedUpdates": [
+    {
+      "target": "user-testing.md",
+      "description": "Added a milestone 2 note documenting the manual fallback when user-testing-flow-validator Task launches fail with invalid model custom:GPT-5.4-High-[VibeProxy]-26.",
+      "source": "flow-report"
+    }
+  ],
+  "previousRound": null,
+  "runNotes": [
+    "Task launches for the user-testing-flow-validator droid failed immediately with `Invalid model: custom:GPT-5.4-High-[VibeProxy]-26`, so the validator session executed the CLI flows directly and wrote the flow report JSON artifacts manually.",
+    "VAL-GRAPH-008 failed in user-surface validation because real indexing did not persist non-public visibility metadata even though parser-level tests passed."
+  ]
+}

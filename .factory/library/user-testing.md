@@ -71,3 +71,6 @@ This ContextWeave v2 mission has three validation surfaces:
 
 ### 1-foundation
 - In this environment, `Task` launches for `user-testing-flow-validator` can fail immediately with `Invalid model: custom:GPT-5.4-High-[VibeProxy]-26`. If that happens, run the CLI validation steps in the parent validator session, then write the expected flow report JSON files manually under `.factory/validation/1-foundation/user-testing/flows/`.
+
+### 2-graph-search-ux
+- `Task` launches for `user-testing-flow-validator` still fail in this environment with `Invalid model: custom:GPT-5.4-High-[VibeProxy]-26`. For this milestone, run the assigned CLI validation commands in the parent validator session, save command logs under the mission evidence directory, and write the expected flow report JSON manually under `.factory/validation/2-graph-search-ux/user-testing/flows/`.

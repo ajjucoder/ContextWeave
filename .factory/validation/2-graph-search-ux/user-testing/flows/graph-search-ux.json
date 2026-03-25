@@ -1,0 +1,233 @@
+{
+  "groupId": "graph-search-ux",
+  "surface": "CLI Validation",
+  "assertions": [
+    {
+      "id": "VAL-GRAPH-001",
+      "status": "pass",
+      "reason": "Brandes betweenness centrality behaves correctly on the milestone's canonical bridge-node graph.",
+      "evidence": [
+        {
+          "command": "npm --prefix \"/Users/aejjusingh/Developer/ContextWeave\" test -- tests/core/graph-algorithms.test.ts tests/integration/mcp-export.test.ts tests/unit/stats.test.ts tests/db/migrations.test.ts tests/core/weighted-bfs.test.ts tests/unit/parser.test.ts tests/capsule/pipeline/candidate-scorer.test.ts",
+          "exitCode": 0,
+          "observation": "Vitest ran 7 files / 85 tests with all passing; graph-algorithms.test.ts confirmed betweenness(A)=0, betweenness(B)=1, betweenness(C)=0 for A->B->C and reduced betweenness(B) to 0 after adding the A->C shortcut."
+        }
+      ]
+    },
+    {
+      "id": "VAL-GRAPH-002",
+      "status": "pass",
+      "reason": "cw_flow topological ordering returns dependency-first call chains.",
+      "evidence": [
+        {
+          "command": "npm --prefix \"/Users/aejjusingh/Developer/ContextWeave\" test -- tests/core/graph-algorithms.test.ts tests/integration/mcp-export.test.ts tests/unit/stats.test.ts tests/db/migrations.test.ts tests/core/weighted-bfs.test.ts tests/unit/parser.test.ts tests/capsule/pipeline/candidate-scorer.test.ts",
+          "exitCode": 0,
+          "observation": "The same 85-test run passed graph-algorithms.test.ts's topological ordering check, which returned [db, auth, handleRequest] for the handleRequest -> auth -> db chain."
+        }
+      ]
+    },
+    {
+      "id": "VAL-GRAPH-003",
+      "status": "pass",
+      "reason": "Tarjan SCC detection and cw_stats circular-cluster reporting both work on cyclic graphs.",
+      "evidence": [
+        {
+          "command": "npm --prefix \"/Users/aejjusingh/Developer/ContextWeave\" test -- tests/core/graph-algorithms.test.ts tests/integration/mcp-export.test.ts tests/unit/stats.test.ts tests/db/migrations.test.ts tests/core/weighted-bfs.test.ts tests/unit/parser.test.ts tests/capsule/pipeline/candidate-scorer.test.ts",
+          "exitCode": 0,
+          "observation": "graph-algorithms.test.ts detected a three-node cycle as one strongly connected component, and stats.test.ts verified formatted stats output includes \"1 circular dependency clusters detected\"."
+        }
+      ]
+    },
+    {
+      "id": "VAL-GRAPH-004",
+      "status": "pass",
+      "reason": "cw_export serves scoped graph data in all supported formats.",
+      "evidence": [
+        {
+          "command": "npm --prefix \"/Users/aejjusingh/Developer/ContextWeave\" test -- tests/core/graph-algorithms.test.ts tests/integration/mcp-export.test.ts tests/unit/stats.test.ts tests/db/migrations.test.ts tests/core/weighted-bfs.test.ts tests/unit/parser.test.ts tests/capsule/pipeline/candidate-scorer.test.ts",
+          "exitCode": 0,
+          "observation": "mcp-export.test.ts passed 3 assertions covering DOT, GraphML, and JSON export for scope \"sample.ts\"; the outputs included graph structure while excluding unrelated files such as impact-primary.ts."
+        }
+      ]
+    },
+    {
+      "id": "VAL-GRAPH-005",
+      "status": "pass",
+      "reason": "cw_stats exposes quality score, dead-code counts, and large-function warnings in the user-facing output.",
+      "evidence": [
+        {
+          "command": "npm --prefix \"/Users/aejjusingh/Developer/ContextWeave\" test -- tests/core/graph-algorithms.test.ts tests/integration/mcp-export.test.ts tests/unit/stats.test.ts tests/db/migrations.test.ts tests/core/weighted-bfs.test.ts tests/unit/parser.test.ts tests/capsule/pipeline/candidate-scorer.test.ts",
+          "exitCode": 0,
+          "observation": "stats.test.ts passed 8 assertions and verified formatted stats output contains \"Quality score:\", \"Dead code count: 1\", and a large-functions entry for giantHandler in src/quality.ts."
+        }
+      ]
+    },
+    {
+      "id": "VAL-GRAPH-006",
+      "status": "pass",
+      "reason": "Edge-strength metadata is persisted with the documented weights.",
+      "evidence": [
+        {
+          "command": "npm --prefix \"/Users/aejjusingh/Developer/ContextWeave\" test -- tests/core/graph-algorithms.test.ts tests/integration/mcp-export.test.ts tests/unit/stats.test.ts tests/db/migrations.test.ts tests/core/weighted-bfs.test.ts tests/unit/parser.test.ts tests/capsule/pipeline/candidate-scorer.test.ts",
+          "exitCode": 0,
+          "observation": "migrations.test.ts verified the edges.strength column exists with default 1.0, and weighted-bfs.test.ts confirmed persisted call edges use strength 1.0 while import edges use 0.8."
+        },
+        {
+          "command": "cd \"/Users/aejjusingh/Developer/ContextWeave\" && npx tsx <<'TS'  # validate edge strengths, confidence tiers, and persisted symbol visibility",
+          "exitCode": 0,
+          "observation": "The TSX validation script printed the canonical mapping {call: 1.0, import: 0.8, reference: 0.6, type_usage: 0.4}, matching the contract for all documented edge kinds."
+        }
+      ]
+    },
+    {
+      "id": "VAL-GRAPH-007",
+      "status": "pass",
+      "reason": "Weighted BFS traversal prefers stronger call edges over weaker import paths of the same length.",
+      "evidence": [
+        {
+          "command": "npm --prefix \"/Users/aejjusingh/Developer/ContextWeave\" test -- tests/core/graph-algorithms.test.ts tests/integration/mcp-export.test.ts tests/unit/stats.test.ts tests/db/migrations.test.ts tests/core/weighted-bfs.test.ts tests/unit/parser.test.ts tests/capsule/pipeline/candidate-scorer.test.ts",
+          "exitCode": 0,
+          "observation": "weighted-bfs.test.ts passed 9 assertions, including the check that a call edge to computeResult stays closer than an import edge to validateInput because traversal cost is divided by edge strength."
+        }
+      ]
+    },
+    {
+      "id": "VAL-GRAPH-008",
+      "status": "fail",
+      "reason": "Parser-level visibility detection passes, but real project indexing still persisted non-public methods as public in the validation temp project, so cross-file capsule expansion cannot reliably deprioritize private/protected symbols after indexing.",
+      "evidence": [
+        {
+          "command": "npm --prefix \"/Users/aejjusingh/Developer/ContextWeave\" test -- tests/core/graph-algorithms.test.ts tests/integration/mcp-export.test.ts tests/unit/stats.test.ts tests/db/migrations.test.ts tests/core/weighted-bfs.test.ts tests/unit/parser.test.ts tests/capsule/pipeline/candidate-scorer.test.ts",
+          "exitCode": 0,
+          "observation": "parser.test.ts passed 38 assertions including visibility detection for private/protected/internal symbols, and candidate-scorer.test.ts passed the case that prefers a public symbol over a private helper when visibility metadata is present."
+        },
+        {
+          "command": "cd \"/Users/aejjusingh/Developer/ContextWeave\" && npx tsx <<'TS'  # validate edge strengths, confidence tiers, and persisted symbol visibility",
+          "exitCode": 0,
+          "observation": "The TSX validation script indexed a temp TypeScript class with public/private/protected methods, then queried stored symbols and found visibilityRows = [Service: public, greet: public, hydrate: public, secret: public]; the real indexed symbols did not retain the expected non-public visibilities."
+        }
+      ]
+    },
+    {
+      "id": "VAL-UX-001",
+      "status": "pass",
+      "reason": "cw_read enforces a cumulative per-session character budget and warns/truncates when the limit is crossed.",
+      "evidence": [
+        {
+          "command": "npm --prefix \"/Users/aejjusingh/Developer/ContextWeave\" test -- tests/integration/read-budget.test.ts tests/integration/mcp-navigation-tools.test.ts tests/capsule/followup-suggestions.test.ts tests/memory/search.test.ts tests/capsule/pivot-scorer.test.ts tests/capsule/packer.test.ts tests/integration/mcp-snapshot.test.ts",
+          "exitCode": 0,
+          "observation": "read-budget.test.ts passed 2 assertions showing the second read in a shared session returned \"Warning: Budget exceeded\" and truncated before line4, while a fresh session could still read line2 and line3 without the warning."
+        }
+      ]
+    },
+    {
+      "id": "VAL-UX-002",
+      "status": "pass",
+      "reason": "Structured capsule output exposes confidence tiers and supplementary-read counts using the documented thresholds.",
+      "evidence": [
+        {
+          "command": "npm --prefix \"/Users/aejjusingh/Developer/ContextWeave\" test -- tests/integration/read-budget.test.ts tests/integration/mcp-navigation-tools.test.ts tests/capsule/followup-suggestions.test.ts tests/memory/search.test.ts tests/capsule/pivot-scorer.test.ts tests/capsule/packer.test.ts tests/integration/mcp-snapshot.test.ts",
+          "exitCode": 0,
+          "observation": "followup-suggestions.test.ts passed 9 assertions, including high-confidence output with recommended_supplementary_reads=2 and medium-confidence output with recommended_supplementary_reads=5."
+        },
+        {
+          "command": "cd \"/Users/aejjusingh/Developer/ContextWeave\" && npx tsx <<'TS'  # validate edge strengths, confidence tiers, and persisted symbol visibility",
+          "exitCode": 0,
+          "observation": "The TSX validation script emitted structured outputs for topPivotScores 10, 8, and 3, producing tiers high/2, medium/5, and low/10 exactly as specified."
+        }
+      ]
+    },
+    {
+      "id": "VAL-UX-003",
+      "status": "pass",
+      "reason": "cw_read supports file::symbol shorthand and returns only the targeted symbol range.",
+      "evidence": [
+        {
+          "command": "npm --prefix \"/Users/aejjusingh/Developer/ContextWeave\" test -- tests/integration/read-budget.test.ts tests/integration/mcp-navigation-tools.test.ts tests/capsule/followup-suggestions.test.ts tests/memory/search.test.ts tests/capsule/pivot-scorer.test.ts tests/capsule/packer.test.ts tests/integration/mcp-snapshot.test.ts",
+          "exitCode": 0,
+          "observation": "mcp-navigation-tools.test.ts passed the file::symbol shorthand case and verified cw_read(\"sample.ts::validateEmail\") returned only lines 11-13 for validateEmail without including later symbols such as loadUser."
+        }
+      ]
+    },
+    {
+      "id": "VAL-SEARCH-001",
+      "status": "pass",
+      "reason": "Memory search merges Porter and trigram rankings with reciprocal-rank fusion instead of a waterfall.",
+      "evidence": [
+        {
+          "command": "npm --prefix \"/Users/aejjusingh/Developer/ContextWeave\" test -- tests/integration/read-budget.test.ts tests/integration/mcp-navigation-tools.test.ts tests/capsule/followup-suggestions.test.ts tests/memory/search.test.ts tests/capsule/pivot-scorer.test.ts tests/capsule/packer.test.ts tests/integration/mcp-snapshot.test.ts",
+          "exitCode": 0,
+          "observation": "memory/search.test.ts passed 2 assertions showing the typo query \"authentiction middleware\" promoted the jointly supported observation to the top result and still kept trigram-corrected matches in the merged result set."
+        }
+      ]
+    },
+    {
+      "id": "VAL-SEARCH-002",
+      "status": "pass",
+      "reason": "Close-together multi-term matches receive the intended proximity boost during pivot scoring.",
+      "evidence": [
+        {
+          "command": "npm --prefix \"/Users/aejjusingh/Developer/ContextWeave\" test -- tests/integration/read-budget.test.ts tests/integration/mcp-navigation-tools.test.ts tests/capsule/followup-suggestions.test.ts tests/memory/search.test.ts tests/capsule/pivot-scorer.test.ts tests/capsule/packer.test.ts tests/integration/mcp-snapshot.test.ts",
+          "exitCode": 0,
+          "observation": "pivot-scorer.test.ts passed 17 assertions, including the proximity check where AuthMiddleware outranked AuthPipeline for the query terms [auth, middleware] and the score ratio exceeded 1.4 when the terms were co-located."
+        }
+      ]
+    },
+    {
+      "id": "VAL-PACK-001",
+      "status": "pass",
+      "reason": "L1 smart truncation keeps a 60/40 head-tail split on line boundaries.",
+      "evidence": [
+        {
+          "command": "npm --prefix \"/Users/aejjusingh/Developer/ContextWeave\" test -- tests/integration/read-budget.test.ts tests/integration/mcp-navigation-tools.test.ts tests/capsule/followup-suggestions.test.ts tests/memory/search.test.ts tests/capsule/pivot-scorer.test.ts tests/capsule/packer.test.ts tests/integration/mcp-snapshot.test.ts",
+          "exitCode": 0,
+          "observation": "packer.test.ts passed 7 assertions, including the smart-truncation case that preserved early lines through line59 and tail lines through line148, omitted 50 middle lines, and avoided the middle line80 snippet."
+        }
+      ]
+    },
+    {
+      "id": "VAL-SNAP-001",
+      "status": "pass",
+      "reason": "cw_snapshot returns a structured session summary within the documented token budget.",
+      "evidence": [
+        {
+          "command": "npm --prefix \"/Users/aejjusingh/Developer/ContextWeave\" test -- tests/integration/read-budget.test.ts tests/integration/mcp-navigation-tools.test.ts tests/capsule/followup-suggestions.test.ts tests/memory/search.test.ts tests/capsule/pivot-scorer.test.ts tests/capsule/packer.test.ts tests/integration/mcp-snapshot.test.ts",
+          "exitCode": 0,
+          "observation": "mcp-snapshot.test.ts passed and verified cw_snapshot returned a structured JSON summary with the expected activeFiles, recentObservations, and decisions while staying at or below the 2048-token cap."
+        }
+      ]
+    },
+    {
+      "id": "VAL-WATCH-001",
+      "status": "pass",
+      "reason": "Watcher v2 debounces file changes, reindexes after 2 seconds, and removes deleted files from the index.",
+      "evidence": [
+        {
+          "command": "npm --prefix \"/Users/aejjusingh/Developer/ContextWeave\" test -- tests/core/watcher-v2.test.ts",
+          "exitCode": 0,
+          "observation": "watcher-v2.test.ts passed 5 assertions, including a 2-second debounce after the latest change event, immediate unlink removal from the index, and diff propagation after the debounced reindex."
+        }
+      ]
+    },
+    {
+      "id": "VAL-WATCH-002",
+      "status": "pass",
+      "reason": "Watcher v2 auto-start behavior and duplicate suppression work within the primary-session watcher lifecycle.",
+      "evidence": [
+        {
+          "command": "npm --prefix \"/Users/aejjusingh/Developer/ContextWeave\" test -- tests/core/watcher-v2.test.ts",
+          "exitCode": 0,
+          "observation": "The watcher-v2 test run logged watcher startup with debounceMs=2000 and duplicateSuppressionMs=10000, and the suite passed the duplicate-suppression check that ignored a second change within 10 seconds before allowing a later reindex."
+        }
+      ]
+    }
+  ],
+  "toolsUsed": [
+    "vitest",
+    "tsx"
+  ],
+  "frictions": [
+    "Task launches for user-testing-flow-validator failed immediately with invalid model custom:GPT-5.4-High-[VibeProxy]-26, so this round used the documented parent-session fallback and wrote the flow report manually."
+  ],
+  "blockers": []
+}
