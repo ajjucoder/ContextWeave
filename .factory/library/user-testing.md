@@ -7,7 +7,7 @@
 
 ## Validation Surfaces
 
-This ContextWeave v2 mission has two validation surfaces:
+This ContextWeave v2 mission has three validation surfaces:
 
 ### 1. Automated Tests (vitest)
 - **Surface:** Backend code with SQLite in-memory tests
