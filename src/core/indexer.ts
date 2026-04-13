@@ -107,8 +107,9 @@ interface PickTargetsOptions {
 }
 
 const WORKER_CONCURRENCY = Math.max(2, Math.min(8, cpus().length - 1));
-const WORKER_SCRIPT = join(dirname(fileURLToPath(import.meta.url)), "parser-worker.js");
-const USE_TSX_WORKER_LOADER = WORKER_SCRIPT.includes(`${sep}src${sep}`);
+const WORKER_DIR = dirname(fileURLToPath(import.meta.url));
+const USE_SOURCE_WORKER_SCRIPT = WORKER_DIR.includes(`${sep}src${sep}`);
+const WORKER_SCRIPT = join(WORKER_DIR, USE_SOURCE_WORKER_SCRIPT ? "parser-worker-source.js" : "parser-worker.js");
 const PARSE_TIMEOUT_MICROS = 5_000_000;
 const PARSE_TIMEOUT_MS = PARSE_TIMEOUT_MICROS / 1000;
 
@@ -1015,75 +1016,8 @@ function resolveEdges(
 }
 
 function runParseWorkerBatch(filePaths: string[]): Promise<WorkerFileParseResult[]> {
-  if (USE_TSX_WORKER_LOADER) {
-    return Promise.resolve(
-      filePaths.map((filePath) => {
-        const language = detectLanguage(filePath);
-        if (!language) {
-          return {
-            filePath,
-            content: "",
-            mtime: 0,
-            hash: "",
-            language: "unknown",
-            parsedAt: Date.now(),
-            parseResult: null,
-            error: "Unsupported language",
-          } satisfies WorkerFileParseResult;
-        }
-
-        try {
-          const stat = statSync(filePath);
-          const mtime = stat.mtimeMs;
-          if (stat.size > MAX_FILE_SIZE) {
-            return {
-              filePath,
-              content: "",
-              mtime,
-              hash: "",
-              language,
-              parsedAt: Date.now(),
-              parseResult: null,
-              error: `File ${filePath} exceeds ${MAX_FILE_SIZE} byte limit (${stat.size} bytes)`,
-            } satisfies WorkerFileParseResult;
-          }
-
-          const content = readFileSync(filePath, "utf-8");
-          const hash = hashFile(content);
-          const parseResult = parseFileWithTimeout(filePath, content, language);
-          return {
-            filePath,
-            content,
-            mtime,
-            hash,
-            language,
-            parsedAt: Date.now(),
-            parseResult,
-            error: null,
-          } satisfies WorkerFileParseResult;
-        } catch (err) {
-          return {
-            filePath,
-            content: "",
-            mtime: 0,
-            hash: "",
-            language,
-            parsedAt: Date.now(),
-            parseResult: null,
-            error: err instanceof Error ? err.message : String(err),
-          } satisfies WorkerFileParseResult;
-        }
-      })
-    );
-  }
-
   return new Promise((resolvePromise, rejectPromise) => {
-    const worker = new Worker(
-      WORKER_SCRIPT,
-      USE_TSX_WORKER_LOADER
-        ? { workerData: { filePaths }, execArgv: ["--import", "tsx"] }
-        : { workerData: { filePaths } }
-    );
+    const worker = new Worker(WORKER_SCRIPT, { workerData: { filePaths } });
     let settled = false;
 
     worker.once("message", (message) => {

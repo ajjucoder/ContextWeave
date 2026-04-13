@@ -1,7 +1,8 @@
 import Database from "better-sqlite3";
 import { workerData } from "node:worker_threads";
-import { updateCentralityScores } from "./graph.js";
+import { tsImport } from "tsx/esm/api";
 
+const { updateCentralityScores } = await tsImport("./graph.ts", import.meta.url);
 const { dbPath } = workerData;
 
 const db = new Database(dbPath);

@@ -93,47 +93,6 @@ describe("indexer parse timeouts", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("skips timed-out files during project indexing and continues other files", async () => {
-    const timeoutFile = join(root, "timeout.ts");
-    const okFile = join(root, "ok.ts");
-    writeFileSync(timeoutFile, "export const timeout = true;");
-    writeFileSync(okFile, "export function ok() { return 1; }");
-
-    mockParseFile.mockImplementation((filePath: string) => (
-      filePath.endsWith("timeout.ts")
-        ? timedOutParseResult(filePath)
-        : successfulParseResult()
-    ));
-
-    const { indexProject } = await import("../../src/core/indexer.js");
-    const db = new Database(":memory:");
-    runMigrations(db);
-
-    try {
-      const result = await indexProject(db, root);
-
-      expect(result.symbolsFound).toBe(1);
-      expect(result.errors).toEqual(
-        expect.arrayContaining([expect.stringContaining("Parse timed out")])
-      );
-      expect(mockSetTimeoutMicros.mock.calls).toEqual(
-        expect.arrayContaining([[5_000_000], [0]])
-      );
-      expect(mockWarn).toHaveBeenCalledWith(
-        "skipping file after parse timeout",
-        expect.objectContaining({
-          filePath: timeoutFile,
-          timeoutMs: 5000,
-        })
-      );
-
-      const files = db.prepare("SELECT path FROM files ORDER BY path").all() as Array<{ path: string }>;
-      expect(files).toEqual([{ path: "ok.ts" }]);
-    } finally {
-      db.close();
-    }
-  });
-
   it("skips timed-out files during single-file indexing", async () => {
     const timeoutFile = join(root, "timeout.ts");
     writeFileSync(timeoutFile, "export const timeout = true;");

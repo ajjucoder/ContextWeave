@@ -1,7 +1,9 @@
 import { parentPort, workerData } from "node:worker_threads";
 import { readFileSync, statSync } from "node:fs";
-import { detectLanguage, parseFile, initParser } from "./parser.js";
-import { hashFile } from "../utils/hash.js";
+import { tsImport } from "tsx/esm/api";
+
+const { detectLanguage, parseFile, initParser } = await tsImport("./parser.ts", import.meta.url);
+const { hashFile } = await tsImport("../utils/hash.ts", import.meta.url);
 
 const MAX_FILE_SIZE = 5 * 1024 * 1024;
 const PARSE_TIMEOUT_MICROS = 5_000_000;

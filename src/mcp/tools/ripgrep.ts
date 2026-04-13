@@ -2,6 +2,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
+let ripgrepAvailabilityPromise: Promise<boolean> | null = null;
 
 export interface RipgrepMatch {
   path: string;
@@ -84,10 +85,10 @@ export async function runRipgrepSearch(
 }
 
 export async function isRipgrepAvailable(): Promise<boolean> {
-  try {
-    await execFileAsync("rg", ["--version"]);
-    return true;
-  } catch {
-    return false;
+  if (!ripgrepAvailabilityPromise) {
+    ripgrepAvailabilityPromise = execFileAsync("rg", ["--version"])
+      .then(() => true)
+      .catch(() => false);
   }
+  return ripgrepAvailabilityPromise;
 }

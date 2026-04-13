@@ -29,4 +29,16 @@ describe("runRipgrepSearch command limits", () => {
     expect(args).toContain("--max-count");
     expect(args[args.indexOf("--max-count") + 1]).toBe("5");
   });
+
+  it("caches ripgrep availability checks within the process", async () => {
+    execFileAsyncMock.mockResolvedValue({ stdout: "ripgrep 14.0.0\n", stderr: "" });
+
+    const { isRipgrepAvailable } = await import("../../src/mcp/tools/ripgrep.js");
+
+    await expect(isRipgrepAvailable()).resolves.toBe(true);
+    await expect(isRipgrepAvailable()).resolves.toBe(true);
+
+    expect(execFileAsyncMock).toHaveBeenCalledTimes(1);
+    expect(execFileAsyncMock).toHaveBeenCalledWith("rg", ["--version"]);
+  });
 });

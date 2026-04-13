@@ -9,8 +9,11 @@ import { createLogger } from "../utils/logger.js";
 type Statement = Database.Statement;
 
 const log = createLogger("graph");
-const PAGERANK_WORKER = join(dirname(fileURLToPath(import.meta.url)), "pagerank-worker.js");
-const USE_TSX_WORKER_LOADER = PAGERANK_WORKER.includes(`${sep}src${sep}`);
+const WORKER_DIR = dirname(fileURLToPath(import.meta.url));
+const USE_SOURCE_WORKER_SCRIPT = WORKER_DIR.includes(`${sep}src${sep}`);
+const PAGERANK_WORKER = join(WORKER_DIR, USE_SOURCE_WORKER_SCRIPT ? "pagerank-worker-source.js" : "pagerank-worker.js");
+const activePageRankWorkers = new Map<string, Worker>();
+const pendingPageRankRuns = new Set<string>();
 
 export interface BfsNode {
   symbolId: number;
@@ -709,15 +712,29 @@ export function updateCentralityScores(db: Database.Database): void {
 }
 
 export function runPageRankInBackground(dbPath: string): void {
-  const worker = new Worker(
-    PAGERANK_WORKER,
-    USE_TSX_WORKER_LOADER
-      ? { workerData: { dbPath }, execArgv: ["--import", "tsx"] }
-      : { workerData: { dbPath } }
-  );
+  if (activePageRankWorkers.has(dbPath)) {
+    pendingPageRankRuns.add(dbPath);
+    log.debug("background PageRank already running; scheduling rerun", { dbPath });
+    return;
+  }
+
+  const worker = new Worker(PAGERANK_WORKER, { workerData: { dbPath } });
+  activePageRankWorkers.set(dbPath, worker);
+  worker.unref?.();
+
+  let settled = false;
+  const finish = () => {
+    if (settled) return;
+    settled = true;
+    activePageRankWorkers.delete(dbPath);
+    if (pendingPageRankRuns.delete(dbPath)) {
+      queueMicrotask(() => runPageRankInBackground(dbPath));
+    }
+  };
 
   worker.once("error", (err) => {
     log.error("background PageRank worker error", err);
+    finish();
   });
 
   worker.once("exit", (code) => {
@@ -726,6 +743,7 @@ export function runPageRankInBackground(dbPath: string): void {
     } else {
       log.warn(`background PageRank worker exited with code ${code}`);
     }
+    finish();
   });
 }
 
