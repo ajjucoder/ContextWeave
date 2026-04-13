@@ -113,6 +113,7 @@ describe("startMcpServer", () => {
     expect(mockConnect).toHaveBeenCalledTimes(1);
     expect(registeredToolsByServer[0]).toEqual(expect.arrayContaining([
       "cw_capsule",
+      "cw_diff",
       "cw_status",
       "cw_snapshot",
       "cw_stats",
@@ -131,6 +132,7 @@ describe("startMcpServer", () => {
     expect(mockStartWatcher).not.toHaveBeenCalled();
     expect(registeredToolsByServer[0]).toEqual(expect.arrayContaining([
       "cw_capsule",
+      "cw_diff",
       "cw_status",
       "cw_snapshot",
       "cw_stats",
