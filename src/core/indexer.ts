@@ -106,12 +106,19 @@ interface PickTargetsOptions {
   allowGlobalFallback?: boolean;
 }
 
+interface IgnoreFileCacheEntry {
+  mtimeMs: number;
+  size: number;
+  patterns: string[];
+}
+
 const WORKER_CONCURRENCY = Math.max(2, Math.min(8, cpus().length - 1));
 const WORKER_DIR = dirname(fileURLToPath(import.meta.url));
 const USE_SOURCE_WORKER_SCRIPT = WORKER_DIR.includes(`${sep}src${sep}`);
 const WORKER_SCRIPT = join(WORKER_DIR, USE_SOURCE_WORKER_SCRIPT ? "parser-worker-source.js" : "parser-worker.js");
 const PARSE_TIMEOUT_MICROS = 5_000_000;
 const PARSE_TIMEOUT_MS = PARSE_TIMEOUT_MICROS / 1000;
+const ignoreFileCache = new Map<string, IgnoreFileCacheEntry>();
 
 export interface IndexerOptions {
   embeddings?: EmbeddingRuntime | null;
@@ -178,12 +185,25 @@ export function shouldIgnore(filePath: string, projectRoot?: string): boolean {
 
 function loadIgnoreFile(filePath: string): string[] {
   try {
+    const stat = statSync(filePath);
+    const cached = ignoreFileCache.get(filePath);
+    if (cached && cached.mtimeMs === stat.mtimeMs && cached.size === stat.size) {
+      return cached.patterns;
+    }
+
     const content = readFileSync(filePath, "utf-8");
-    return content
+    const patterns = content
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line.length > 0 && !line.startsWith("#"));
+    ignoreFileCache.set(filePath, {
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      patterns,
+    });
+    return patterns;
   } catch {
+    ignoreFileCache.delete(filePath);
     return [];
   }
 }
