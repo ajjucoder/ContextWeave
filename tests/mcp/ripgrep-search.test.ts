@@ -60,4 +60,15 @@ describe("runRipgrepSearch", () => {
     expect(results.every((r: RipgrepMatch) => r.path.endsWith(".ts"))).toBe(true);
     expect(results.some((r: RipgrepMatch) => r.path.endsWith(".py"))).toBe(false);
   });
+
+  it("returns multiple matches from the same file", async () => {
+    if (!(await isRipgrepAvailable())) return;
+    const dir = makeTempDir();
+    writeFileSync(join(dir, "multi.ts"), "const target = 1;\nconst skip = 2;\nconst target = 3;\n");
+
+    const results = await runRipgrepSearch("target", dir, { caseSensitive: true });
+
+    expect(results).toHaveLength(2);
+    expect(results.map((r: RipgrepMatch) => r.line)).toEqual([1, 3]);
+  });
 });

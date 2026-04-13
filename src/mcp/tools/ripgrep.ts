@@ -53,7 +53,7 @@ export async function runRipgrepSearch(
 ): Promise<RipgrepMatch[]> {
   const { caseSensitive = false, glob, maxResults = 200, useRegex = false, multiline = false } = options;
 
-  const args: string[] = ["--json", "--max-count", "1"];
+  const args: string[] = ["--json", "--max-count", String(maxResults)];
 
   if (!caseSensitive) args.push("--ignore-case");
   if (!useRegex) args.push("--fixed-strings");
@@ -79,8 +79,7 @@ export async function runRipgrepSearch(
         return matches.slice(0, maxResults);
       }
     }
-    // rg not installed or other error — return empty (no fallback needed in callers)
-    return [];
+    throw err;
   }
 }
 

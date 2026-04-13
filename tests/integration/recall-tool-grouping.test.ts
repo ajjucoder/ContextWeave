@@ -96,7 +96,7 @@ describe("cw_recall output grouping", () => {
     expect(text).toContain("Passive auth query telemetry");
   });
 
-  it("surfaces passive observations when include_stale is enabled", async () => {
+  it("does not surface passive observations when include_stale is enabled", async () => {
     const store = new ObservationStore(db);
     store.create({
       sessionId: "session-1",
@@ -133,8 +133,8 @@ describe("cw_recall output grouping", () => {
     const text = result.content[0]?.text ?? "";
 
     expect(text).toContain("Intentional observations:");
-    expect(text).toContain("Passive observations:");
-    expect(text).toContain("Passive auth query telemetry");
+    expect(text).not.toContain("Passive observations:");
+    expect(text).not.toContain("Passive auth query telemetry");
     expect(text).toContain("Auth middleware validates JWT in route handlers");
   });
 });

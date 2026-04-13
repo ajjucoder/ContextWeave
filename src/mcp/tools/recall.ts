@@ -21,11 +21,11 @@ export function registerRecallTool(server: McpServer, db: Database.Database): vo
         const search = new MemorySearch(db);
         search.ensureBm25Consistent();
         const requestedLimit = limit ?? 10;
-        const showPassive = scope === "passive" || include_stale === true;
+        const showPassive = scope === "passive";
         const results = search.search(query, {
           scope,
           includeStale: include_stale,
-          includePassive: true,
+          includePassive: showPassive,
           limit: showPassive ? requestedLimit : Math.max(requestedLimit * 3, requestedLimit),
         });
 

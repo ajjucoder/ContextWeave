@@ -140,6 +140,19 @@ describe("mcp navigation tools", () => {
     expect(text).toContain("validateEmail");
   });
 
+  it("cw_grep returns an error for invalid regex instead of a fake no-match result", async () => {
+    const result = await getTool(server, "cw_grep").handler({
+      query: "/(/",
+      path: ".",
+      glob: "**/*.ts",
+      max_results: 5,
+    });
+
+    const text = result.content[0]?.text ?? "";
+    expect(result.isError).toBe(true);
+    expect(text).toContain("Search failed:");
+  });
+
   it("cw_read reads bounded line ranges and symbol-targeted ranges", async () => {
     const byPath = await getTool(server, "cw_read").handler({
       path: "sample.ts",

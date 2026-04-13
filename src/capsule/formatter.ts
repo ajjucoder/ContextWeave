@@ -55,11 +55,11 @@ type StructuredConfidenceTier = StructuredCapsuleOutput["confidence"];
 function getStructuredConfidenceTier(
   metadata: CapsuleMetadata
 ): { confidence: StructuredConfidenceTier; recommendedSupplementaryReads: 2 | 5 | 10 } {
-  const topPivotScore = metadata.diagnostics?.pivotStats.topPivotScores[0] ?? 0;
-  if (topPivotScore >= 10) {
+  const confidence = confidenceToLabel(metadata.quality.coverageConfidence);
+  if (confidence === "HIGH") {
     return { confidence: "high", recommendedSupplementaryReads: 2 };
   }
-  if (topPivotScore >= 4) {
+  if (confidence === "MEDIUM") {
     return { confidence: "medium", recommendedSupplementaryReads: 5 };
   }
   return { confidence: "low", recommendedSupplementaryReads: 10 };

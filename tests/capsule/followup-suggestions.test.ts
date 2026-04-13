@@ -116,6 +116,33 @@ describe("buildStructuredOutput follow-up suggestions", () => {
     expect(result.discoveredSymbols).toEqual(["validateEmail"]);
   });
 
+  it("uses coverage confidence for structured confidence tier", () => {
+    const metadata = {
+      ...makeMetadata("validate email"),
+      quality: {
+        ...makeMetadata("validate email").quality,
+        coverageConfidence: 0.4,
+      },
+      diagnostics: {
+        ...makeMetadata("validate email").diagnostics!,
+        pivotStats: {
+          ...makeMetadata("validate email").diagnostics!.pivotStats,
+          topPivotScores: [10],
+        },
+      },
+    };
+
+    const result = buildStructuredOutput(
+      [makeNode("validateEmail", 0, 1.0)],
+      [],
+      metadata,
+      "text"
+    );
+
+    expect(result.confidence).toBe("low");
+    expect(result.recommended_supplementary_reads).toBe(10);
+  });
+
   it("includes related edge targets in discoveredSymbols for anchor feedback", () => {
     const result = buildStructuredOutput(
       [{
@@ -233,6 +260,10 @@ describe("buildStructuredOutput follow-up suggestions", () => {
     ];
     const metadata = {
       ...makeMetadata(query),
+      quality: {
+        ...makeMetadata(query).quality,
+        coverageConfidence: 0.65,
+      },
       diagnostics: {
         ...makeMetadata(query).diagnostics!,
         pivotStats: {
