@@ -206,10 +206,11 @@ describe("formatLspStatus", () => {
     expect(lines.join("\n")).toContain("unavailable");
   });
 
-  it("mentions available for ActiveLspBridge with servers", () => {
+  it("does not claim the bridge is active when it only has detected servers", () => {
     const bridge = new ActiveLspBridge([{ language: "go", binary: "gopls" }]);
     const lines = formatLspStatus(bridge);
-    expect(lines.join("\n")).toContain("available");
+    expect(lines.join("\n")).toContain("detected");
+    expect(lines.join("\n")).toContain("fallback-only");
   });
 
   it("includes hit rate stats for ActiveLspBridge", async () => {

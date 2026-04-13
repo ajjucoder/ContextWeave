@@ -125,6 +125,12 @@ export function ensureCandidateFileAnchors(
         (max, candidate) => Math.max(max, candidate.lexicalScore),
         0
       );
+      const existingComparableLexical = existingFileCandidates
+        .filter(
+          (candidate) =>
+            getAnchorKindWeight(candidate.symbol.kind) >= getAnchorKindWeight(target.symbol.kind)
+        )
+        .reduce((max, candidate) => Math.max(max, candidate.lexicalScore), 0);
       const existingBestScore = existingFileCandidates.reduce(
         (max, candidate) => Math.max(max, candidate.score),
         0
@@ -132,7 +138,8 @@ export function ensureCandidateFileAnchors(
       if (
         anchorIndex === 0 &&
         existingFileCandidates.length > 0 &&
-        existingBestLexical >= Math.max(2, target.lexicalScore * 0.8)
+        existingComparableLexical >= Math.max(2, target.lexicalScore * 0.8) &&
+        existingBestLexical >= Math.max(2, target.lexicalScore * 0.65)
       ) {
         continue;
       }

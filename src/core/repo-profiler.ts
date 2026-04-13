@@ -354,12 +354,15 @@ export function profileRepo(projectRoot: string): RepoProfile {
     }
   }
 
-  const lanes = buildLanesForFrameworks(allFrameworks);
-  const layers = collectLayersForFrameworks(allFrameworks);
-  const backendRoots = collectRootsForFrameworks(allFrameworks, "backend");
-  const frontendRoots = collectRootsForFrameworks(allFrameworks, "frontend");
+  const lanes = buildLanesForFrameworks(frameworks);
+  const layers = new Set<ArchLayer>(collectLayersForFrameworks(frameworks));
+  const backendRoots = new Set<string>(collectRootsForFrameworks(frameworks, "backend"));
+  const frontendRoots = new Set<string>(collectRootsForFrameworks(frameworks, "frontend"));
 
   for (const pkg of monorepoPackages) {
+    for (const layer of collectLayersForFrameworks(pkg.frameworks)) {
+      layers.add(layer);
+    }
     for (const lane of buildLanesForFrameworks(pkg.frameworks)) {
       const prefixed: RetrievalLane = {
         ...lane,
@@ -368,14 +371,20 @@ export function profileRepo(projectRoot: string): RepoProfile {
       };
       lanes.push(prefixed);
     }
+    for (const root of collectRootsForFrameworks(pkg.frameworks, "backend")) {
+      backendRoots.add(`${pkg.path}/${root}`);
+    }
+    for (const root of collectRootsForFrameworks(pkg.frameworks, "frontend")) {
+      frontendRoots.add(`${pkg.path}/${root}`);
+    }
   }
 
   const profile: RepoProfile = {
     projectTypes: [...new Set(projectTypes)],
     frameworks: allFrameworks,
-    backendRoots,
-    frontendRoots,
-    layers,
+    backendRoots: [...backendRoots],
+    frontendRoots: [...frontendRoots],
+    layers: [...layers],
     lanes,
     detectedAt: Date.now(),
   };

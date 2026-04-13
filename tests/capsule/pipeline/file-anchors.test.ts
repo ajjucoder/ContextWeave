@@ -151,10 +151,43 @@ describe("ensureCandidateFileAnchors", () => {
     expect(anchored[0]?.symbol.name).toBe("onSendHookRunner");
   });
 
+  it("still adds the executable runtime symbol when a same-file variable alias already has a strong lexical score", () => {
+    const hooksFile = makeFile(5, "lib/hooks.js");
+    const selectedAlias = makeSymbol(
+      51,
+      5,
+      "preValidationHookRunner",
+      "const preValidationHookRunner = hookRunnerGenerator(hookIterator)"
+    );
+    selectedAlias.kind = "variable";
+    const runtimeFunction = makeSymbol(
+      52,
+      5,
+      "onSendHookRunner",
+      "function onSendHookRunner(functions, request, reply, payload, cb)"
+    );
+
+    const anchored = ensureCandidateFileAnchors(
+      [makeCandidate(selectedAlias, hooksFile, 8.5, 8)],
+      {
+        intent: "broad",
+        topCandidateFiles: [hooksFile],
+        ranked: [
+          makeCandidate(selectedAlias, hooksFile, 8.5, 8),
+          makeCandidate(runtimeFunction, hooksFile, 7.5, 9.4),
+        ],
+        getFileSymbols: () => [selectedAlias, runtimeFunction],
+        pivotQueryTerms: ["fastify", "hook", "validation", "lifecycle"],
+      }
+    );
+
+    expect(anchored.some((candidate) => candidate.symbol.name === "onSendHookRunner")).toBe(true);
+  });
+
   it("falls back to a representative runtime symbol when the file match is path-level only", () => {
-    const appFile = makeFile(5, "lib/application.js");
-    const initSymbol = makeSymbol(51, 5, "init", "function init()");
-    const routeSymbol = makeSymbol(52, 5, "lazyrouter", "function lazyrouter()");
+    const appFile = makeFile(6, "lib/application.js");
+    const initSymbol = makeSymbol(61, 6, "init", "function init()");
+    const routeSymbol = makeSymbol(62, 6, "lazyrouter", "function lazyrouter()");
 
     const anchored = ensureCandidateFileAnchors([], {
       intent: "broad",

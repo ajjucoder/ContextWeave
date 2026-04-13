@@ -152,6 +152,11 @@ function renderSnippet(lines: string[], lineNumber: number, contextLines: number
   return out.join("\n");
 }
 
+export function renderMatchOnlySnippet(lineNumber: number, text: string): string {
+  const width = String(lineNumber).length;
+  return `> ${String(lineNumber).padStart(width, " ")} | ${text.trimEnd()}`;
+}
+
 function rankSearchResults(results: SearchResult[], maxResults: number): SearchResult[] {
   return results
     .slice()
@@ -235,6 +240,7 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
             useRegex: useRegexSearch,
             multiline: parsedMultiline,
           });
+          const fileLinesCache = new Map<string, string[]>();
 
           for (const match of rgMatches) {
             if (results.length >= candidateBudget) break;
@@ -247,18 +253,27 @@ export function registerSearchTool(server: McpServer, db: Database.Database, pro
             const enclosing = file ? symbols.getEnclosingSymbol(file.id, match.line) : null;
             const symbolContext = enclosing ? ` [in ${enclosing.kind} ${enclosing.name}]` : "";
             const isDefinition = enclosing?.startLine === match.line;
-
-            let content: string;
-            try {
-              content = readFileSync(absPath, "utf-8");
-            } catch {
-              continue;
+            let snippet: string;
+            if (contextLines === 0) {
+              snippet = renderMatchOnlySnippet(match.line, match.text);
+            } else {
+              let lines = fileLinesCache.get(relPath);
+              if (!lines) {
+                let content: string;
+                try {
+                  content = readFileSync(absPath, "utf-8");
+                } catch {
+                  continue;
+                }
+                lines = content.split(/\r?\n/);
+                fileLinesCache.set(relPath, lines);
+              }
+              snippet = renderSnippet(lines, match.line, contextLines);
             }
-            const lines = content.split(/\r?\n/);
             results.push({
               path: relPath,
               line: match.line,
-              snippet: renderSnippet(lines, match.line, contextLines),
+              snippet,
               isDefinition,
               symbolContext,
             });

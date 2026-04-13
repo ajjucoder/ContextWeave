@@ -279,7 +279,7 @@ export function formatLspStatus(bridge: LspBridge): string[] {
   const available = bridge.isAvailable();
 
   const lines = [
-    `LSP Bridge:   ${available ? "available" : "unavailable (graceful fallback)"}`,
+    `LSP Bridge:   ${available ? "detected (fallback-only)" : "unavailable (graceful fallback)"}`,
   ];
 
   if (bridge instanceof ActiveLspBridge) {
