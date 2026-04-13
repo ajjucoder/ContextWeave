@@ -67,6 +67,7 @@ import { extractPathTerms, filePathMatchesQueryTerms, normalizeRetrievalPath } f
 import { contentFallbackSearch } from "../content-fallback.js";
 import { checkChainCoverage, type LayerCoverage } from "../chain-coverage.js";
 import { getRetrievalLanes, getExpectedLayers, getLaneWeightForPath } from "../../core/repo-profiler.js";
+import { ensureCandidateFileAnchors } from "./file-anchors.js";
 import {
   getCommonDisplayRoot,
   getLexicalScore,
@@ -1807,13 +1808,31 @@ function runCanonicalPipelineFinalizer(
         : isSingleFocusNarrowQuery
           ? 0
           : 1;
+  const topCandidateAnchorFiles = candidateFiles
+    .slice(0, intent === "broad" ? 8 : 6)
+    .map((candidate) => getFile(candidate.fileId))
+    .filter((file): file is FileRecord => file !== undefined)
+    .filter((file) =>
+      RUNTIME_CODE_PATH_RE.test(file.path) &&
+      !isTestFile(file.path) &&
+      !/(^|\/)(examples?|docs)(\/|$)/i.test(file.path)
+    );
   let selected = backfillWithinSelectedFiles(
-    ensureBroadFileSpread(
-      pruneUiNoise(
-        pruneByFileDiversity(
-          selectCandidates(baseLexThreshold, baseMaxDistance, baseCandidateLimit)
+    ensureCandidateFileAnchors(
+      ensureBroadFileSpread(
+        pruneUiNoise(
+          pruneByFileDiversity(
+            selectCandidates(baseLexThreshold, baseMaxDistance, baseCandidateLimit)
+          )
         )
-      )
+      ),
+      {
+        intent,
+        topCandidateFiles: topCandidateAnchorFiles,
+        ranked,
+        getFileSymbols: (fileId) => symbols.getByFileIdLight(fileId),
+        pivotQueryTerms,
+      }
     )
   );
   if ((intent === "broad" || intent === "task") && selected.length > 0 && selected.length < baseCandidateLimit) {
@@ -1875,6 +1894,7 @@ function runCanonicalPipelineFinalizer(
   let packed: ScoredNode[] = [];
   let tokensUsed = 0;
   let fileSummaries: string[] = [];
+  const anchorFileIdSet = new Set(topCandidateAnchorFiles.map((file) => file.id));
   const recomputeTokensUsed = (nodes: ScoredNode[], summaries: string[]): number =>
     nodes.reduce((sum, node) => sum + node.tokenCount, 0) +
     summaries.reduce((sum, summary) => sum + countTokens(summary), 0);
@@ -2142,12 +2162,21 @@ function runCanonicalPipelineFinalizer(
 
     for (const pass of refillPasses) {
       const expanded = backfillWithinSelectedFiles(
-        ensureBroadFileSpread(
-          pruneUiNoise(
-            pruneByFileDiversity(
-              selectCandidates(pass.lexThreshold, pass.maxDist, pass.limit)
+        ensureCandidateFileAnchors(
+          ensureBroadFileSpread(
+            pruneUiNoise(
+              pruneByFileDiversity(
+                selectCandidates(pass.lexThreshold, pass.maxDist, pass.limit)
+              )
             )
-          )
+          ),
+          {
+            intent,
+            topCandidateFiles: topCandidateAnchorFiles,
+            ranked,
+            getFileSymbols: (fileId) => symbols.getByFileIdLight(fileId),
+            pivotQueryTerms,
+          }
         )
       );
       if (expanded.length <= selected.length) continue;
@@ -2184,12 +2213,21 @@ function runCanonicalPipelineFinalizer(
       const expandedLimit = Math.min(candidates.length, baseCandidateLimit * 2);
       const expandedLexThreshold = Math.max(0, baseLexThreshold * 0.7);
       const deepExpanded = backfillWithinSelectedFiles(
-        ensureBroadFileSpread(
-          pruneUiNoise(
-            pruneByFileDiversity(
-              selectCandidates(expandedLexThreshold, 2, expandedLimit)
+        ensureCandidateFileAnchors(
+          ensureBroadFileSpread(
+            pruneUiNoise(
+              pruneByFileDiversity(
+                selectCandidates(expandedLexThreshold, 2, expandedLimit)
+              )
             )
-          )
+          ),
+          {
+            intent,
+            topCandidateFiles: topCandidateAnchorFiles,
+            ranked,
+            getFileSymbols: (fileId) => symbols.getByFileIdLight(fileId),
+            pivotQueryTerms,
+          }
         )
       );
       if (deepExpanded.length > selected.length) {
@@ -2472,6 +2510,48 @@ function runCanonicalPipelineFinalizer(
   const enrichResult = enrichL2WithDeps(packed, tokensUsed, codeBudgetForEnrich);
   packed = enrichResult.packed;
   tokensUsed = enrichResult.tokensUsed;
+
+  const ensurePackedAnchorNodes = (): void => {
+    if (anchorFileIdSet.size === 0) return;
+
+    const packedIds = new Set(packed.map((node) => node.symbol.id));
+    const anchorNodes = scoredNodes
+      .filter((node) => node.distance === 0 && anchorFileIdSet.has(node.file.id))
+      .sort((a, b) => b.score - a.score);
+
+    for (const anchorNode of anchorNodes) {
+      if (packedIds.has(anchorNode.symbol.id)) continue;
+
+      const rendered = renderSymbol(anchorNode.symbol, anchorNode.file, 3, anchorNode.outgoingEdges);
+      const tokenCount = countTokens(rendered);
+      const packedAnchor = {
+        ...anchorNode,
+        compressionLevel: 3 as CompressionLevel,
+        rendered,
+        tokenCount,
+      };
+
+      if (tokensUsed + tokenCount <= codeBudgetForEnrich) {
+        packed.push(packedAnchor);
+        packedIds.add(anchorNode.symbol.id);
+        tokensUsed += tokenCount;
+        continue;
+      }
+
+      const removable = packed
+        .map((node, index) => ({ node, index }))
+        .filter(({ node }) => !anchorFileIdSet.has(node.file.id) && node.score < anchorNode.score)
+        .sort((left, right) => left.node.score - right.node.score)[0];
+
+      if (!removable) continue;
+
+      packed.splice(removable.index, 1, packedAnchor);
+      packedIds.add(anchorNode.symbol.id);
+      tokensUsed += tokenCount - removable.node.tokenCount;
+    }
+  };
+
+  ensurePackedAnchorNodes();
 
   if (shouldStripTypeDeclarationsFromPacked()) {
     packed = packed.filter((node) => !isTypeDeclarationPath(canonicalFilePath(node)));
@@ -2864,4 +2944,3 @@ function runCanonicalPipelineFinalizer(
 
   return { content, metadata, structured };
 }
-

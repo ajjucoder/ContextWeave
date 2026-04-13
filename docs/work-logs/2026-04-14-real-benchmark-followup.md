@@ -62,3 +62,22 @@ So the current batch is a confirmed performance win, with quality holding steady
 
 - The broad `bench:product` run was not fully apples-to-apples, so it should not be used as the main proof point
 - After the benchmark runs, there were no leftover Node processes holding memory open
+
+## Second Follow-up
+
+After fixing top-file anchor preservation and core-repo framework detection, the real repo checks improved again.
+
+### Express stayed healthy
+- Task success stayed at `3/3`
+- First-pass success stayed at `3/3`
+
+### Fastify improved materially
+- Before this follow-up:
+  - task success: `0/2`
+  - first-pass success: `0/2`
+- After this follow-up:
+  - task success: `2/2`
+  - first-pass success: `1/2`
+  - correction success: `1/2`
+
+This means the recent retrieval changes did not just make Fastify faster. They made it find the right runtime context on both checked tasks.

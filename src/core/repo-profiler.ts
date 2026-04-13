@@ -70,7 +70,11 @@ const MARKER_RULES: MarkerRule[] = [
     projectType: "",
     check: (content) => {
       try {
-        const pkg = JSON.parse(content) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+        const pkg = JSON.parse(content) as {
+          name?: string;
+          dependencies?: Record<string, string>;
+          devDependencies?: Record<string, string>;
+        };
         const allDeps = { ...pkg.dependencies, ...pkg.devDependencies };
         if ("express" in allDeps) return "express";
         if ("fastify" in allDeps) return "fastify";
@@ -84,6 +88,13 @@ const MARKER_RULES: MarkerRule[] = [
         if ("@supabase/supabase-js" in allDeps) return "supabase";
         if ("prisma" in allDeps || "@prisma/client" in allDeps) return "prisma";
         if ("drizzle-orm" in allDeps) return "drizzle";
+
+        const rootPackageName = pkg.name?.split("/").pop();
+        if (rootPackageName === "express") return "express";
+        if (rootPackageName === "fastify") return "fastify";
+        if (rootPackageName === "koa") return "koa";
+        if (rootPackageName === "hono") return "hono";
+        if (rootPackageName === "hapi") return "hapi";
       } catch {
         return null;
       }
@@ -114,6 +125,7 @@ const FRAMEWORK_LANE_CONFIGS: Record<string, FrameworkLaneConfig> = {
   },
   express: {
     lanes: [
+      { name: "core-lib", layer: "server", pathPrefixes: ["lib/"], fileGlobs: ["**/*.ts", "**/*.js"], priority: 0.92 },
       { name: "routes", layer: "api-route", pathPrefixes: ["routes/", "src/routes/"], fileGlobs: ["**/*.ts", "**/*.js"], priority: 0.9 },
       { name: "controllers", layer: "server", pathPrefixes: ["controllers/", "src/controllers/"], fileGlobs: ["**/*.ts", "**/*.js"], priority: 0.85 },
       { name: "services", layer: "server", pathPrefixes: ["services/", "src/services/"], fileGlobs: ["**/*.ts", "**/*.js"], priority: 0.8 },
@@ -126,6 +138,7 @@ const FRAMEWORK_LANE_CONFIGS: Record<string, FrameworkLaneConfig> = {
   },
   fastify: {
     lanes: [
+      { name: "core-lib", layer: "server", pathPrefixes: ["lib/"], fileGlobs: ["**/*.ts", "**/*.js"], priority: 0.92 },
       { name: "routes", layer: "api-route", pathPrefixes: ["routes/", "src/routes/"], fileGlobs: ["**/*.ts", "**/*.js"], priority: 0.9 },
       { name: "plugins", layer: "server", pathPrefixes: ["plugins/", "src/plugins/"], fileGlobs: ["**/*.ts", "**/*.js"], priority: 0.85 },
       { name: "services", layer: "server", pathPrefixes: ["services/", "src/services/"], fileGlobs: ["**/*.ts", "**/*.js"], priority: 0.8 },

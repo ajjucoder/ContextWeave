@@ -55,6 +55,19 @@ describe("profileRepo", () => {
     expect(profile.frameworks).toContain("express");
   });
 
+  it("detects Fastify core repo from package.json name", () => {
+    const dir = makeTempDir();
+    dirs.push(dir);
+    writeFileSync(
+      join(dir, "package.json"),
+      JSON.stringify({ name: "fastify" })
+    );
+
+    const profile = profileRepo(dir);
+
+    expect(profile.frameworks).toContain("fastify");
+  });
+
   it("detects Spring project from pom.xml", () => {
     const dir = makeTempDir();
     dirs.push(dir);
@@ -249,6 +262,23 @@ describe("getLaneWeightForPath", () => {
   it("returns weight greater than 1 for a matching path prefix", () => {
     const weight = getLaneWeightForPath(nextjsLanes, "app/page.tsx");
     expect(weight).toBeGreaterThan(1);
+  });
+
+  it("boosts Express core lib files when the repo is detected as Express", () => {
+    const dir = makeTempDir();
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({ name: "express" })
+      );
+
+      const profile = profileRepo(dir);
+
+      expect(profile.frameworks).toContain("express");
+      expect(getLaneWeightForPath(profile.lanes, "lib/application.js")).toBeGreaterThan(1);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("returns the highest priority match when multiple lanes match", () => {
