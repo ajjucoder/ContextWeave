@@ -16,6 +16,7 @@ import { registerExportTool } from "../../src/mcp/tools/export.js";
 import { registerSnapshotTool } from "../../src/mcp/tools/snapshot.js";
 import { registerHistoryTool } from "../../src/mcp/tools/history.js";
 import { registerDiffTool } from "../../src/mcp/tools/diff.js";
+import { registerRepoMapTool } from "../../src/mcp/tools/repo-map.js";
 
 type RegisteredTool = {
   inputSchema?: {
@@ -239,6 +240,20 @@ describe("MCP tool schema compatibility", () => {
       path: "src",
       staged_only: true,
       max_files: 25,
+    });
+    expect(parseResult?.success).toBe(true);
+  });
+
+  it("cw_repo_map input schema parses valid args", async () => {
+    const server = new McpServer({ name: "contextweave-test", version: "0.0.0" });
+    registerRepoMapTool(server, null as never, "/tmp/project");
+
+    const parseResult = await getRegisteredTool(server, "cw_repo_map").inputSchema?.safeParseAsync({
+      path: "src",
+      query: "auth service",
+      max_files: 8,
+      max_symbols_per_file: 3,
+      max_tokens: 1200,
     });
     expect(parseResult?.success).toBe(true);
   });

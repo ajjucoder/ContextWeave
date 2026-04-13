@@ -25,6 +25,7 @@ ContextWeave always registers these read-focused tools:
 | `cw_overview` | Directory/symbol overview with optional query focus |
 | `cw_files` | Indexed file listing with scope/pattern filters |
 | `cw_diff` | Current git changes with file stats and changed-symbol hints |
+| `cw_repo_map` | Compact file and symbol map for fast agent orientation |
 | `cw_grep` | Content/regex search with symbol context |
 | `cw_read` | Safe bounded file or file-qualified symbol reads |
 | `cw_stats` | Session token usage and estimated savings |
