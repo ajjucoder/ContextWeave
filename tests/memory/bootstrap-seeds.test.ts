@@ -29,9 +29,30 @@ afterEach(() => {
 describe("bootstrap observation seeding", () => {
   it("seeds durable observations from README, CLAUDE, and architecture docs", async () => {
     mkdirSync(join(root, ".claude"), { recursive: true });
+    mkdirSync(join(root, ".cursor", "rules"), { recursive: true });
+    mkdirSync(join(root, ".github"), { recursive: true });
+    mkdirSync(join(root, "packages", "api"), { recursive: true });
     mkdirSync(join(root, "docs"), { recursive: true });
     writeFileSync(join(root, "README.md"), "# Overview\n\n- Auth uses JWT refresh rotation for agent sessions.\n");
     writeFileSync(join(root, ".claude", "CLAUDE.md"), "# Team rules\n\n- Prefer cw_capsule before broad grep sweeps.\n");
+    writeFileSync(join(root, "packages", "api", "AGENTS.md"), "# API rules\n\n- Keep handlers thin and move business logic into services.\n");
+    writeFileSync(
+      join(root, ".cursor", "rules", "review.mdc"),
+      [
+        "---",
+        "description: Review rules",
+        "---",
+        "",
+        "# Review rules",
+        "",
+        "- Flag missing tests before style issues.",
+        "",
+      ].join("\n")
+    );
+    writeFileSync(
+      join(root, ".github", "copilot-instructions.md"),
+      "# Copilot instructions\n\n- Prefer small focused patches over broad rewrites.\n"
+    );
     writeFileSync(
       join(root, "docs", "architecture.md"),
       "# Architecture\n\nThe billing webhook pipeline writes Stripe events into the audit ledger before retries.\n\n## Follow-up actions\n- [x] Verified webhook retries stay idempotent.\n"
@@ -47,15 +68,22 @@ describe("bootstrap observation seeding", () => {
     expect(result.total).toBeGreaterThanOrEqual(3);
     expect(notes.some((note) => note.includes("Auth uses JWT refresh rotation"))).toBe(true);
     expect(notes.some((note) => note.includes("Prefer cw capsule before broad grep sweeps"))).toBe(true);
+    expect(notes.some((note) => note.includes("Keep handlers thin and move business logic into services"))).toBe(true);
+    expect(notes.some((note) => note.includes("Flag missing tests before style issues"))).toBe(true);
+    expect(notes.some((note) => note.includes("Prefer small focused patches over broad rewrites"))).toBe(true);
     expect(notes.some((note) => note.includes("billing webhook pipeline writes Stripe events"))).toBe(true);
     expect(notes.some((note) => note.includes("Validated follow-up: Verified webhook retries stay idempotent"))).toBe(true);
     const docObservation = observations.find((observation) => observation.note.includes("Auth uses JWT refresh rotation"));
     const claudeObservation = observations.find((observation) => observation.note.includes("Prefer cw capsule before broad grep sweeps"));
+    const agentsObservation = observations.find((observation) => observation.note.includes("Keep handlers thin and move business logic into services"));
     expect(docObservation?.scope).toBe("documentation");
     expect(docObservation?.confidence).toBe(0.5);
     expect(claudeObservation?.scope).toBe("convention");
     expect(claudeObservation?.confidence).toBe(0.5);
+    expect(agentsObservation?.scope).toBe("convention");
+    expect(agentsObservation?.confidence).toBe(0.5);
     expect(search.search("jwt refresh rotation", { limit: 10 }).length).toBeGreaterThan(0);
+    expect(search.search("handlers thin business logic services", { limit: 10 }).length).toBeGreaterThan(0);
     expect(search.search("webhook retries idempotent", { limit: 10 }).length).toBeGreaterThan(0);
   });
 

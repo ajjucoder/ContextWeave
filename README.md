@@ -73,6 +73,8 @@ Passive memory is still captured automatically:
 - query observations: scope `passive`, confidence `0.5`
 - file-change observations: scope `passive`, confidence `0.6`
 
+Bootstrap memory also seeds durable repo guidance from common instruction files such as `README.md`, `CLAUDE.md`, `AGENTS.md`, Cursor rules, Copilot instructions, and related repo guidance docs.
+
 Current retrieval defaults intentionally reduce passive noise:
 
 - capsule memory injection excludes passive observations by default

@@ -14,9 +14,19 @@ const MAX_NOTES_PER_FILE = 4;
 const MAX_TOTAL_NOTES = 24;
 const MIN_NOTE_LENGTH = 24;
 const MAX_NOTE_LENGTH = 220;
-const MARKDOWN_EXTENSIONS = new Set([".md", ".markdown"]);
+const DOC_EXTENSIONS = new Set([".md", ".markdown", ".mdc", ".txt", ".yaml", ".yml"]);
 const DOC_DISCOVERY_RE = /(architect|design|decision|adr|policy|runbook|playbook|guide|overview)/i;
 const FOLLOW_UP_HEADING_RE = /(follow[- ]?up|next steps?|actions?)/i;
+const INSTRUCTION_FILE_RE = /(^|\/)(agents\.md|gemini\.md|claude\.md|copilot-instructions\.md)$/i;
+const INSTRUCTION_DIR_RE = /(^|\/)(\.cursor\/rules|\.continue\/rules|\.github\/instructions|\.agents\/skills|\.openhands\/skills|\.openhands\/microagents)(\/|$)/i;
+const KNOWN_INSTRUCTION_DIRS = [
+  ".cursor/rules",
+  ".continue/rules",
+  ".github/instructions",
+  ".agents/skills",
+  ".openhands/skills",
+  ".openhands/microagents",
+];
 
 interface SeedObservation {
   scope: "documentation" | "convention" | "decision" | "todo";
@@ -61,15 +71,67 @@ function shouldSkipLine(text: string): boolean {
 
 function scopeForPath(projectPath: string): SeedObservation["scope"] {
   const lower = projectPath.toLowerCase();
-  if (lower.endsWith("claude.md")) return "convention";
+  if (
+    lower.endsWith("claude.md")
+    || lower.endsWith("agents.md")
+    || lower.endsWith("gemini.md")
+    || lower.endsWith("copilot-instructions.md")
+    || lower.includes("/.cursor/rules/")
+    || lower.includes("/.continue/rules/")
+    || lower.includes("/.github/instructions/")
+    || lower.includes("/.agents/skills/")
+    || lower.includes("/.openhands/skills/")
+    || lower.includes("/.openhands/microagents/")
+  ) {
+    return "convention";
+  }
   if (/(^|\/)(adr|decisions?)(\/|$)/.test(lower)) return "decision";
   return "documentation";
 }
 
-function discoverDocFiles(projectRoot: string): string[] {
-  const explicit = ["README.md", "CLAUDE.md", ".claude/CLAUDE.md"]
+function discoverDocFiles(db: Database.Database, projectRoot: string): string[] {
+  const explicit = [
+    "README.md",
+    "CLAUDE.md",
+    ".claude/CLAUDE.md",
+    "AGENTS.md",
+    "GEMINI.md",
+    ".github/copilot-instructions.md",
+  ]
     .map((path) => resolve(projectRoot, path))
     .filter((path, index, paths) => existsSync(path) && paths.indexOf(path) === index);
+
+  const indexed = fileQueries(db)
+    .getAll()
+    .map((file) => file.path.replace(/\\/g, "/"))
+    .filter((projectPath) => {
+      const lower = projectPath.toLowerCase();
+      return INSTRUCTION_FILE_RE.test(lower) || INSTRUCTION_DIR_RE.test(lower);
+    })
+    .map((projectPath) => resolve(projectRoot, projectPath));
+
+  const configDiscovered: string[] = [];
+  const visitInstructionDir = (dir: string, depth: number): void => {
+    if (depth > MAX_SCAN_DEPTH || configDiscovered.length >= MAX_DOC_FILES) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const fullPath = resolve(dir, entry.name);
+      if (entry.isDirectory()) {
+        visitInstructionDir(fullPath, depth + 1);
+        if (configDiscovered.length >= MAX_DOC_FILES) return;
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      if (!DOC_EXTENSIONS.has(extname(entry.name).toLowerCase())) continue;
+      configDiscovered.push(fullPath);
+      if (configDiscovered.length >= MAX_DOC_FILES) return;
+    }
+  };
+
+  for (const dir of KNOWN_INSTRUCTION_DIRS.map((entry) => resolve(projectRoot, entry))) {
+    if (!existsSync(dir)) continue;
+    visitInstructionDir(dir, 0);
+    if (configDiscovered.length >= MAX_DOC_FILES) break;
+  }
 
   const discovered: string[] = [];
   const roots = ["docs", "doc"]
@@ -87,7 +149,7 @@ function discoverDocFiles(projectRoot: string): string[] {
         continue;
       }
       if (!entry.isFile()) continue;
-      if (!MARKDOWN_EXTENSIONS.has(extname(entry.name).toLowerCase())) continue;
+      if (!DOC_EXTENSIONS.has(extname(entry.name).toLowerCase())) continue;
       if (!DOC_DISCOVERY_RE.test(fullPath)) continue;
       discovered.push(fullPath);
       if (discovered.length >= MAX_DOC_FILES) return;
@@ -99,7 +161,7 @@ function discoverDocFiles(projectRoot: string): string[] {
     if (discovered.length >= MAX_DOC_FILES) break;
   }
 
-  return [...new Set([...explicit, ...discovered])].slice(0, MAX_DOC_FILES);
+  return [...new Set([...explicit, ...indexed, ...configDiscovered, ...discovered])].slice(0, MAX_DOC_FILES);
 }
 
 function pushSeed(
@@ -132,8 +194,10 @@ function extractDocSeeds(projectPath: string, content: string, fileId: number | 
   const defaultScope = scopeForPath(projectPath);
   const lines = content.split(/\r?\n/);
   let inCodeFence = false;
+  let inFrontmatter = false;
   let currentHeading = "";
   let paragraph: string[] = [];
+  let seenContent = false;
 
   const flushParagraph = () => {
     if (paragraph.length === 0) return;
@@ -145,6 +209,11 @@ function extractDocSeeds(projectPath: string, content: string, fileId: number | 
 
   for (const rawLine of lines) {
     const line = rawLine.trim();
+    if (!seenContent && line === "---") {
+      inFrontmatter = !inFrontmatter;
+      continue;
+    }
+    if (inFrontmatter) continue;
     if (line.startsWith("```")) {
       inCodeFence = !inCodeFence;
       flushParagraph();
@@ -155,6 +224,7 @@ function extractDocSeeds(projectPath: string, content: string, fileId: number | 
       flushParagraph();
       continue;
     }
+    seenContent = true;
 
     const headingMatch = line.match(/^#{1,6}\s+(.+)$/);
     if (headingMatch) {
@@ -195,7 +265,7 @@ function collectBootstrapSeeds(db: Database.Database, projectRoot: string): Seed
   const files = fileQueries(db);
   const seeds: SeedObservation[] = [];
 
-  for (const filePath of discoverDocFiles(projectRoot)) {
+  for (const filePath of discoverDocFiles(db, projectRoot)) {
     const projectPath = toProjectPath(projectRoot, filePath);
     const fileId = files.getByPath(projectPath)?.id ?? null;
     const content = readFileSync(filePath, "utf8");
