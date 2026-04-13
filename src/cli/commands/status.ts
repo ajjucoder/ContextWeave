@@ -8,11 +8,13 @@ import { edgeQueries } from "../../db/queries/edges.js";
 import { observationQueries } from "../../db/queries/observations.js";
 import { capsuleLogQueries } from "../../db/queries/capsule-log.js";
 import { buildProjectProfile, formatProjectProfile } from "../../utils/project-profile.js";
+import { loadProfile, formatRepoProfile } from "../../core/repo-profiler.js";
 import {
   computeFollowUpMetrics,
   FOLLOW_UP_METRICS_SAMPLE_LIMIT,
   formatRatePct,
 } from "../../mcp/tools/stats.js";
+import { getRuntimeVersion } from "../../utils/runtime-version.js";
 
 export function runStatus(projectRoot: string, verbose: boolean): void {
   const cwDir = resolve(projectRoot, ".contextweave");
@@ -40,7 +42,8 @@ export function runStatus(projectRoot: string, verbose: boolean): void {
   const followUpMetrics = computeFollowUpMetrics(rateSample);
 
   process.stdout.write(`ContextWeave Index Status\n`);
-  process.stdout.write(`Project: ${projectRoot}\n\n`);
+  process.stdout.write(`Project: ${projectRoot}\n`);
+  process.stdout.write(`Version: ${getRuntimeVersion()}\n\n`);
   process.stdout.write(`Files:        ${fileCount}\n`);
   process.stdout.write(`Symbols:      ${symbolCount}\n`);
   process.stdout.write(`Edges:        ${edgeCount}\n`);
@@ -55,6 +58,13 @@ export function runStatus(projectRoot: string, verbose: boolean): void {
   const profile = buildProjectProfile(projectRoot, files.getAll());
   for (const line of formatProjectProfile(profile)) {
     process.stdout.write(`${line}\n`);
+  }
+  const repoProfile = loadProfile(db, projectRoot);
+  if (repoProfile && repoProfile.frameworks.length > 0) {
+    process.stdout.write(`\n`);
+    for (const line of formatRepoProfile(repoProfile)) {
+      process.stdout.write(`${line}\n`);
+    }
   }
 
   if (verbose) {

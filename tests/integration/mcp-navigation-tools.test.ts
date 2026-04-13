@@ -220,6 +220,7 @@ describe("mcp navigation tools", () => {
     const text = result.content[0]?.text ?? "";
     expect(result.isError).not.toBe(true);
     expect(text).toContain("ContextWeave Index Status");
+    expect(text).toContain("Version:");
     expect(text).toContain("Files:");
     expect(text).toContain("First-pass rate:");
     expect(text).toContain("Correction rate:");

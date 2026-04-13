@@ -15,9 +15,39 @@ import {
   formatRatePct,
 } from "./stats.js";
 import { createLspBridge, formatLspStatus, type LspBridge } from "../../core/lsp-bridge.js";
+import { getRuntimeVersion } from "../../utils/runtime-version.js";
 
 let cachedBridge: LspBridge | null = null;
 let cachedBridgeRoot: string | null = null;
+
+function normalizePrefix(prefix: string): string {
+  return prefix.replace(/\\/g, "/").replace(/^\.\//, "").replace(/^\/+/, "").replace(/\/+$/, "");
+}
+
+function buildSourcePrefixes(
+  repoProfile: ReturnType<typeof loadProfile>
+): string[] {
+  const preferred = new Set<string>();
+
+  if (repoProfile) {
+    for (const root of [...repoProfile.backendRoots, ...repoProfile.frontendRoots]) {
+      const normalized = normalizePrefix(root);
+      if (normalized) preferred.add(normalized);
+    }
+    for (const lane of repoProfile.lanes) {
+      for (const prefix of lane.pathPrefixes) {
+        const normalized = normalizePrefix(prefix);
+        if (normalized) preferred.add(normalized);
+      }
+    }
+  }
+
+  if (preferred.size > 0) {
+    return [...preferred];
+  }
+
+  return ["src", "lib", "app", "packages"];
+}
 
 export function registerStatusTool(server: McpServer, db: Database.Database, projectRoot: string): void {
   const registerTool = getRegisterTool(server);
@@ -43,6 +73,7 @@ export function registerStatusTool(server: McpServer, db: Database.Database, pro
         const recentCapsules = capsuleLogQueries(db).getRecent(5);
         const rateSample = capsuleLogQueries(db).getRecent(FOLLOW_UP_METRICS_SAMPLE_LIMIT);
         const followUpMetrics = computeFollowUpMetrics(rateSample);
+        const runtimeVersion = getRuntimeVersion();
 
         const allFiles = files.getAll();
         if (cachedBridgeRoot !== projectRoot) {
@@ -53,6 +84,7 @@ export function registerStatusTool(server: McpServer, db: Database.Database, pro
         const lines = [
           `ContextWeave Index Status`,
           `Project: ${projectRoot}`,
+          `Version: ${runtimeVersion}`,
           ``,
           `Files:        ${fileCount}`,
           `Symbols:      ${symbolCount}`,
@@ -71,9 +103,9 @@ export function registerStatusTool(server: McpServer, db: Database.Database, pro
           lines.push("", ...formatRepoProfile(repoProfile));
         }
 
-        const SOURCE_DIR_PREFIXES = ["src/", "lib/", "app/", "packages/"];
+        const sourcePrefixes = buildSourcePrefixes(repoProfile);
         const nonSourceFiles = allFiles.filter(
-          (f) => !SOURCE_DIR_PREFIXES.some((prefix) => f.path.startsWith(prefix))
+          (f) => !sourcePrefixes.some((prefix) => f.path === prefix || f.path.startsWith(`${prefix}/`))
         );
         if (allFiles.length > 0 && nonSourceFiles.length / allFiles.length > 0.5) {
           const pct = Math.round((nonSourceFiles.length / allFiles.length) * 100);

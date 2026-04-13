@@ -77,6 +77,7 @@ describe("status/init project profile", () => {
 
     expect(output).toContain("First-pass rate:");
     expect(output).toContain("Correction rate:");
+    expect(output).toContain("Version:");
     expect(output).toContain("Project Profile");
     expect(output).toContain("Active roots:");
     expect(output).toContain("scripts");
