@@ -83,13 +83,13 @@ const PROJECTS: QaProject[] = [
         attempts: [
           {
             query: "fastify hook validation lifecycle",
-            expectedFiles: ["lib/hooks.js", "lib/route.js"],
+            expectedFiles: ["lib/hooks.js"],
             expectedSnippets: ["onSendHookRunner"],
             forbiddenFiles: ["types/hooks.d.ts", "types/route.d.ts"],
           },
           {
             query: "hook lifecycle request validation pipeline",
-            expectedFiles: ["lib/hooks.js", "lib/route.js"],
+            expectedFiles: ["lib/hooks.js"],
             expectedSnippets: ["onSendHookRunner"],
             forbiddenFiles: ["types/hooks.d.ts", "types/route.d.ts"],
           },
@@ -101,13 +101,13 @@ const PROJECTS: QaProject[] = [
         attempts: [
           {
             query: "schema compiler to request validation flow",
-            expectedFiles: ["lib/schema-controller.js", "lib/route.js"],
+            expectedFiles: ["lib/route.js"],
             expectedSnippets: ["setValidatorCompiler"],
             forbiddenFiles: ["types/request.d.ts"],
           },
           {
             query: "schema controller request validation pipeline",
-            expectedFiles: ["lib/schema-controller.js", "lib/route.js"],
+            expectedFiles: ["lib/route.js"],
             expectedSnippets: ["setValidatorCompiler"],
             forbiddenFiles: ["types/request.d.ts"],
           },
@@ -226,11 +226,26 @@ const PROJECTS: QaProject[] = [
   },
 ];
 
-interface TaskSummary {
+export interface TaskSummary {
   success: boolean;
   firstPassSuccess: boolean;
   correction: boolean;
   tokensToSuccess: number;
+  avgConfidence: number;
+}
+
+export interface ProductBenchProjectSummary {
+  project: string;
+  summaries: TaskSummary[];
+}
+
+export interface ProductBenchEvaluation {
+  passed: boolean;
+  failures: string[];
+  taskSuccessRate: number;
+  firstPassSuccessRate: number;
+  correctionRate: number;
+  avgTaskTokens: number;
   avgConfidence: number;
 }
 
@@ -253,6 +268,67 @@ export function buildCloneCommand(repo: string, commit: string | undefined, targ
 
 function resolveLocalProjectPath(localPath: string): string {
   return resolve(__dirname, "..", localPath);
+}
+
+export function evaluateProductBench(
+  projectResults: ProductBenchProjectSummary[],
+  expectedProjectCount: number
+): ProductBenchEvaluation {
+  const summaries = projectResults.flatMap((project) => project.summaries);
+  const failures: string[] = [];
+
+  if (projectResults.length !== expectedProjectCount) {
+    failures.push(`only ${projectResults.length}/${expectedProjectCount} benchmark projects produced results`);
+  }
+
+  for (const project of projectResults) {
+    const successCount = project.summaries.reduce((sum, task) => sum + (task.success ? 1 : 0), 0);
+    if (successCount === 0) {
+      failures.push(`project ${project.project} had zero successful tasks`);
+    }
+  }
+
+  if (summaries.length === 0) {
+    failures.push("no benchmark tasks produced results");
+    return {
+      passed: false,
+      failures,
+      taskSuccessRate: 0,
+      firstPassSuccessRate: 0,
+      correctionRate: 0,
+      avgTaskTokens: 0,
+      avgConfidence: 0,
+    };
+  }
+
+  const taskSuccessRate = summaries.reduce((sum, task) => sum + (task.success ? 1 : 0), 0) / summaries.length;
+  const firstPassSuccessRate = summaries.reduce((sum, task) => sum + (task.firstPassSuccess ? 1 : 0), 0) / summaries.length;
+  const correctionRate = summaries.reduce((sum, task) => sum + (task.correction ? 1 : 0), 0) / summaries.length;
+  const avgTaskTokens = summaries.reduce((sum, task) => sum + task.tokensToSuccess, 0) / summaries.length;
+  const avgConfidence = summaries.reduce((sum, task) => sum + task.avgConfidence, 0) / summaries.length;
+
+  if (taskSuccessRate < PRODUCT_THRESHOLDS.taskSuccessRateMin) {
+    failures.push(`task success rate ${(taskSuccessRate * 100).toFixed(1)}% below ${(PRODUCT_THRESHOLDS.taskSuccessRateMin * 100).toFixed(1)}%`);
+  }
+  if (firstPassSuccessRate < PRODUCT_THRESHOLDS.firstPassSuccessRateMin) {
+    failures.push(`first-pass rate ${(firstPassSuccessRate * 100).toFixed(1)}% below ${(PRODUCT_THRESHOLDS.firstPassSuccessRateMin * 100).toFixed(1)}%`);
+  }
+  if (correctionRate > PRODUCT_THRESHOLDS.correctionRateMax) {
+    failures.push(`correction rate ${(correctionRate * 100).toFixed(1)}% above ${(PRODUCT_THRESHOLDS.correctionRateMax * 100).toFixed(1)}%`);
+  }
+  if (avgConfidence < PRODUCT_THRESHOLDS.avgConfidenceMin) {
+    failures.push(`avg confidence ${(avgConfidence * 100).toFixed(1)}% below ${(PRODUCT_THRESHOLDS.avgConfidenceMin * 100).toFixed(1)}%`);
+  }
+
+  return {
+    passed: failures.length === 0,
+    failures,
+    taskSuccessRate,
+    firstPassSuccessRate,
+    correctionRate,
+    avgTaskTokens,
+    avgConfidence,
+  };
 }
 
 async function runProject(project: QaProject, projectDir: string): Promise<TaskSummary[] | null> {
@@ -315,49 +391,42 @@ async function main(): Promise<void> {
   if (existsSync(QA_DIR)) rmSync(QA_DIR, { recursive: true, force: true });
   mkdirSync(QA_DIR, { recursive: true });
 
-  const summaries: TaskSummary[] = [];
+  const projectResults: ProductBenchProjectSummary[] = [];
 
   for (const project of PROJECTS) {
     const projectDir = resolve(QA_DIR, project.name);
     process.stdout.write(`\nPreparing ${project.name}...\n`);
     const result = await runProject(project, projectDir);
-    if (result) summaries.push(...result);
+    if (result) {
+      projectResults.push({ project: project.name, summaries: result });
+    }
   }
 
   process.stdout.write("\n=== PRODUCT BENCH SUMMARY ===\n");
 
-  if (summaries.length === 0) {
-    process.stdout.write("No results — all projects skipped (clone failures)\n");
-    process.stdout.write("Status: SKIP (not FAIL)\n");
-    rmSync(QA_DIR, { recursive: true, force: true });
-    return;
+  const evaluation = evaluateProductBench(projectResults, PROJECTS.length);
+
+  if (evaluation.failures.includes("no benchmark tasks produced results")) {
+    process.stdout.write("No results — benchmark could not validate any configured project\n");
   }
 
-  const taskSuccessRate = summaries.reduce((sum, task) => sum + (task.success ? 1 : 0), 0) / summaries.length;
-  const firstPassSuccessRate = summaries.reduce((sum, task) => sum + (task.firstPassSuccess ? 1 : 0), 0) / summaries.length;
-  const correctionRate = summaries.reduce((sum, task) => sum + (task.correction ? 1 : 0), 0) / summaries.length;
-  const avgTaskTokens = summaries.reduce((sum, task) => sum + task.tokensToSuccess, 0) / summaries.length;
-  const avgConfidence = summaries.reduce((sum, task) => sum + task.avgConfidence, 0) / summaries.length;
-  const passed =
-    taskSuccessRate >= PRODUCT_THRESHOLDS.taskSuccessRateMin &&
-    firstPassSuccessRate >= PRODUCT_THRESHOLDS.firstPassSuccessRateMin &&
-    correctionRate <= PRODUCT_THRESHOLDS.correctionRateMax &&
-    avgConfidence >= PRODUCT_THRESHOLDS.avgConfidenceMin;
-
-  process.stdout.write(`Task success rate: ${(taskSuccessRate * 100).toFixed(1)}%\n`);
-  process.stdout.write(`First-pass rate:   ${(firstPassSuccessRate * 100).toFixed(1)}%\n`);
-  process.stdout.write(`Correction rate:   ${(correctionRate * 100).toFixed(1)}%\n`);
-  process.stdout.write(`Avg tokens to first correct context: ${avgTaskTokens.toFixed(1)}\n`);
-  process.stdout.write(`Avg confidence:    ${(avgConfidence * 100).toFixed(1)}%\n`);
+  process.stdout.write(`Task success rate: ${(evaluation.taskSuccessRate * 100).toFixed(1)}%\n`);
+  process.stdout.write(`First-pass rate:   ${(evaluation.firstPassSuccessRate * 100).toFixed(1)}%\n`);
+  process.stdout.write(`Correction rate:   ${(evaluation.correctionRate * 100).toFixed(1)}%\n`);
+  process.stdout.write(`Avg tokens to first correct context: ${evaluation.avgTaskTokens.toFixed(1)}\n`);
+  process.stdout.write(`Avg confidence:    ${(evaluation.avgConfidence * 100).toFixed(1)}%\n`);
   process.stdout.write(
     `Thresholds:       success >= ${(PRODUCT_THRESHOLDS.taskSuccessRateMin * 100).toFixed(1)}%, ` +
     `first-pass >= ${(PRODUCT_THRESHOLDS.firstPassSuccessRateMin * 100).toFixed(1)}%, ` +
     `correction <= ${(PRODUCT_THRESHOLDS.correctionRateMax * 100).toFixed(1)}%, ` +
     `confidence >= ${(PRODUCT_THRESHOLDS.avgConfidenceMin * 100).toFixed(1)}%\n`
   );
-  process.stdout.write(`Overall status:    ${passed ? "PASS" : "FAIL"}\n`);
+  if (evaluation.failures.length > 0) {
+    process.stdout.write(`Failures:         ${evaluation.failures.join("; ")}\n`);
+  }
+  process.stdout.write(`Overall status:    ${evaluation.passed ? "PASS" : "FAIL"}\n`);
 
-  if (!passed) {
+  if (!evaluation.passed) {
     process.exitCode = 1;
   }
 

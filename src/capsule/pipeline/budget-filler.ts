@@ -93,11 +93,26 @@ export function fillBudgetAndFinalize(
   _scoring: CandidateScoringResult,
   fallbackThresholds: FallbackThresholds
 ): CapsuleOutput {
-  return runCanonicalPipelineFinalizer(
+  const result = runCanonicalPipelineFinalizer(
     context.db,
     context.params as CapsuleParams,
     fallbackThresholds
   );
+
+  return {
+    ...result,
+    metadata: {
+      ...result.metadata,
+      quality: {
+        ...result.metadata.quality,
+        retrieval: {
+          ...result.metadata.quality.retrieval,
+          stageACandidateCount: _pivot.rawPivotIds.size,
+          stageBSelectedCount: _scoring.selected.length,
+        },
+      },
+    },
+  };
 }
 
 

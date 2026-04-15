@@ -467,6 +467,144 @@ describe("file summaries", () => {
     localDb.close();
   });
 
+  it("keeps runtime src/**/types.ts files ahead of docs/tests for runtime schema pipeline queries", () => {
+    const localDb = new Database(":memory:");
+    localDb.pragma("foreign_keys = ON");
+    createSchema(localDb);
+    const now = Date.now();
+    const files = fileQueries(localDb);
+    const syms = symbolQueries(localDb);
+
+    const v3RuntimeFileId = files.insert({
+      path: "packages/zod/src/v3/types.ts",
+      hash: "zod-v3-types",
+      lastIndexed: now,
+      mtime: now,
+      language: "typescript",
+      symbolCount: 2,
+      error: null,
+    });
+    syms.insert({
+      fileId: v3RuntimeFileId,
+      name: "ZodType",
+      kind: "class",
+      startLine: 1,
+      endLine: 80,
+      signature: "class ZodType parse validation transform pipeline runtime schema",
+      bodyHash: "zod-v3-types-1",
+      fullSource: "",
+      isExported: true,
+      docComment: null,
+      centrality: 8,
+      lastSeen: now,
+    });
+    syms.insert({
+      fileId: v3RuntimeFileId,
+      name: "ZodEffects",
+      kind: "class",
+      startLine: 81,
+      endLine: 160,
+      signature: "class ZodEffects schema validation transform pipeline parse runtime",
+      bodyHash: "zod-v3-types-2",
+      fullSource: "",
+      isExported: true,
+      docComment: null,
+      centrality: 7,
+      lastSeen: now,
+    });
+
+    const v4FileId = files.insert({
+      path: "packages/zod/src/v4/core/api.ts",
+      hash: "zod-v4-api",
+      lastIndexed: now,
+      mtime: now,
+      language: "typescript",
+      symbolCount: 1,
+      error: null,
+    });
+    syms.insert({
+      fileId: v4FileId,
+      name: "buildApi",
+      kind: "function",
+      startLine: 1,
+      endLine: 40,
+      signature: "function buildApi schema validation transform pipeline",
+      bodyHash: "zod-v4-api-1",
+      fullSource: "",
+      isExported: true,
+      docComment: null,
+      centrality: 3,
+      lastSeen: now,
+    });
+
+    const testFileId = files.insert({
+      path: "packages/zod/src/v4/classic/tests/refine.test.ts",
+      hash: "zod-v4-test",
+      lastIndexed: now,
+      mtime: now,
+      language: "typescript",
+      symbolCount: 1,
+      error: null,
+    });
+    syms.insert({
+      fileId: testFileId,
+      name: "refinePipelineSpec",
+      kind: "function",
+      startLine: 1,
+      endLine: 30,
+      signature: "function refinePipelineSpec schema validation transform pipeline assertions",
+      bodyHash: "zod-v4-test-1",
+      fullSource: "",
+      isExported: false,
+      docComment: null,
+      centrality: 2,
+      lastSeen: now,
+    });
+
+    const docsFileId = files.insert({
+      path: "packages/docs-v3/README_KO.md",
+      hash: "zod-docs",
+      lastIndexed: now,
+      mtime: now,
+      language: "markdown",
+      symbolCount: 1,
+      error: null,
+    });
+    syms.insert({
+      fileId: docsFileId,
+      name: "schema validation transform pipeline documentation",
+      kind: "variable",
+      startLine: 1,
+      endLine: 20,
+      signature: "schema validation transform pipeline guide",
+      bodyHash: "zod-docs-1",
+      fullSource: "",
+      isExported: true,
+      docComment: null,
+      centrality: 1,
+      lastSeen: now,
+    });
+
+    upsertFileSummary(localDb, v3RuntimeFileId);
+    upsertFileSummary(localDb, v4FileId);
+    upsertFileSummary(localDb, testFileId);
+    upsertFileSummary(localDb, docsFileId);
+
+    const results = searchFilesByQuery(localDb, "schema validation transform pipeline", 10);
+    const runtimeIndex = results.findIndex((row) => row.path === "packages/zod/src/v3/types.ts");
+    const docsIndex = results.findIndex((row) => row.path === "packages/docs-v3/README_KO.md");
+    const testIndex = results.findIndex((row) => row.path === "packages/zod/src/v4/classic/tests/refine.test.ts");
+
+    expect(runtimeIndex).toBeGreaterThanOrEqual(0);
+    if (docsIndex >= 0) {
+      expect(runtimeIndex).toBeLessThan(docsIndex);
+    }
+    if (testIndex >= 0) {
+      expect(runtimeIndex).toBeLessThan(testIndex);
+    }
+    localDb.close();
+  });
+
   it("normalizes absolute workspace paths before scoring runtime hook queries", () => {
     const localDb = new Database(":memory:");
     localDb.pragma("foreign_keys = ON");

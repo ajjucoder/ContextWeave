@@ -295,6 +295,258 @@ describe("generateCapsule", () => {
     localDb.close();
   });
 
+  it("keeps the canonical hook runner visible when broad hook queries also match noisy generic files", () => {
+    const localDb = new Database(":memory:");
+    localDb.pragma("foreign_keys = ON");
+    createSchema(localDb);
+    const now = Date.now();
+    const files = fileQueries(localDb);
+    const syms = symbolQueries(localDb);
+
+    const hooksFileId = files.insert({
+      path: "lib/hooks.js",
+      hash: "hook-runtime-noisy",
+      lastIndexed: now,
+      mtime: now,
+      language: "javascript",
+      symbolCount: 3,
+      error: null,
+    });
+    syms.insert({
+      fileId: hooksFileId,
+      name: "Hooks",
+      kind: "function",
+      startLine: 1,
+      endLine: 20,
+      signature: "function Hooks() hook lifecycle validation storage",
+      bodyHash: "hook-noisy-0",
+      fullSource: "function Hooks() { this.onSend = []; this.preValidation = []; }",
+      isExported: true,
+      docComment: null,
+      centrality: 10,
+      lastSeen: now,
+    });
+    syms.insert({
+      fileId: hooksFileId,
+      name: "onSendHookRunner",
+      kind: "function",
+      startLine: 21,
+      endLine: 60,
+      signature: "function onSendHookRunner(functions, request, reply, payload, cb) hook lifecycle",
+      bodyHash: "hook-noisy-1",
+      fullSource: "function onSendHookRunner(functions, request, reply, payload, cb) { return cb(null, payload); }",
+      isExported: true,
+      docComment: null,
+      centrality: 8,
+      lastSeen: now,
+    });
+    syms.insert({
+      fileId: hooksFileId,
+      name: "preValidationHookRunner",
+      kind: "function",
+      startLine: 61,
+      endLine: 100,
+      signature: "function preValidationHookRunner(functions, request, reply, cb) validation lifecycle",
+      bodyHash: "hook-noisy-2",
+      fullSource: "function preValidationHookRunner(functions, request, reply, cb) { return cb(null, request); }",
+      isExported: true,
+      docComment: null,
+      centrality: 7,
+      lastSeen: now,
+    });
+
+    const noisyRouteFileId = files.insert({
+      path: "lib/four-oh-four.js",
+      hash: "hook-noisy-route",
+      lastIndexed: now,
+      mtime: now,
+      language: "javascript",
+      symbolCount: 1,
+      error: null,
+    });
+    syms.insert({
+      fileId: noisyRouteFileId,
+      name: "basic404",
+      kind: "function",
+      startLine: 1,
+      endLine: 20,
+      signature: "function basic404(request, reply) hook validation lifecycle fallback",
+      bodyHash: "hook-noisy-route-1",
+      fullSource: "function basic404(request, reply) { return reply; }",
+      isExported: true,
+      docComment: null,
+      centrality: 9,
+      lastSeen: now,
+    });
+
+    const validationFileId = files.insert({
+      path: "lib/validation.js",
+      hash: "hook-noisy-validation",
+      lastIndexed: now,
+      mtime: now,
+      language: "javascript",
+      symbolCount: 1,
+      error: null,
+    });
+    syms.insert({
+      fileId: validationFileId,
+      name: "validate",
+      kind: "function",
+      startLine: 1,
+      endLine: 20,
+      signature: "function validate(request) hook validation lifecycle pipeline",
+      bodyHash: "hook-noisy-validation-1",
+      fullSource: "function validate(request) { return request; }",
+      isExported: true,
+      docComment: null,
+      centrality: 9,
+      lastSeen: now,
+    });
+
+    const readmeFileId = files.insert({
+      path: "README.md",
+      hash: "hook-noisy-readme",
+      lastIndexed: now,
+      mtime: now,
+      language: "markdown",
+      symbolCount: 1,
+      error: null,
+    });
+    syms.insert({
+      fileId: readmeFileId,
+      name: "hook validation lifecycle guide",
+      kind: "variable",
+      startLine: 1,
+      endLine: 20,
+      signature: "hook validation lifecycle guide",
+      bodyHash: "hook-noisy-readme-1",
+      fullSource: "hook validation lifecycle guide",
+      isExported: true,
+      docComment: null,
+      centrality: 1,
+      lastSeen: now,
+    });
+
+    updateCentralityScores(localDb);
+
+    const result = generateCapsule(localDb, {
+      query: "fastify hook validation lifecycle",
+      tokenBudget: 4000,
+      mode: "feature",
+    });
+
+    expect(result.metadata.filesIncluded).toContain("lib/hooks.js");
+    expect(result.content).toContain("onSendHookRunner");
+    localDb.close();
+  });
+
+  it("keeps schema-controller implementation files visible for broad schema pipeline queries", () => {
+    const localDb = new Database(":memory:");
+    localDb.pragma("foreign_keys = ON");
+    createSchema(localDb);
+    const now = Date.now();
+    const files = fileQueries(localDb);
+    const syms = symbolQueries(localDb);
+
+    const validationFileId = files.insert({
+      path: "lib/validation.js",
+      hash: "schema-noisy-validation",
+      lastIndexed: now,
+      mtime: now,
+      language: "javascript",
+      symbolCount: 1,
+      error: null,
+    });
+    syms.insert({
+      fileId: validationFileId,
+      name: "validate",
+      kind: "function",
+      startLine: 1,
+      endLine: 20,
+      signature: "function validate(request, context) request validation pipeline",
+      bodyHash: "schema-noisy-validation-1",
+      fullSource: "function validate(request, context) { return context; }",
+      isExported: true,
+      docComment: null,
+      centrality: 10,
+      lastSeen: now,
+    });
+
+    const routeFileId = files.insert({
+      path: "lib/route.js",
+      hash: "schema-noisy-route",
+      lastIndexed: now,
+      mtime: now,
+      language: "javascript",
+      symbolCount: 1,
+      error: null,
+    });
+    syms.insert({
+      fileId: routeFileId,
+      name: "route",
+      kind: "function",
+      startLine: 1,
+      endLine: 20,
+      signature: "function route(request, validation) request validation pipeline",
+      bodyHash: "schema-noisy-route-1",
+      fullSource: "function route(request, validation) { return validation; }",
+      isExported: true,
+      docComment: null,
+      centrality: 9,
+      lastSeen: now,
+    });
+
+    const schemaControllerFileId = files.insert({
+      path: "lib/schema-controller.js",
+      hash: "schema-controller-runtime",
+      lastIndexed: now,
+      mtime: now,
+      language: "javascript",
+      symbolCount: 2,
+      error: null,
+    });
+    syms.insert({
+      fileId: schemaControllerFileId,
+      name: "buildSchemaController",
+      kind: "function",
+      startLine: 1,
+      endLine: 40,
+      signature: "function buildSchemaController(parentSchemaCtrl, opts) schema controller request validation pipeline",
+      bodyHash: "schema-controller-runtime-1",
+      fullSource: "function buildSchemaController(parentSchemaCtrl, opts) { return opts; }",
+      isExported: true,
+      docComment: null,
+      centrality: 7,
+      lastSeen: now,
+    });
+    syms.insert({
+      fileId: schemaControllerFileId,
+      name: "setValidatorCompiler",
+      kind: "method",
+      startLine: 41,
+      endLine: 80,
+      signature: "setValidatorCompiler(validatorCompiler) schema controller validation",
+      bodyHash: "schema-controller-runtime-2",
+      fullSource: "setValidatorCompiler(validatorCompiler) { return validatorCompiler; }",
+      isExported: false,
+      docComment: null,
+      centrality: 6,
+      lastSeen: now,
+    });
+
+    updateCentralityScores(localDb);
+
+    const result = generateCapsule(localDb, {
+      query: "schema controller request validation pipeline",
+      tokenBudget: 4000,
+      mode: "feature",
+    });
+
+    expect(result.metadata.filesIncluded).toContain("lib/schema-controller.js");
+    expect(result.content).toContain("setValidatorCompiler");
+    localDb.close();
+  });
+
   it("keeps capsule pipeline implementation files ahead of db helper files for broad architecture queries", () => {
     const localDb = new Database(":memory:");
     localDb.pragma("foreign_keys = ON");

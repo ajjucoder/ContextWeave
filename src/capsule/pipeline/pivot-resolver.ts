@@ -327,7 +327,7 @@ export function resolvePivots(context: CapsuleContext): PivotResolution {
     candidateFiles = candidateFiles.filter((candidate) => !isTypeDeclarationPath(candidate.path));
   }
   for (const [index, candidate] of candidateFiles.slice(0, intent === "broad" ? 20 : 16).entries()) {
-    const boost = Math.max(1, 1.38 - index * 0.05);
+    const boost = Math.max(1, (intent === "broad" ? 1.55 : 1.38) - index * 0.05);
     candidateFileBoostById.set(candidate.fileId, boost);
   }
   let candidateFileIds = candidateFiles.length > 0 ? new Set(candidateFiles.map((f) => f.fileId)) : null;
@@ -448,8 +448,8 @@ export function resolvePivots(context: CapsuleContext): PivotResolution {
   }
 
   if (intent !== "narrow" && candidateFiles.length > 0) {
-    const seedFileLimit = intent === "broad" ? 6 : 8;
-    const seedSymbolsPerFile = intent === "broad" ? 2 : 3;
+    const seedFileLimit = intent === "broad" ? 8 : 8;
+    const seedSymbolsPerFile = intent === "broad" ? 3 : 3;
     for (const candidate of candidateFiles.slice(0, seedFileLimit)) {
       if (rawPivotIds.size >= maxStageARaw) break;
       const fileRecord = files.getById(candidate.fileId);
@@ -688,21 +688,23 @@ export function resolvePivots(context: CapsuleContext): PivotResolution {
     pivotScores = adjustedEntries.map(([, score]) => score);
   }
 
+  const injectedSeedIds = new Set<number>();
   if (intent !== "narrow" && candidateFiles.length > 0) {
     const rankedEntries = [...rankedPivots.entries()].sort((a, b) => b[1] - a[1]);
     const topScore = rankedEntries[0]?.[1] ?? 1;
-    const fallbackSeedScore = Math.max(0.75, topScore * 0.32);
-    const maxSeedFiles = intent === "broad" ? 3 : 4;
+    const fallbackSeedScore = Math.max(1.2, topScore * 0.45);
+    const maxSeedFiles = intent === "broad" ? 6 : 4;
     let injected = 0;
     for (const candidate of candidateFiles) {
       if (injected >= maxSeedFiles) break;
       const lower = candidate.path.toLowerCase();
-      if (lower.includes("/test") || lower.includes(".test.")) continue;
+      if (lower.includes("/test") || lower.includes(".test.") || /\.(md|txt|rst|adoc)$/.test(lower)) continue;
       const seedIds = seededPivotIdsByFile.get(candidate.fileId) ?? [];
       const seedId = seedIds.find((id) => !rankedPivots.has(id));
       if (seedId === undefined) continue;
       const boost = candidateFileBoostById.get(candidate.fileId) ?? 1;
-      rankedPivots.set(seedId, fallbackSeedScore * Math.min(boost, 1.35));
+      rankedPivots.set(seedId, fallbackSeedScore * Math.max(boost, 1.15));
+      injectedSeedIds.add(seedId);
       injected += 1;
     }
     pivotScores = [...rankedPivots.values()].sort((a, b) => b - a);
@@ -726,8 +728,8 @@ export function resolvePivots(context: CapsuleContext): PivotResolution {
     const pivotFloor = topScore * (intent === "broad" ? 0.22 : 0.18);
     const guaranteedPivots = intent === "broad" ? 4 : 5;
     const maxPrimaryPivots = intent === "broad" ? 12 : 14;
-    const filteredEntries = rankedEntries.filter(([, score], index) =>
-      index < guaranteedPivots || (index < maxPrimaryPivots && score >= pivotFloor)
+    const filteredEntries = rankedEntries.filter(([id, score], index) =>
+      index < guaranteedPivots || injectedSeedIds.has(id) || (index < maxPrimaryPivots && score >= pivotFloor)
     );
     rankedPivots = new Map(filteredEntries);
     pivotScores = filteredEntries.map(([, score]) => score);
